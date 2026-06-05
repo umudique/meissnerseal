@@ -176,7 +176,6 @@ mod proofs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subtle::ConstantTimeEq;
 
     #[test]
     fn const_len_matches_type() {

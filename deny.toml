@@ -5,10 +5,11 @@ all-features = false
 no-default-features = false
 
 # ─── Licenses ────────────────────────────────────────────────────────────────
+# Version 2 schema: licenses not in the allow list are denied by default.
+# Separate deny/copyleft/default fields removed in cargo-deny v0.14+ (PR #611).
 [licenses]
 version = 2
 
-# Explicitly allowed licenses
 allow = [
     "MIT",
     "Apache-2.0",
@@ -22,48 +23,29 @@ allow = [
     "Zlib",
     "OpenSSL",
 ]
-
-# Deny copyleft licenses — downstream and enterprise compatibility
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "LGPL-2.0",
-    "LGPL-2.1",
-    "LGPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-    "BUSL-1.1",
-]
+confidence-threshold = 0.8
 
 # libfuzzer-sys uses NCSA (Illinois Open Source License ≈ BSD-3-Clause)
 exceptions = [
     { allow = ["NCSA"], name = "libfuzzer-sys" },
 ]
 
-copyleft = "warn"
-allow-osi-fsf-free = "neither"
-default = "deny"
-confidence-threshold = 0.8
-
 # ─── Advisories ──────────────────────────────────────────────────────────────
+# Version 2 schema: vulnerability/notice fields removed (PR #611).
+# unmaintained/unsound now take scope values: all/workspace/transitive/none.
+# Vulnerabilities are always fatal when present — no configuration needed.
 [advisories]
 version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/RustSec/advisory-db"]
 
-# Active CVEs are always a build failure
-vulnerability = "deny"
-
-# Unmaintained dependencies: check all — not always immediately actionable
+# Check all crates (workspace + transitive) for unmaintained and unsound
 unmaintained = "all"
-
-# Unsound (UB-causing) crates: check all — block on these
 unsound = "all"
 
-# Yanked versions: deny
+# Yanked versions: deny — pulls in known-broken releases
 yanked = "deny"
 
-notice = "warn"
 ignore = []
 
 # ─── Bans ────────────────────────────────────────────────────────────────────
