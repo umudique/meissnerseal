@@ -55,6 +55,9 @@ clap = { version = "4", features = ["derive"] }
 unsafe_code = "warn"
 # Prevent unused code from silently accumulating
 dead_code = "warn"
+# Declare expected cfg flags for formal verification tools
+# kani: bounded model checking (cargo kani), prusti: Hoare triple proofs
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(prusti)'] }
 
 [workspace.lints.clippy]
 # ── Security-critical lints ──
