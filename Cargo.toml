@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/arcanum-core",
+    "crates/arcanum-crypto",
+    "crates/arcanum-pqc",
+    "crates/arcanum-ffi",
+    "crates/arcanum-security",
+    "crates/arcanum-cli",
+    "crates/arcanum-sync-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Arcanum Contributors"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/placeholder/arcanum"
+
+[workspace.dependencies]
+# Cryptography
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = { version = "0.8", features = ["getrandom"] }
+zeroize = { version = "1.7", features = ["derive"] }
+subtle = "2.5"
+bech32 = "0.11"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Async (sync server)
+tokio = { version = "1", features = ["full"] }
+
+# UUID / IDs
+uuid = { version = "1", features = ["v4"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+strip = "symbols"
+lto = true
+
+[profile.dev]
+opt-level = 0
+debug = true

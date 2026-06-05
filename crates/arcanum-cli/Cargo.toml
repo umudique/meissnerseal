@@ -1,0 +1,17 @@
+[package]
+name = "arcanum-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "arcanum"
+path = "src/main.rs"
+
+[dependencies]
+arcanum-core = { path = "../arcanum-core" }
+arcanum-security = { path = "../arcanum-security" }
+clap.workspace = true
+anyhow.workspace = true
+zeroize.workspace = true
