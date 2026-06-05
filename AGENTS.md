@@ -1,0 +1,249 @@
+# Arcanum — Agent Reference
+
+**Read this file first. Every agent reads this before anything else.**
+
+---
+
+## 1. Project
+
+Arcanum is a local-first critical secrets vault with hybrid post-quantum-ready
+transfer. It stores seed phrases, SSH keys, API tokens, and other secrets that
+are difficult or impossible to rotate. A bug in Arcanum can cause permanent,
+unrecoverable data loss or secret exposure.
+
+There is no experienced security engineer reviewing every line in real time.
+The protocols and tools in this file are the substitute.
+
+---
+
+## 2. Crate Map
+
+```
+arcanum-crypto/       Cryptographic primitives only.
+                      Argon2id, XChaCha20-Poly1305, HKDF, RNG.
+                      No application logic.
+
+arcanum-pqc/          Post-quantum primitives only.
+                      ML-KEM-768, ML-DSA, hybrid key derivation.
+                      No application logic.
+
+arcanum-security/     Secret lifecycle enforcement.
+                      Zeroization, redaction, hardware adapter,
+                      session policy, audit guard.
+
+arcanum-core/         Vault engine, item store, transfer protocol,
+                      sync protocol, device manager, recovery manager.
+                      Calls arcanum-crypto and arcanum-pqc.
+                      Never implements crypto directly.
+
+arcanum-ffi/          FFI boundary to Flutter/Dart.
+                      Handle-and-lease model only.
+                      Exposes VaultSessionHandle, SecretViewHandle.
+
+arcanum-cli/          Developer CLI binary (arcanum).
+                      No plaintext secrets in argv.
+                      Secret input via stdin, prompt, or file descriptor.
+
+arcanum-sync-server/  Encrypted blob relay.
+                      Zero plaintext access.
+                      Device-signed request authentication.
+
+fuzz/                 cargo-fuzz targets. Workspace root.
+                      One target per parser.
+
+specs/                Protocol and cryptographic specifications.
+                      Source of truth for all cryptographic behavior.
+
+docs/                 Architecture, ADRs, agent prompts, ops.
+
+test-vectors/         Known-answer test vectors.
+                      Must be cross-verified with independent implementation.
+```
+
+---
+
+## 3. Mandatory Algorithm
+
+Every agent that writes or modifies code follows this sequence.
+No step may be skipped. See full detail in:
+`docs/security/security_engineering_protocol.md`
+
+```
+1. Read this file (AGENTS.md)
+2. Read role prompt (docs/agents/AGENT_PROMPT_TEMPLATE.md)
+3. Read CONTRACT.md of every crate being modified
+4. Read relevant spec files
+5. Write precondition / postcondition / invariant
+6. Write test first (test vector / property test / fuzz target)
+7. Write implementation
+8. Run static tools (see Section 5)
+9. Verify completion criteria
+```
+
+---
+
+## 4. Absolute Security Invariants
+
+These rules have no exceptions. Any code that violates them must not be committed.
+
+```
+CRYPTO
+  [ ] No custom cryptographic primitives
+  [ ] No custom RNG — OS CSPRNG only
+  [ ] No unauthenticated encryption
+  [ ] All AEAD operations use canonical AAD construction
+  [ ] No caller-supplied nonces outside test modules
+  [ ] No == comparison on secret values — use subtle::ConstantTimeEq
+
+MEMORY
+  [ ] All secret types implement Zeroize + ZeroizeOnDrop
+  [ ] All secret types have redacted Debug implementation
+  [ ] No plaintext secrets in log output at any level
+  [ ] No plaintext secrets in error messages
+  [ ] No plaintext secrets in test fixtures or test output
+  [ ] No long-lived plaintext in Flutter/Dart widget state
+
+PARSER
+  [ ] Every parser fails closed — no partial output on malformed input
+  [ ] Every parser has a fuzz target
+  [ ] Unknown critical fields are rejected, not ignored
+
+PROTOCOL
+  [ ] Algorithm identifiers are authenticated in every protocol
+  [ ] Downgrade attempts are rejected before any decryption
+  [ ] Expired envelopes are rejected
+  [ ] Replay protection is enforced
+
+UNSAFE RUST
+  [ ] Every unsafe block has a // SAFETY: comment explaining why it is sound
+  [ ] No unsafe in arcanum-crypto or arcanum-pqc without maintainer review
+  [ ] cargo geiger output is reviewed on every unsafe addition
+
+SCOPE
+  [ ] Agents work only within their assigned crate boundaries
+  [ ] Agents do not modify specs/ or docs/ unless their role permits
+  [ ] Agents do not modify another crate's CONTRACT.md
+```
+
+---
+
+## 5. Static Tool Invocation
+
+Run these commands in order after every code change.
+All must pass before the task is complete.
+
+```bash
+# Format
+cargo fmt --all
+
+# Type check
+cargo check --workspace --all-targets
+
+# Lint — warnings are failures
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Tests
+cargo test --workspace
+
+# Dependency security
+cargo audit
+```
+
+Additional tools for cryptographic crates (arcanum-crypto, arcanum-pqc,
+arcanum-security, arcanum-ffi):
+
+```bash
+# Undefined behavior detection
+cargo +nightly miri test -p <crate-name>
+```
+
+---
+
+## 6. Forbidden Actions
+
+```
+NEVER write a cryptographic primitive from scratch
+NEVER use a custom RNG implementation
+NEVER log, print, or write a secret value at any level
+NEVER return partial plaintext on decryption failure — return Err
+NEVER skip the test-first step for cryptographic or parser code
+NEVER modify a crate outside your assigned scope
+NEVER commit code that fails cargo clippy -- -D warnings
+NEVER commit code that fails cargo audit
+NEVER use == to compare secret values
+NEVER derive Debug on a type that holds secret material
+NEVER place plaintext secrets in route arguments, global state, or analytics
+```
+
+---
+
+## 7. Vocabulary
+
+```
+Profile ID        Numeric identifier for a cryptographic algorithm version.
+                  Example: AEAD_XCHACHA20_POLY1305_V1 = 0x0001
+
+Vault Root Key    Master symmetric key derived from master password.
+                  Never stored in plaintext. Wrapped by VKEK.
+
+Record Encryption Key (REK)
+                  Fresh random key per encrypted record revision.
+                  Never reused across revisions.
+
+Transcript hash   SHA-256 hash over all protocol parameters.
+                  Prevents downgrade and algorithm substitution attacks.
+
+Fail closed       Returning Err without producing any partial result
+                  when a security check fails.
+
+Handle-and-lease  FFI pattern: Dart stores opaque handle, not plaintext.
+                  Rust manages secret memory. Lease expires after TTL.
+
+Version vector    Map<DeviceId, Counter> for concurrent edit detection.
+
+Tombstone         Encrypted delete marker. Replaces deleted records.
+
+Contract          CONTRACT.md file in each crate. Defines public API,
+                  guarantees, anti-guarantees, and preconditions.
+```
+
+---
+
+## 8. Spec Authority
+
+When implementation and spec conflict, the spec is correct.
+Fix the implementation to match the spec.
+If the spec is wrong, open an ADR — do not silently diverge.
+
+```
+specs/crypto/crypto_design.md          → all cryptographic operations
+specs/protocol/vault_format_v1.md      → vault binary format
+specs/protocol/transfer_profile_v1.md  → transfer protocol
+specs/protocol/sync_profile_v1.md      → sync protocol
+specs/protocol/recovery_kit_v1.md      → recovery encoding
+specs/security/threat_model.md         → adversary model
+specs/security/security_assurance.md   → control matrix, claims
+docs/adr/                              → architecture decisions
+```
+
+---
+
+## 9. Role Directory
+
+Full prompts are in `docs/agents/AGENT_PROMPT_TEMPLATE.md`.
+
+```
+Crypto Agent          arcanum-crypto only
+PQC Agent             arcanum-pqc only
+Core Agent            arcanum-core only
+Security Agent        arcanum-security only
+FFI Agent             arcanum-ffi only
+CLI Agent             arcanum-cli only
+Sync Server Agent     arcanum-sync-server only
+Fuzz Agent            fuzz/fuzz_targets/ only
+Test Vector Agent     test-vectors/ only
+Spec Agent            specs/ and docs/ only — no code
+Architect Agent       docs/ and specs/ only — decisions
+Security Review Agent read-only evaluator — no writes
+Consistency Agent     read-only consistency checker — no writes
+```
