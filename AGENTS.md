@@ -402,7 +402,49 @@ No task is complete without a completion report.
 
 ---
 
-## 14. Tool Failure Protocol
+## 14. Commit Protocol
+
+Every agent commit must follow `docs/development/git_workflow.md` exactly.
+Key rules summarized here:
+
+```
+TYPE PREFIXES
+  feat:     new capability or module
+  fix:      bug correction
+  docs:     documentation, specs, ADRs, CONTRACT.md
+  test:     test additions with no production code change
+  ci:       CI/CD and hook changes
+  chore:    toolchain, scaffolding, dependency updates
+  security: closes a security finding or removes a forbidden pattern
+
+SUBJECT LINE
+  [ ] Starts with type prefix and colon (feat:, fix:, docs:, etc.)
+  [ ] Imperative mood — "add", "fix", "remove", not "added", "fixes"
+  [ ] No capital letter after the colon
+  [ ] No period at the end
+  [ ] 50 chars ideal, 72 chars hard limit
+  [ ] No "complete", "finish", "done", "WIP", "various changes"
+
+BODY
+  [ ] Blank line between subject and body
+  [ ] Explains WHY the change was made, not WHAT the code does
+  [ ] References the relevant spec file or ADR
+  [ ] Lines wrapped at 72 characters
+
+FOOTER (optional)
+  [ ] Closes/Fixes/Refs #N if applicable
+  [ ] BREAKING CHANGE: <description> if stable API changes
+
+SECURITY
+  [ ] No real secret values anywhere in the commit message or test fixtures
+  [ ] No real private keys, vault files, or credentials
+```
+
+A commit that fails any of the above must be amended before pushing.
+
+---
+
+## 15. Tool Failure Protocol
 
 When a static tool fails, follow this protocol exactly.
 
