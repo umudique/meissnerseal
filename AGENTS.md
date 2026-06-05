@@ -22,31 +22,38 @@ The protocols and tools in this file are the substitute.
 arcanum-crypto/       Cryptographic primitives only.
                       Argon2id, XChaCha20-Poly1305, HKDF, RNG.
                       No application logic.
+                      API Status: Unstable
 
 arcanum-pqc/          Post-quantum primitives only.
                       ML-KEM-768, ML-DSA, hybrid key derivation.
                       No application logic.
+                      API Status: Unstable
 
 arcanum-security/     Secret lifecycle enforcement.
                       Zeroization, redaction, hardware adapter,
                       session policy, audit guard.
+                      API Status: Unstable
 
 arcanum-core/         Vault engine, item store, transfer protocol,
                       sync protocol, device manager, recovery manager.
                       Calls arcanum-crypto and arcanum-pqc.
                       Never implements crypto directly.
+                      API Status: Unstable
 
 arcanum-ffi/          FFI boundary to Flutter/Dart.
                       Handle-and-lease model only.
                       Exposes VaultSessionHandle, SecretViewHandle.
+                      API Status: Unstable
 
 arcanum-cli/          Developer CLI binary (arcanum).
                       No plaintext secrets in argv.
                       Secret input via stdin, prompt, or file descriptor.
+                      API Status: Unstable
 
 arcanum-sync-server/  Encrypted blob relay.
                       Zero plaintext access.
                       Device-signed request authentication.
+                      API Status: Unstable
 
 fuzz/                 cargo-fuzz targets. Workspace root.
                       One target per parser.
@@ -59,6 +66,11 @@ docs/                 Architecture, ADRs, agent prompts, ops.
 test-vectors/         Known-answer test vectors.
                       Must be cross-verified with independent implementation.
 ```
+
+**API Status values:** `Unstable` | `Stable` | `Deprecated`
+
+A crate's API Status is in its CONTRACT.md header. A dependent crate must not
+begin implementation until all its dependencies have `API Status: Stable`.
 
 ---
 
@@ -73,11 +85,14 @@ No step may be skipped. See full detail in:
 2. Read role prompt (docs/agents/AGENT_PROMPT_TEMPLATE.md)
 3. Read CONTRACT.md of every crate being modified
 4. Read relevant spec files
-5. Write precondition / postcondition / invariant
-6. Write test first (test vector / property test / fuzz target)
-7. Write implementation
-8. Run static tools (see Section 5)
-9. Verify completion criteria
+5. Declare scope (Section 10)
+6. Check dependency gate (Section 11)
+7. Write precondition / postcondition / invariant
+8. Write test first — Phase 1 (Section 12)
+9. [Human reviews Phase 1 — for Crypto and Core agents]
+10. Write implementation — Phase 2
+11. Run static tools (Section 5)
+12. Write completion report (Section 13)
 ```
 
 ---
@@ -173,6 +188,8 @@ NEVER commit code that fails cargo audit
 NEVER use == to compare secret values
 NEVER derive Debug on a type that holds secret material
 NEVER place plaintext secrets in route arguments, global state, or analytics
+NEVER change a dependency version without human approval
+NEVER begin implementation on a crate before its dependencies are Stable
 ```
 
 ---
@@ -205,6 +222,15 @@ Tombstone         Encrypted delete marker. Replaces deleted records.
 
 Contract          CONTRACT.md file in each crate. Defines public API,
                   guarantees, anti-guarantees, and preconditions.
+
+API Status        Stability marker in CONTRACT.md header.
+                  Unstable: API may change. Stable: API is committed.
+                  Deprecated: do not add new dependencies on this API.
+
+Phase 1           Test-only phase: preconditions + tests, no implementation.
+                  Human reviews before Phase 2 begins.
+
+Phase 2           Implementation phase: writes code to pass Phase 1 tests.
 ```
 
 ---
@@ -246,4 +272,174 @@ Spec Agent            specs/ and docs/ only — no code
 Architect Agent       docs/ and specs/ only — decisions
 Security Review Agent read-only evaluator — no writes
 Consistency Agent     read-only consistency checker — no writes
+```
+
+---
+
+## 10. Scope Declaration
+
+Before writing any code, the agent declares its scope in the completion report.
+This declaration is verified against `git diff` when the task ends.
+
+```
+SCOPE DECLARATION
+  Will modify:    crates/arcanum-crypto/src/aead.rs
+                  crates/arcanum-crypto/src/lib.rs
+  Will read:      specs/crypto/crypto_design.md
+                  crates/arcanum-crypto/CONTRACT.md
+  Will NOT touch: crates/arcanum-core/**
+                  specs/**
+                  docs/**
+```
+
+If a file outside the declaration is modified, human approval is required
+before committing. Scope violations are not self-authorized.
+
+---
+
+## 11. Dependency Gate
+
+A crate must not begin implementation until all its dependencies
+have `API Status: Stable` in their CONTRACT.md.
+
+```
+Dependency order:
+
+  arcanum-crypto    must be Stable before:
+                      arcanum-pqc, arcanum-security start
+
+  arcanum-pqc       must be Stable before:
+                      arcanum-core starts (transfer module)
+
+  arcanum-security  must be Stable before:
+                      arcanum-core, arcanum-ffi start
+
+  arcanum-core      must be Stable before:
+                      arcanum-ffi, arcanum-cli, arcanum-sync-server start
+```
+
+To mark a crate Stable, update its CONTRACT.md header:
+```
+**API Status:** Stable
+```
+This requires human approval.
+
+---
+
+## 12. Phase Gate
+
+Applies to: Crypto Agent, PQC Agent, Core Agent, Security Agent.
+Other agents may use a single phase.
+
+**Phase 1 — Test and Precondition only**
+
+The agent writes only:
+- `/// # Contract` block (precondition / postcondition / invariant)
+- Test vector reference or test vector file entry
+- `proptest` property test (rule, not example)
+- Fuzz target skeleton (if the task involves a parser)
+
+Run: `cargo test --workspace` — tests must compile, may fail.
+Do not write implementation code in Phase 1.
+
+Human reviews Phase 1 output → approves or requests revision.
+Implementation does not begin until Phase 1 is approved.
+
+**Phase 2 — Implementation**
+
+After Phase 1 approval, the agent writes the implementation.
+All tests written in Phase 1 must pass.
+Run all static tools (Section 5).
+Write completion report (Section 13).
+
+---
+
+## 13. Completion Report
+
+Every agent produces this report at the end of every task.
+No task is complete without a completion report.
+
+```markdown
+## Completion Report
+
+**Role:** [agent role]
+**Task:** [task description]
+
+**Scope Declaration (actual):**
+- Modified: [list of files actually modified]
+- Read: [list of files read]
+
+**Phase 1 output:** [test / property / fuzz skeleton — or N/A]
+**Phase 1 approved by:** [human name or "N/A"]
+
+**Tests written:**
+- [test name]: [what it tests]
+
+**Tool results:**
+- cargo fmt:    [PASS / FAIL]
+- cargo check:  [PASS / FAIL]
+- cargo clippy: [PASS (N warnings) / FAIL]
+- cargo test:   [PASS (N tests) / FAIL]
+- cargo audit:  [PASS / FAIL]
+- Miri:         [PASS / FAIL / N/A]
+
+**CONTRACT.md changes:** [None / describe changes]
+**Spec deviations:** [None / describe and open ADR]
+**Open questions:** [None / list]
+```
+
+---
+
+## 14. Tool Failure Protocol
+
+When a static tool fails, follow this protocol exactly.
+
+**`cargo check` fails:**
+```
+1. Diagnose the compile error.
+2. Fix and re-run.
+3. If the error originates from a spec violation, escalate to Architect Agent.
+4. After 2 failed fix attempts, report task failure to human.
+   Do not proceed with broken compilation.
+```
+
+**`cargo clippy -D warnings` fails:**
+```
+1. Fix all warnings.
+2. If using #[allow(...)], add // REASON: comment explaining why.
+3. If a lint appears to be a false positive, do NOT self-approve.
+   Add to the open questions section of the completion report.
+   Human decides whether to add a workspace-level exception.
+```
+
+**`cargo audit` fails:**
+```
+If the output contains a vulnerability:
+  → STOP. Do not commit.
+  → Report to human immediately.
+  → Agent cannot change dependency versions unilaterally.
+  → Human decides: update, replace, or accept with documented justification.
+
+If the output contains an "unmaintained" warning:
+  → Log in completion report open questions.
+  → Does not block the task.
+```
+
+**`cargo +nightly miri test` fails:**
+```
+→ CRITICAL BLOCKER.
+→ Record the exact location of the undefined behavior.
+→ Do not proceed with implementation.
+→ Human treats this at CVE severity.
+→ No further commits to the affected crate until resolved.
+```
+
+**`cargo fuzz run` produces a crash:**
+```
+→ RELEASE BLOCKER.
+→ The crash artifact is saved to fuzz/artifacts/<target>/.
+→ Do not delete crash artifacts.
+→ No further changes to the affected parser until the crash is reproduced
+  and a fix is confirmed by running the fuzz target again without crash.
+→ Report to human immediately.
 ```

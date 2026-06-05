@@ -1,6 +1,7 @@
 # Contract: arcanum-security
 
-**Version:** 0.1.0  
+**Version:** 0.1.0
+**API Status:** Unstable  
 **Spec authority:** specs/security/security_assurance.md  
 **ADRs:** ADR-004 (handle-and-lease FFI), ADR-014 (noise hierarchy)
 

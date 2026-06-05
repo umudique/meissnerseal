@@ -1,6 +1,7 @@
 # Contract: arcanum-crypto
 
-**Version:** 0.1.0  
+**Version:** 0.1.0
+**API Status:** Unstable  
 **Spec authority:** specs/crypto/crypto_design.md  
 **ADRs:** ADR-011 (RustCrypto), ADR-013 (OS CSPRNG), ADR-014 (noise hierarchy)
 

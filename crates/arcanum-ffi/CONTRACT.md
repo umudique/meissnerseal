@@ -1,6 +1,7 @@
 # Contract: arcanum-ffi
 
-**Version:** 0.1.0  
+**Version:** 0.1.0
+**API Status:** Unstable  
 **Spec authority:** specs/crypto/crypto_design.md §3 (FFI section)  
 **ADRs:** ADR-004 (handle-and-lease FFI)
 

@@ -1,6 +1,7 @@
 # Contract: arcanum-sync-server
 
-**Version:** 0.1.0  
+**Version:** 0.1.0
+**API Status:** Unstable  
 **Spec authority:** specs/protocol/sync_profile_v1.md  
 **ADRs:** ADR-002 (version vectors), ADR-010 (unrecoverable by default)
 
