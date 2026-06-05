@@ -161,19 +161,37 @@ Developer Commit
 
 ---
 
-## 7. Side-Channel Scope
+## 7. Side-Channel Protection Hierarchy
 
-### In Scope
-- Timing leakage awareness in crypto-boundary code
-- Constant-time helper APIs
-- Avoiding secret-dependent branching and memory access
-- Reviewing PQC backend side-channel claims
-- Future dudect-style timing tests
+Side-channel protection is organized in three layers. See ADR-014 for the
+full rationale. Noise-based approaches (Layer 3) do not provide mathematical
+guarantees — statistical averaging removes noise given enough measurements.
+
+### Layer 1 — Primary (mandatory for arcanum-crypto and arcanum-pqc)
+
+- Constant-time implementation using `subtle` crate
+- No secret-dependent branches or memory accesses
+- Verification: Miri (UB detection, every change), dudect (timing leakage, Beta)
+- BINSEC/checkct binary-level verification (Beta)
+
+### Layer 2 — Secondary (where applicable)
+
+- Algorithmic masking: randomize inputs before cryptographic operations
+- Point blinding for ECC operations
+- Provides defense even against attackers with many measurements
+
+### Layer 3 — Tertiary (defense-in-depth, documented limitations)
+
+- Noise and dummy operations may supplement Layers 1 and 2
+- Limitations must be documented: statistical averaging removes noise over N measurements
+- Must not interfere with Layer 1 constant-time properties
+- Must not be described as a security guarantee in product communications
 
 ### Out of Scope (MVP)
-- Power analysis resistance
-- Electromagnetic leakage resistance
-- Fault injection resistance
-- Speculative execution attack resistance
+
+- Power analysis (SPA/DPA)
+- Electromagnetic leakage
+- Fault injection
+- Speculative execution attacks (Spectre/Meltdown)
 - Cache side-channel across hostile co-tenant workloads
 - Hardware implant resistance
