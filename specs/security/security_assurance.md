@@ -33,28 +33,33 @@ Every high-risk security claim maps to:
 | AEAD with AAD binding | Tampering, wrong-context | Crypto Provider | Test vectors, negative tests | MVP-0 | Crypto vectors |
 | Unique nonce + fresh record key | AEAD misuse, nonce reuse | Crypto Provider | Property tests, vectors | MVP-0 | Nonce policy tests |
 | Argon2id KDF + TLV encoding | Offline vault theft | Crypto Provider | KDF vectors, TLV round-trip | MVP-0 | `vault_kdf_v1.json` |
-| HKDF domain separation | Key confusion | Key Manager | Info-string registry tests | MVP-0 | HKDF registry |
+| MUK→VKEK→VRK wrapping chain | Key derivation error, wrap/unwrap failure | Key Manager, Crypto Provider | Key hierarchy vectors, wrap/unwrap round-trip | MVP-0 | `vault_kdf_v1.json` |
+| HKDF info string encoding | Cross-platform key mismatch, domain confusion | Key Manager | Deterministic info string tests; cross-platform round-trip | MVP-0 | HKDF registry, test vectors |
+| HKDF domain separation | Key confusion, cross-context reuse | Key Manager | Info-string registry tests | MVP-0 | HKDF registry |
 | Recovery kit encoding | Transcription errors | Recovery Manager | Bech32m tests, vectors | MVP-1 | `recovery_kit_v1.md` |
+| Recovery kit theft mitigation | Physical adversary | Recovery Manager, UX | UX warning review, passphrase option tests | MVP-1 | Recovery kit spec |
+| Export bundle encryption | `.arcexp` theft from disk | CLI, Vault Engine | Export/import vectors, passphrase derivation tests | MVP-0/1 | `.arcexp` format spec |
 | Transfer transcript binding | MITM, downgrade | Transfer Protocol | Vectors, ProVerif model | MVP-2 | Transfer spec |
 | X25519 + ML-KEM hybrid | Harvest-now attack | PQC Provider | Vectors, protocol review | MVP-2 | Hybrid profile doc |
-| Relay TTL + payload policy | Relay abuse | Relay Service | API tests, rate-limit tests | MVP-2/5 | Relay threat model |
+| Relay TTL + payload policy | Relay abuse, metadata overexposure | Relay Service | API tests, rate-limit tests | MVP-2/5 | Relay threat model |
 | Replay protection | Network replay | Transfer Protocol | Negative tests | MVP-2 | Replay tests |
 | Algorithm ID authentication | Downgrade attacks | Crypto/PQC boundary | Negative tests | MVP-2 | Downgrade test report |
-| Device pairing verification | MITM during enrollment | Device Manager | Pairing transcript tests | MVP-2/Beta | Pairing spec |
-| Device revocation propagation | Continued revoked access | Device Manager, Sync | Integration tests | MVP-3/Beta | Revocation tests |
+| Device pairing OOB verification | Pairing MITM without OOB check | Device Manager | TOFU label tests, Tamarin model | MVP-2/Beta | Pairing spec |
+| Device signing key invariant | Approved device without signing key | Device Manager | Invariant rejection test (trust_state=Approved, signing_key=None) | MVP-2 | Pairing spec |
+| Device revocation propagation | Compromised trusted device | Device Manager, Sync | Integration tests, TLA+/Tamarin | MVP-3/Beta | Revocation tests |
 | Sync version vectors | Lost concurrent updates | Sync Protocol | TLA+ model, property tests | MVP-3 | Sync conflict model |
 | Version-vector pruning | Unbounded vector growth | Sync Protocol | TLA+ compaction model | MVP-3 | Pruning spec |
-| Device-signed sync API | Unauthorized commits | Sync Server, Device Manager | Canonical request tests | MVP-3 | Sync auth spec |
+| Device-signed sync API | Unauthorized sync commits | Sync Server, Device Manager | Canonical request tests | MVP-3 | Sync auth spec |
 | Sync envelope encryption | Server compromise | Sync Protocol | Vectors, parser fuzzing | MVP-3 | Sync spec |
-| Metadata minimization | Server metadata leakage | Sync Server | Contract tests, data inventory | MVP-3 | Metadata inventory |
-| Parser fuzzing | Malformed input | Parsers | cargo-fuzz/AFL++ | MVP-0+ | Fuzz corpus/report |
-| Native messaging validation | Browser-to-native abuse | Native Host | Schema tests, fuzzing | MVP-4 | NM protocol tests |
+| Metadata minimization | Insider admin, server metadata leakage | Sync Server | Contract tests, data inventory | MVP-3 | Metadata inventory |
+| Timing side-channel awareness | Local malware, timing oracle | Crypto boundary | Constant-time review checklist; dudect-style tests (Beta) | MVP-0/Beta | Side-channel checklist |
+| Browser extension isolation | Malicious extension | Native Host | Extension ID allowlist tests, schema fuzzing | MVP-4 | NM protocol tests |
+| Parser fuzzing | Malformed input exploitation | Parsers | cargo-fuzz/AFL++ | MVP-0+ | Fuzz corpus/report |
 | CLI shell-history protections | Secret leakage via argv | CLI | Unsafe argv rejection tests | MVP-0 | CLI safety spec |
-| Encrypted .arcexp export | Plaintext backup leakage | CLI, Vault Engine | Export/import vectors | MVP-0/1 | `.arcexp` format spec |
-| Static dependency audit | Supply-chain | CI/Release | cargo-audit/deny | MVP-0 | CI report |
+| Static dependency audit | Supply-chain compromise | CI/Release | cargo-audit/deny | MVP-0 | CI report |
 | Signed releases | Release tampering | Release engineering | Signature verification | Beta | Release checklist |
 | SBOM | Dependency visibility | Release engineering | SBOM generation | Beta | SBOM file |
-| Formal protocol model | Protocol design errors | Security architecture | ProVerif/TLA+/Tamarin | MVP-2/3/Beta | Model files |
+| Formal protocol model | Protocol design errors | Security architecture | ProVerif/TLA+/Tamarin by phase | MVP-2/3/Beta | Model files |
 
 ---
 
