@@ -102,15 +102,16 @@ No step may be skipped. See full detail in:
 These rules have no exceptions. Any code that violates them must not be committed.
 
 ```
-CRYPTO
+CRYPTO (see also: docs/security/standards_conformance.md — CNSA 2.0 §2)
   [ ] No custom cryptographic primitives
-  [ ] No custom RNG — OS CSPRNG only
+  [ ] No custom RNG — OS CSPRNG only (ADR-013; SP 800-90B delegated to OS)
   [ ] No unauthenticated encryption
   [ ] All AEAD operations use canonical AAD construction
   [ ] No caller-supplied nonces outside test modules
   [ ] No == comparison on secret values — use subtle::ConstantTimeEq
   [ ] Fixed-length crypto values use Key<N> types, never raw [u8;N] or Vec<u8>
   [ ] Every security-critical fn in arcanum-crypto has a #[cfg(kani)] harness
+  [ ] New algorithm selections checked against CNSA 2.0 mapping table before adoption
 
 MATHEMATICAL VERIFICATION (see ADR-015, docs/development/mathematical_verification.md)
   [ ] Level 1: Key<const N: usize> encodes length at compile time

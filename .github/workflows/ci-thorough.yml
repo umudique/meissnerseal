@@ -119,6 +119,39 @@ jobs:
       - name: Kani — arcanum-crypto type proofs
         run: cargo kani --package arcanum-crypto
 
+  # ─── SLSA Provenance Attestation ──────────────────────────────────────────
+  # Generates signed build provenance for SLSA Level 2.
+  # Records: source commit, builder identity, artifact digest.
+  # Verifiable with: gh attestation verify <artifact>
+  # Active on PRs targeting main and manual triggers only (not nightly schedule,
+  # which does not produce release artifacts).
+  provenance:
+    name: SLSA Provenance
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      id-token: write      # required for OIDC token (provenance signing)
+      contents: read
+      attestations: write  # required to upload the attestation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: provenance
+      - name: Build workspace (release)
+        run: cargo build --workspace --release
+      - name: Collect artifacts
+        run: |
+          mkdir -p provenance-artifacts
+          find target/release -maxdepth 1 -type f -executable \
+            -not -name '*.d' \
+            -exec cp {} provenance-artifacts/ \;
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: provenance-artifacts/*
+
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review.
   # Will warn until vet audits are configured.
