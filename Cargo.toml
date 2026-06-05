@@ -18,6 +18,14 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/placeholder/arcanum"
 
 [workspace.dependencies]
+# Internal workspace crates — versioned to satisfy cargo-deny wildcard check
+arcanum-crypto      = { path = "crates/arcanum-crypto",      version = "0.1.0" }
+arcanum-pqc         = { path = "crates/arcanum-pqc",         version = "0.1.0" }
+arcanum-security    = { path = "crates/arcanum-security",    version = "0.1.0" }
+arcanum-core        = { path = "crates/arcanum-core",        version = "0.1.0" }
+arcanum-ffi         = { path = "crates/arcanum-ffi",         version = "0.1.0" }
+arcanum-sync-server = { path = "crates/arcanum-sync-server", version = "0.1.0" }
+
 # Cryptography
 argon2 = "0.5"
 chacha20poly1305 = "0.10"

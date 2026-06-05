@@ -9,6 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-arcanum-crypto = { path = "../arcanum-crypto" }
+arcanum-crypto.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true

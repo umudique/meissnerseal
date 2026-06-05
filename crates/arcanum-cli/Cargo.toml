@@ -13,8 +13,8 @@ name = "arcanum"
 path = "src/main.rs"
 
 [dependencies]
-arcanum-core = { path = "../arcanum-core" }
-arcanum-security = { path = "../arcanum-security" }
+arcanum-core.workspace = true
+arcanum-security.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 zeroize.workspace = true
