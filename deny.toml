@@ -54,11 +54,11 @@ db-urls = ["https://github.com/RustSec/advisory-db"]
 # Active CVEs are always a build failure
 vulnerability = "deny"
 
-# Unmaintained dependencies: warn — not always actionable immediately
-unmaintained = "warn"
+# Unmaintained dependencies: check all — not always immediately actionable
+unmaintained = "all"
 
-# Unsound (UB-causing) crates: always deny
-unsound = "deny"
+# Unsound (UB-causing) crates: check all — block on these
+unsound = "all"
 
 # Yanked versions: deny
 yanked = "deny"

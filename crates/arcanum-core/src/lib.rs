@@ -1,9 +1,9 @@
-pub mod vault;
-pub mod item;
-pub mod keys;
-pub mod transfer;
-pub mod sync;
-pub mod recovery;
-pub mod policy;
 pub mod audit;
 pub mod error;
+pub mod item;
+pub mod keys;
+pub mod policy;
+pub mod recovery;
+pub mod sync;
+pub mod transfer;
+pub mod vault;
