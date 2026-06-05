@@ -46,6 +46,45 @@ uuid = { version = "1", features = ["v4"] }
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# ─── Workspace-level lints ───────────────────────────────────────────────────
+# All lints are "warn" here. CI runs clippy with -D warnings, promoting them
+# to errors. This gives warnings locally and failures in CI.
+
+[workspace.lints.rust]
+# Flag unsafe code for review — not denied because FFI crate needs it
+unsafe_code = "warn"
+# Prevent unused code from silently accumulating
+dead_code = "warn"
+
+[workspace.lints.clippy]
+# ── Security-critical lints ──
+# Panic in library code is forbidden — use Result
+panic = "warn"
+# Unwrap hides errors — use ? or handle explicitly
+unwrap_used = "warn"
+# Expect with no message is unclear — require message
+expect_used = "warn"
+# No TODO in production code
+todo = "warn"
+# No unimplemented! in production code
+unimplemented = "warn"
+# No unreachable! in production — every path should be handled
+unreachable = "warn"
+
+# ── Correctness lints ──
+# Integer arithmetic can panic or overflow
+arithmetic_side_effects = "warn"
+# Indexing without bounds check can panic
+indexing_slicing = "warn"
+# Casting can silently truncate
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+
+# ── Code quality ──
+# Large functions are hard to review
+cognitive_complexity = "warn"
+
+# ─── Build profiles ──────────────────────────────────────────────────────────
 [profile.release]
 opt-level = 3
 strip = "symbols"

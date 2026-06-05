@@ -1,0 +1,128 @@
+name: CI Thorough
+
+# Runs on:
+#   - Pull requests targeting main (gate before merge)
+#   - Nightly schedule (catch regressions early)
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC daily
+  workflow_dispatch:        # allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+jobs:
+  # ─── Miri: Undefined behavior detection ────────────────────────────────────
+  # Runs only on cryptographic crates where UB is a security failure.
+  # Uses nightly toolchain — does not affect production stable builds.
+  miri:
+    name: Miri (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - arcanum-crypto
+          - arcanum-pqc
+          - arcanum-security
+          - arcanum-ffi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri-${{ matrix.crate }}
+      - name: miri test — ${{ matrix.crate }}
+        env:
+          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+        run: cargo +nightly miri test -p ${{ matrix.crate }}
+
+  # ─── Fuzz: Build and smoke run ─────────────────────────────────────────────
+  # Builds all fuzz targets and runs a short smoke fuzz (30s each).
+  # A crash in a smoke run is a release blocker.
+  fuzz-smoke:
+    name: Fuzz Smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - vault_header
+          - encrypted_item
+          - transfer_envelope
+          - sync_envelope
+          - device_pairing
+          - native_message
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fuzz-${{ matrix.target }}
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --locked
+      - name: Build fuzz target
+        run: cargo fuzz build ${{ matrix.target }}
+      - name: Smoke run — 30 seconds
+        run: >
+          cargo fuzz run ${{ matrix.target }}
+          -- -max_total_time=30
+          -rss_limit_mb=512
+      - name: Upload crash artifacts (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          retention-days: 90
+
+  # ─── AddressSanitizer ──────────────────────────────────────────────────────
+  # Memory error detection on cryptographic crates.
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: asan
+      - name: Test with AddressSanitizer
+        env:
+          RUSTFLAGS: "-Z sanitizer=address"
+          RUSTDOCFLAGS: "-Z sanitizer=address"
+        run: >
+          cargo +nightly test
+          -p arcanum-crypto
+          -p arcanum-security
+          --target x86_64-unknown-linux-gnu
+          -Z build-std
+
+  # ─── Cargo vet ─────────────────────────────────────────────────────────────
+  # Dependency trust chain review.
+  # Will warn until vet audits are configured.
+  vet:
+    name: Vet
+    runs-on: ubuntu-latest
+    continue-on-error: true   # informational until vet config is bootstrapped
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --locked
+      - name: cargo vet
+        run: cargo vet 2>&1 | tee vet-report.txt || true
+      - name: Upload vet report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vet-report
+          path: vet-report.txt
+          retention-days: 30
