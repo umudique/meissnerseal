@@ -151,12 +151,16 @@ Run on every PR for cryptographic crates. Run on all crates before release.
 
 ### Layer 7 — Cryptographic Verification (milestone-gated)
 
-| Tool | Purpose | Phase |
-|---|---|---|
-| dudect | Timing side-channel detection | Beta |
-| BINSEC/checkct | Binary-level constant-time verification | Beta |
-| SageMath | Independent test vector cross-verification | MVP-2 |
-| lattice-estimator | ML-KEM parameter security | MVP-2 |
+| Tool | Purpose | Methodology | Phase |
+|---|---|---|---|
+| dudect | Timing side-channel detection | TVLA / ISO 17825 — Welch's t-test, threshold |t| < 4.5 | Beta |
+| BINSEC/checkct | Binary-level constant-time verification | Symbolic execution of compiled binary | Beta |
+| SageMath | Independent test vector cross-verification | Known-answer cross-check | MVP-2 |
+| lattice-estimator | ML-KEM parameter security | Lattice hardness estimation | MVP-2 |
+
+**TVLA acceptance criterion:** |t| < 4.5 at ≥ 1M timing samples per cryptographic function.
+Scope is limited to timing side-channels on the host processor. Does not cover power, EM,
+or fault injection. See `docs/security/standards_conformance.md §5` for full methodology binding.
 
 ### Layer 8 — Mathematical Verification (ADR-015)
 

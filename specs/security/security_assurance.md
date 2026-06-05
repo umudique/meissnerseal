@@ -1,7 +1,9 @@
 # Arcanum Security Assurance Architecture
 
 **Status:** Architecture reference — v4.0
-**Related:** [threat_model.md](threat_model.md), [docs/architecture/mvp_roadmap.md](../../docs/architecture/mvp_roadmap.md)
+**Related:** [threat_model.md](threat_model.md),
+            [docs/architecture/mvp_roadmap.md](../../docs/architecture/mvp_roadmap.md),
+            [docs/security/standards_conformance.md](../../docs/security/standards_conformance.md)
 
 ---
 

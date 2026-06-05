@@ -733,7 +733,9 @@ One line per axis: axis name, score, brief rationale.
 
 **Findings**
 Primary findings only (max 5 unless task explicitly requests exhaustive review).
-Order by severity. Each finding: location, description, severity (Critical/High/Medium).
+Order by severity. Each finding: location, CWE number, description, severity (Critical/High/Medium).
+CWE numbers are mandatory — see `docs/security/standards_conformance.md §7` for the reference table.
+Example format: `crates/arcanum-crypto/src/lib.rs:42 | CWE-323 | Nonce reused across encrypt calls | Critical`
 
 **Approval Recommendation**
 One word from the vocabulary. One sentence of rationale.
