@@ -130,15 +130,24 @@ Developer Commit
 
 ---
 
-## 5. Formal Verification Roadmap
+## 5. Formal and Mathematical Verification Roadmap
+
+Mathematical verification (Rust-level) — see ADR-015:
+
+| Priority | Tool | Scope | Phase | Artifact |
+|---:|---|---|---:|---|
+| Required | Const generics | `Key<N>` length invariants at compile time | MVP-0 | type definitions |
+| Required | Kani | Length, bounds, no-overflow, no-panic proofs | MVP-0 | `#[cfg(kani)]` harnesses |
+| Beta target | Prusti | Hoare triples on key derivation and parsers | Beta | `#[cfg(prusti)]` annotations |
+| Research | Creusot / Coq | High-assurance Rust logic, single functions | Research | proof artifacts |
+
+Protocol formal verification (design-level):
 
 | Priority | Tool | Scope | Phase | Artifact |
 |---:|---|---|---:|---|
 | Required | ProVerif | Transfer protocol secrecy/authentication | MVP-2 | `transfer_protocol.pv` |
 | Required | TLA+ | Sync state machine, version vectors, conflict preservation | MVP-3 | `sync_state_machine.tla` |
 | Beta target | Tamarin | Device pairing, replay, downgrade, revocation | Beta | `device_pairing.spthy` |
-| Beta target | Kani | Selected Rust parsing invariants and fail-closed behavior | Beta | verification harnesses |
-| Research | Creusot / Coq | High-assurance Rust logic | Research | proof artifacts |
 
 ---
 

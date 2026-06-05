@@ -166,7 +166,7 @@ The strongest early demo is:
 
 | Phase | Product | Security Deliverable | Minimum Evidence |
 |---:|---|---|---|
-| MVP-0 | Core + CLI | Secret wrappers, Argon2id, AEAD, HKDF, initial fuzz targets | Unit/property tests, test vectors, threat model draft |
+| MVP-0 | Core + CLI | Secret wrappers, Key<N> const-generic types, Argon2id, AEAD, HKDF, Kani harnesses, initial fuzz targets | Unit/property tests, test vectors, Kani proofs, threat model draft |
 | MVP-1 | Desktop | Clipboard timeout, auto-lock, memory-only UI, crash-safe writes | Integration tests, UI security checklist |
 | MVP-2 | Transfer | Hybrid profile, transcript binding, replay protection | Transfer spec, vectors, fuzzing, ProVerif model |
 | MVP-3 | Sync | Sync envelopes, device approval, version-vector conflict model | Sync spec, envelope fuzzing, TLA+ model |

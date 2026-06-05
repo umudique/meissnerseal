@@ -52,7 +52,18 @@ Arcanum stores and transfers high-value secrets — seed phrases, SSH keys, API 
 |---|---|
 | [specs/security/threat_model.md](specs/security/threat_model.md) | Assets, adversaries, scope |
 | [specs/security/security_assurance.md](specs/security/security_assurance.md) | Control matrix, claims matrix, release gates |
+| [docs/security/security_engineering_protocol.md](docs/security/security_engineering_protocol.md) | Tool inventory, agent algorithm, contract discipline |
+| [docs/security/supply_chain.md](docs/security/supply_chain.md) | Dependency graph, trust tiers, supply chain controls |
 | [SECURITY.md](SECURITY.md) | Vulnerability disclosure policy |
+
+### Development Process
+| Document | Description |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Master agent reference — read first |
+| [docs/agents/AGENT_PROMPT_TEMPLATE.md](docs/agents/AGENT_PROMPT_TEMPLATE.md) | 13 role-specific agent prompts |
+| [docs/development/workflow.md](docs/development/workflow.md) | Human + agent task lifecycle, checkpoints |
+| [docs/development/mathematical_verification.md](docs/development/mathematical_verification.md) | Const generics, Kani, Prusti, Creusot guide |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Security-sensitive contribution rules |
 
 ### Architecture Decisions
 | Document | Decision |
@@ -67,6 +78,11 @@ Arcanum stores and transfers high-value secrets — seed phrases, SSH keys, API 
 | [docs/adr/ADR-008-arcexp-export.md](docs/adr/ADR-008-arcexp-export.md) | Encrypted .arcexp as default export format |
 | [docs/adr/ADR-009-user-mediated-conflicts.md](docs/adr/ADR-009-user-mediated-conflicts.md) | No auto-merge for critical secrets |
 | [docs/adr/ADR-010-unrecoverable-by-default.md](docs/adr/ADR-010-unrecoverable-by-default.md) | Vault unrecoverable without recovery kit |
+| [docs/adr/ADR-011-rustcrypto-ecosystem.md](docs/adr/ADR-011-rustcrypto-ecosystem.md) | RustCrypto as primary cryptographic dependency |
+| [docs/adr/ADR-012-mlkem-risk.md](docs/adr/ADR-012-mlkem-risk.md) | ML-KEM risk acknowledgment and mitigation |
+| [docs/adr/ADR-013-os-csprng-only.md](docs/adr/ADR-013-os-csprng-only.md) | OS CSPRNG as the sole randomness source |
+| [docs/adr/ADR-014-noise-tertiary.md](docs/adr/ADR-014-noise-tertiary.md) | Continuous noise floor as tertiary defense |
+| [docs/adr/ADR-015-mathematical-verification.md](docs/adr/ADR-015-mathematical-verification.md) | Four-level mathematical verification strategy |
 
 ### Formal Specifications
 | Document | Tool | MVP Phase |
