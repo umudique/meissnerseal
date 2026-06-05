@@ -13,8 +13,8 @@ name = "arcanum-server"
 path = "src/main.rs"
 
 [dependencies]
-arcanum-core = { path = "../arcanum-core" }
-arcanum-crypto = { path = "../arcanum-crypto" }
+arcanum-core.workspace = true
+arcanum-crypto.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

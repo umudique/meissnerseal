@@ -9,9 +9,9 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-arcanum-crypto = { path = "../arcanum-crypto" }
-arcanum-pqc    = { path = "../arcanum-pqc" }
-arcanum-security = { path = "../arcanum-security" }
+arcanum-crypto.workspace = true
+arcanum-pqc.workspace = true
+arcanum-security.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

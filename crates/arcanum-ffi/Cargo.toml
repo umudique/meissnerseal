@@ -12,7 +12,7 @@ workspace = true
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-arcanum-core = { path = "../arcanum-core" }
-arcanum-security = { path = "../arcanum-security" }
+arcanum-core.workspace = true
+arcanum-security.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
