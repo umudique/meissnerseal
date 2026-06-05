@@ -1,6 +1,7 @@
 # Contract: arcanum-cli
 
-**Version:** 0.1.0  
+**Version:** 0.1.0
+**API Status:** Unstable  
 **Spec authority:** MVP-0 scope in docs/architecture/mvp_roadmap.md  
 **ADRs:** ADR-008 (encrypted export default)
 
