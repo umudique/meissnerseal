@@ -1,0 +1,11 @@
+[package]
+name = "arcanum-security"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+arcanum-crypto = { path = "../arcanum-crypto" }
+zeroize.workspace = true
+thiserror.workspace = true

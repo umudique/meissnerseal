@@ -1,0 +1,8 @@
+/target/
+/fuzz/target/
+**/*.rs.bk
+*.arcv
+*.arcexp
+.env
+.DS_Store
+Thumbs.db

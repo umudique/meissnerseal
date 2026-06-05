@@ -1,0 +1,19 @@
+[package]
+name = "arcanum-sync-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "arcanum-server"
+path = "src/main.rs"
+
+[dependencies]
+arcanum-core = { path = "../arcanum-core" }
+arcanum-crypto = { path = "../arcanum-crypto" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,48 @@
+[package]
+name = "arcanum-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[[bin]]
+name = "vault_header"
+path = "fuzz_targets/vault_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "encrypted_item"
+path = "fuzz_targets/encrypted_item.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "transfer_envelope"
+path = "fuzz_targets/transfer_envelope.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sync_envelope"
+path = "fuzz_targets/sync_envelope.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "device_pairing"
+path = "fuzz_targets/device_pairing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "native_message"
+path = "fuzz_targets/native_message.rs"
+test = false
+doc = false
+
+[dependencies]
+arcanum-core = { path = "../crates/arcanum-core" }
+libfuzzer-sys = "0.4"
