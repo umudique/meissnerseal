@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 arcanum-crypto = { path = "../arcanum-crypto" }
 zeroize.workspace = true
