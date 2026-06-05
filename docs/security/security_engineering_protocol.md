@@ -158,11 +158,22 @@ Run on every PR for cryptographic crates. Run on all crates before release.
 | SageMath | Independent test vector cross-verification | MVP-2 |
 | lattice-estimator | ML-KEM parameter security | MVP-2 |
 
-### Layer 8 — Formal Verification (milestone-gated)
+### Layer 8 — Mathematical Verification (ADR-015)
+
+Four levels of mathematical verification, applied progressively.
+See `docs/development/mathematical_verification.md` for the full guide.
+
+| Level | Tool | Scope | Phase |
+|---|---|---|---|
+| 1 | Const generics (`Key<N>`) | Length invariants at compile time | MVP-0 |
+| 2 | Kani | Bounded properties: length, no overflow, no panic | MVP-0+ |
+| 3 | Prusti | Hoare triples on key derivation and parsers | Beta |
+| 4 | Creusot / Coq | Full deductive proofs for selected functions | Research |
+
+### Layer 9 — Protocol Formal Verification (milestone-gated)
 
 | Tool | Scope | Phase |
 |---|---|---|
-| Kani | Selected Rust invariants and parsing bounds | Beta |
 | ProVerif | Transfer protocol secrecy and authentication | MVP-2 |
 | TLA+ | Sync state machine, version vectors | MVP-3 |
 | Tamarin | Device pairing, revocation propagation | Beta |
@@ -203,9 +214,12 @@ Every security-critical function must document its contract before implementatio
 
 ```
 Level 1 — Type system:    invalid states unrepresentable at compile time
+                          (Key<N> const generics encode length as a fact)
 Level 2 — debug_assert!:  checked in tests, zero cost in release
 Level 3 — proptest:       probabilistic verification of rules
-Level 4 — Kani:           bounded mathematical proof
+Level 4 — Kani:           bounded mathematical proof (all inputs in scope)
+Level 5 — Prusti:         deductive Hoare-triple proof (Beta)
+Level 6 — Creusot/Coq:    full deductive proof (Research)
 ```
 
 ---

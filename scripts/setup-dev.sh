@@ -66,6 +66,16 @@ else
         echo -e "${YELLOW}  !${NC} cargo-fuzz install failed — install manually if needed"
 fi
 
+# ── Kani: bounded model checking ─────────────────────────────────────────────
+echo ""
+echo "→ Installing cargo-kani (mathematical verification)..."
+if cargo kani --version &>/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓${NC} cargo-kani already installed"
+else
+    cargo install --locked kani-verifier 2>/dev/null && cargo kani setup 2>/dev/null || \
+        echo -e "${YELLOW}  !${NC} cargo-kani install failed — install manually: cargo install kani-verifier"
+fi
+
 # ── Verify setup ─────────────────────────────────────────────────────────────
 echo ""
 echo "→ Verifying workspace..."

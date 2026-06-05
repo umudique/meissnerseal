@@ -106,6 +106,19 @@ jobs:
           --target x86_64-unknown-linux-gnu
           -Z build-std
 
+  # ─── Kani: Bounded model checking ─────────────────────────────────────────
+  # Proves bounded correctness properties of cryptographic types.
+  # MVP-0: validates harness compilation and type-level proofs.
+  # Beta+: full arithmetic and bounds proofs added as functions are implemented.
+  kani:
+    name: Kani
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: model-checking/kani-github-action@v1
+      - name: Kani — arcanum-crypto type proofs
+        run: cargo kani --package arcanum-crypto
+
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review.
   # Will warn until vet audits are configured.

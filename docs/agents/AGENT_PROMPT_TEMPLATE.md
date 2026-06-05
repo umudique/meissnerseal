@@ -84,6 +84,8 @@ Before writing any implementation:
 Special constraints:
 - No custom cryptographic primitives — use only approved crates from Cargo.toml
 - No custom RNG — all randomness through the `rng` module's OS CSPRNG wrapper
+- Fixed-length values use Key<N> types from `types` module, never [u8;N] or Vec<u8>
+- Every security-critical function has a #[cfg(kani)] proof harness (ADR-015)
 - All secret types must derive Zeroize + ZeroizeOnDrop
 - All secret types must have redacted Debug implementation
 - No == comparison on secret values — use subtle::ConstantTimeEq
@@ -99,6 +101,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo audit
 cargo +nightly miri test -p arcanum-crypto
+cargo kani --package arcanum-crypto
 ```
 
 Output / completion expectation:
@@ -152,6 +155,7 @@ Special constraints:
 - Transcript hash is SHA-256 (32 bytes) for MVP profile — no SHA-384 in v1 format
 - Hybrid mode fails closed: missing PQC component → reject, no classical-only fallback
 - All operations must be constant-time — no secret-dependent branches
+- Fixed-length values use Key<N> types from arcanum-crypto, never [u8;N] or Vec<u8>
 - Document ML-KEM crate audit status in CONTRACT.md before shipping
 
 After implementation, run in order:
@@ -162,6 +166,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo audit
 cargo +nightly miri test -p arcanum-pqc
+cargo kani --package arcanum-pqc
 ```
 
 Output / completion expectation:

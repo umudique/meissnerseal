@@ -109,6 +109,14 @@ CRYPTO
   [ ] All AEAD operations use canonical AAD construction
   [ ] No caller-supplied nonces outside test modules
   [ ] No == comparison on secret values — use subtle::ConstantTimeEq
+  [ ] Fixed-length crypto values use Key<N> types, never raw [u8;N] or Vec<u8>
+  [ ] Every security-critical fn in arcanum-crypto has a #[cfg(kani)] harness
+
+MATHEMATICAL VERIFICATION (see ADR-015, docs/development/mathematical_verification.md)
+  [ ] Level 1: Key<const N: usize> encodes length at compile time
+  [ ] Level 2: Kani harnesses prove bounded properties (length, no overflow)
+  [ ] Level 3: Prusti annotations on key derivation and parsers (Beta)
+  [ ] Proof code is gated #[cfg(kani)] / #[cfg(prusti)] — never in prod binary
 
 MEMORY
   [ ] All secret types implement Zeroize + ZeroizeOnDrop
@@ -170,6 +178,9 @@ arcanum-security, arcanum-ffi):
 ```bash
 # Undefined behavior detection
 cargo +nightly miri test -p <crate-name>
+
+# Bounded model checking — proves length and bounds properties (ADR-015)
+cargo kani --package <crate-name>
 ```
 
 ---
