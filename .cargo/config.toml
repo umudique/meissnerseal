@@ -1,0 +1,32 @@
+[alias]
+# Quick checks
+check-all  = ["check", "--workspace", "--all-targets"]
+lint       = ["clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+test-all   = ["test", "--workspace"]
+
+# Security tooling
+audit-check = ["audit"]
+deny-check  = ["deny", "check"]
+geiger-scan = ["geiger", "--workspace"]
+
+# Miri — cryptographic crates only (requires nightly)
+miri-crypto   = ["+nightly", "miri", "test", "-p", "arcanum-crypto"]
+miri-pqc      = ["+nightly", "miri", "test", "-p", "arcanum-pqc"]
+miri-security = ["+nightly", "miri", "test", "-p", "arcanum-security"]
+miri-ffi      = ["+nightly", "miri", "test", "-p", "arcanum-ffi"]
+miri-all      = ["+nightly", "miri", "test",
+                 "-p", "arcanum-crypto",
+                 "-p", "arcanum-pqc",
+                 "-p", "arcanum-security",
+                 "-p", "arcanum-ffi"]
+
+# Full pre-release check
+pre-release = ["check", "--workspace", "--all-targets", "--all-features"]
+
+[build]
+# Faster incremental builds during development
+incremental = true
+
+[profile.dev]
+# Enable debug info for GDB/security lab
+debug = true
