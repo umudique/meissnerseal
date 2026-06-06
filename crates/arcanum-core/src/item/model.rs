@@ -1,6 +1,6 @@
 //! Item model contracts.
 
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 
 /// 128-bit random item identifier.
 pub type ItemId = [u8; 16];
@@ -46,9 +46,15 @@ impl ItemKind {
     /// - Unknown values are rejected.
     /// ## Invariants
     /// - Does not include plaintext item contents in error messages.
-    #[allow(clippy::todo)]
-    pub fn from_u16(_v: u16) -> Result<Self> {
-        todo!()
+    pub fn from_u16(v: u16) -> Result<Self> {
+        match v {
+            0x0001 => Ok(Self::Password),
+            0x0002 => Ok(Self::SeedPhrase),
+            0x0003 => Ok(Self::SshPrivateKey),
+            0x0004 => Ok(Self::ApiToken),
+            0x0005 => Ok(Self::SecureNote),
+            _ => Err(CoreError::Format(format!("unknown item kind: {v:#06x}"))),
+        }
     }
 }
 
