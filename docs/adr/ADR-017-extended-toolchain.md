@@ -38,10 +38,10 @@ Evaluation criteria applied to each candidate:
   Runs on a schedule; slow but high signal.
 - Integration: `.github/workflows/codeql.yml`, weekly + main push
 
-**CODEOWNERS** — mandatory human review for critical files
-- Rationale: Enforces the human gate on cryptographic code, specs, ADRs, and
-  CI/supply chain configuration. Agents cannot approve their own PRs to these
-  paths.
+**CODEOWNERS** — review request routing for critical files
+- Rationale: Routes review requests to the owner for cryptographic code, specs,
+  ADRs, and CI/supply chain configuration. A routing signal, not a merge gate —
+  branch protection does not require Code Owner approval (ADR-018, ADR-020).
 - Integration: `.github/CODEOWNERS`
 
 **shellcheck** — static analysis for shell scripts
@@ -139,7 +139,7 @@ The tool inventory gains three new layers:
 
 ### Process additions
 
-- CODEOWNERS enforces human review gate for crypto/ and specs/ on every PR
+- CODEOWNERS routes review requests for crypto/ and specs/ on every PR (routing signal, not a merge gate — see ADR-018)
 - Dependabot PRs require the same CI gate as any other PR before merge
 - cargo-mutants is a manual milestone gate, not a CI blocker
 
