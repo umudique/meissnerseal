@@ -150,17 +150,20 @@ fn verify_aad_v1_length() {
 
 ### Kani targets for Arcanum
 
-| Function | Property | Phase |
-|---|---|---|
-| `Key<N>::from_bytes` | output length equals N | MVP-0 ✓ |
-| `build_aad_v1` | output length == 74 | MVP-0 |
-| `argon2id_v1_salt` | output length == 40 | MVP-0 |
-| `derive_master_unlock_key` | output length == output_len param | MVP-0 |
-| `derive_vkek` | output length == 32 | MVP-0 |
-| TLV parser | no buffer overread | MVP-0 |
-| Record frame parser | frame_len bounds respected | MVP-0 |
-| `hkdf_info_string` | output is valid ASCII | MVP-0 |
-| Nonce generation | output length == profile nonce length | MVP-0 |
+Each harness traces back to a spec document. The spec is the authoritative
+source; the harness is the machine-checked enforcement of that spec's invariants.
+
+| Function | Property | Phase | Spec |
+|---|---|---|---|
+| `Key<N>::from_bytes` | output length equals N | MVP-0 ✓ | `specs/crypto/crypto_design.md §1` |
+| `build_aad_v1` | output length == 74 | MVP-0 | `specs/protocol/vault_format_v1.md` |
+| `argon2id_v1_salt` | output length == 40 | MVP-0 | `specs/crypto/crypto_design.md §2` |
+| `derive_master_unlock_key` | output length == output_len param | MVP-0 | `specs/crypto/crypto_design.md §3` |
+| `derive_vkek` | output length == 32 | MVP-0 | `specs/crypto/crypto_design.md §3` |
+| TLV parser | no buffer overread | MVP-0 | `specs/protocol/vault_format_v1.md` |
+| Record frame parser | `frame_len` bounds respected | MVP-0 | `specs/protocol/vault_format_v1.md` |
+| `hkdf_info_string` | output is valid ASCII | MVP-0 | `specs/crypto/crypto_design.md §3` |
+| Nonce generation | output length == AEAD profile nonce length | MVP-0 | `specs/crypto/crypto_design.md §4` |
 
 ### Kani harness rules (for agents)
 
