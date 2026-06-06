@@ -104,7 +104,7 @@ jobs:
       - name: cargo geiger report
         run: cargo geiger --workspace 2>&1 | tee geiger-report.txt
       - name: Upload geiger report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: geiger-report
           path: geiger-report.txt
