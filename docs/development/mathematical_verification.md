@@ -5,6 +5,35 @@
 
 ---
 
+## Proof Scope
+
+Formal verification in Arcanum covers specific, bounded properties of the
+cryptographic core. Knowing what is and is not proven is as important as
+knowing that proofs exist.
+
+**Proof covers:**
+- `vault header parser` — buffer bounds safety, no overread
+- `AAD_V1` construction — output length == 74 invariant
+- `Key<N>` types — length invariants at compile time (const generics)
+- `build_aad_v1`, `argon2id_v1_salt`, `derive_master_unlock_key`, `derive_vkek` — output length contracts
+- `hkdf_info_string` — valid ASCII output
+- Nonce generation — output length matches AEAD profile
+- TLV parser — no buffer overread
+- Record frame parser — `frame_len` bounds respected
+
+**Proof does not cover:**
+- Correctness of underlying cryptographic primitives (AES-GCM, ML-KEM, Argon2id) — these are verified upstream by RustCrypto
+- Operating system memory safety or entropy quality
+- UI layer memory handling (Flutter heap is outside the trusted boundary)
+- Network transport or sync protocol security
+- Side-channel resistance beyond what `subtle` crate provides at the library level
+- The whole product being "secure" — proof establishes local invariants, not end-to-end guarantees
+
+This scope follows the same discipline as Apple corecrypto's formal verification:
+claims are bounded, falsifiable, and tied to specific functions and properties.
+
+---
+
 ## Why Mathematical Verification
 
 Arcanum stores secrets that cannot be rotated. A single incorrect length,
