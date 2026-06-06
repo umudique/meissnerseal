@@ -10,9 +10,9 @@
 ## Public API Surface
 
 ```
-aead::   encrypt(key, nonce, plaintext, aad) -> Result<Ciphertext>
+aead::   encrypt(key, plaintext, aad) -> Result<(Ciphertext, XChaCha20Nonce)>
          decrypt(key, nonce, ciphertext, aad) -> Result<Plaintext>
-         generate_nonce() -> Nonce                 // OS CSPRNG, non-overridable
+         generate_nonce() -> XChaCha20Nonce        // OS CSPRNG, non-overridable
 
 argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
          derive_vkek(master_unlock_key, vault_id) -> Result<VaultKeyEncKey>
