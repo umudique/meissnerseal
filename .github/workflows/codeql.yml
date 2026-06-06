@@ -27,7 +27,7 @@ jobs:
           key: codeql
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: rust
           # Use extended security queries in addition to default
@@ -37,6 +37,6 @@ jobs:
         run: cargo build --workspace
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:rust
