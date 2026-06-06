@@ -88,6 +88,11 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
     let header_nonce = arcanum_crypto::rng::random_nonce_xchacha20();
 
     // Build canonical AAD for the WrappedRootKey record.
+    // TODO(Phase 3 F-01/F-03): replace zero_id with real random record_id and
+    // revision_id once the vault serialization path is implemented. Using zero
+    // IDs here means the AAD does not bind to a specific record or revision,
+    // weakening cross-record substitution resistance. Acceptable for MVP-0
+    // because create() does not yet persist a vault file.
     let zero_id = [0u8; 16];
     let aad = build_aad(
         &vault_id,
@@ -186,6 +191,10 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
     let frame = parse_record_frame(frame_slice, wrk_entry.frame_len)?;
 
     // Build canonical AAD for this record.
+    // TODO(Phase 3 F-01): replace zero_revision with the actual revision_id
+    // stored in the record frame once parse_record_frame exposes it.
+    // Using zero here will cause AAD mismatch if the stored frame was encrypted
+    // with a non-zero revision_id (security review F-01).
     let zero_revision = [0u8; 16];
     let aad = build_aad(
         &header.vault_id,

@@ -6,6 +6,9 @@ use crate::error::{CoreError, Result};
 pub type ItemId = [u8; 16];
 
 /// Item kind registry.
+///
+/// Debug is intentionally derived: ItemKind is a type discriminant, not secret
+/// material. Variant names (Password, SeedPhrase, etc.) are metadata, not payloads.
 #[derive(Debug)]
 pub enum ItemKind {
     /// Password item.

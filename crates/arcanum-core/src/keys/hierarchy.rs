@@ -60,7 +60,7 @@ pub struct UnlockedKeys {
 /// [3] HKDF-Expand(vkek_prk, info="arcanum:vault-kek:v1") → VKEK
 /// [4] AEAD-decrypt(key=VKEK, wrapped_root_key_ciphertext, aad) → VaultRootKey
 /// [5] HKDF-Extract(salt=SHA256("arcanum-root-salt-v1"||vault_id||header_nonce), ikm=VRK) → root_prk
-/// [6] HKDF-Expand(root_prk, info per registry) × 5 subkeys → UnlockedKeys
+/// [6] HKDF-Expand(root_prk, info per registry) × 4 HKDF subkeys → UnlockedKeys\n///     (VaultRootKey = step 4 AEAD output, not HKDF; sync/device/recovery subkeys deferred to MVP-2/3)
 /// ```
 ///
 /// # Contract
