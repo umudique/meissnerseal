@@ -31,7 +31,7 @@ With GitHub connected and CI operational, the project needed a policy for:
 
 | Rule | Value | Rationale |
 |---|---|---|
-| Required status checks | `fmt`, `check`, `clippy`, `test`, `audit`, `deny` | The six ci-fast jobs are the minimum bar for a correct, safe commit |
+| Required status checks | `Format`, `Check`, `Clippy`, `Test`, `Audit`, `Deny` | The six ci-fast jobs are the minimum bar for a correct, safe commit |
 | Strict status checks | `true` | Branch must be up-to-date with `main` before merge |
 | Required PR reviews | 0 (none) | Single developer; review requirement is unenforceable and blocks self-merge |
 | Dismiss stale reviews | n/a (reviews not required) | — |

@@ -47,7 +47,7 @@ else
 fi
 
 # ── Required status checks ────────────────────────────────────────────────────
-EXPECTED_CHECKS=("fmt" "check" "clippy" "test" "audit" "deny")
+EXPECTED_CHECKS=("Format" "Check" "Clippy" "Test" "Audit" "Deny")
 ACTUAL_CHECKS=$(echo "$PROTECTION" | jq -r '.required_status_checks.contexts[]' 2>/dev/null | sort)
 
 for check in "${EXPECTED_CHECKS[@]}"; do
