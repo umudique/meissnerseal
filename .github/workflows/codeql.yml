@@ -2,12 +2,10 @@ name: CodeQL
 
 # Runs on a schedule and on pushes to main.
 # CodeQL is slow (full compilation + analysis) — not in ci-fast.
+# CodeQL requires GitHub Advanced Security (Enterprise) for private repos.
+# Re-enable when the repository is made public or upgraded to Enterprise.
 on:
-  push:
-    branches: [main]
-  schedule:
-    - cron: "0 3 * * 1"  # 03:00 UTC every Monday
-  workflow_dispatch:
+  workflow_dispatch:  # manual-only until Code Scanning is available
 
 permissions:
   security-events: write
