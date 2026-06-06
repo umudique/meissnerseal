@@ -13,7 +13,7 @@
 /// ## Invariants
 /// - The generated implementation does not log, print, or write secret values.
 /// - The generated implementation is deterministic and content-independent.
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! redacted_debug {
     ($t:ty) => {
         impl core::fmt::Debug for $t {
@@ -23,6 +23,3 @@ macro_rules! redacted_debug {
         }
     };
 }
-
-#[allow(unused_imports)]
-pub(crate) use redacted_debug;

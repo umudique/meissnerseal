@@ -30,7 +30,7 @@ hardware::
 
 audit_guard::
   AuditEvent               — event type with no secret fields
-  emit(event: AuditEvent)  — writes to append-only local log
+  emit(event: AuditEvent)  — emits structured event to caller pipeline; no direct I/O
 ```
 
 ---
@@ -77,8 +77,10 @@ audit_guard::
 ## Preconditions
 
 ```
-[P-01] Callers must not hold references to SecretBytes contents beyond
-       the lifetime of the with_secret scope.
+[P-01] Callers must not copy, clone, or derive raw pointers from the
+       byte slice provided by with_secret. The type system prevents
+       reference escapes but cannot prevent value copies inside the
+       closure — this is a caller obligation, not a compile-time guarantee.
 
 [P-02] AuditEvent fields must be populated only with non-secret operational
        metadata (item_id, timestamp, device_id — never item value).
