@@ -1,8 +1,11 @@
-# CODEOWNERS — mandatory human review for critical files
+# CODEOWNERS — review request routing for critical files
 #
-# These paths require approval from a listed owner before any PR can be merged.
-# Agents cannot self-approve changes to these paths.
-# Reference: docs/adr/ADR-017-extended-toolchain.md
+# GitHub automatically requests a review from the listed owner when these paths
+# change in a PR. This is a routing signal, not a merge gate — branch protection
+# does not require Code Owner approval (solo developer, ADR-018).
+# The governance constraint is: agents must not commit changes to these paths
+# without explicit human instruction. See AGENTS.md and ADR-020.
+# Reference: docs/adr/ADR-017-extended-toolchain.md, ADR-018, ADR-020
 
 # Cryptographic implementation — any change here is a security decision
 /crates/arcanum-crypto/         @umudique
