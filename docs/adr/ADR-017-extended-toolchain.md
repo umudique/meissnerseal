@@ -3,14 +3,14 @@
 **Status:** Accepted
 **Date:** 2026-06-06
 **Related:** ADR-015 (mathematical verification), ADR-016 (standards conformance),
-             security_engineering_protocol.md
+             ADR-019 (base development toolchain), security_engineering_protocol.md
 
 ---
 
 ## Context
 
-The initial toolchain (ADR-015, ADR-016) covered the core Rust quality and
-mathematical verification layers. As the repository is now on GitHub with CI,
+The initial toolchain (ADR-019) covered the core Rust quality and
+mathematical verification layers (ADR-015). As the repository is now on GitHub with CI,
 additional tools become feasible at near-zero marginal cost. The question is
 which tools add genuine security or quality assurance, and which are ceremony.
 
