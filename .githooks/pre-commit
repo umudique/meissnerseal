@@ -25,7 +25,7 @@ echo "──────────────────"
 # Run before anything else — a secret in a commit must never reach the remote.
 printf "[1/6] secrets "
 if command -v gitleaks &>/dev/null; then
-    if gitleaks protect --staged --redact --no-banner -q 2>/dev/null; then
+    if gitleaks protect --staged --redact --no-banner --log-level fatal 2>/dev/null; then
         pass "ok"
     else
         fail "gitleaks: potential secret detected in staged files — do not commit"
