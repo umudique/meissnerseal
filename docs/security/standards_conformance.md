@@ -149,7 +149,7 @@ for the full hierarchy and limitation statement.
 
 ## 6. SLSA — Supply-chain Levels for Software Artifacts
 
-**Status:** SLSA Level 1 current; Level 2 target (Beta)
+**Status:** SLSA Level 2 (MVP-0)
 **Reference:** SLSA v1.0 (https://slsa.dev)
 
 ### Current Level Assessment
@@ -158,19 +158,19 @@ for the full hierarchy and limitation statement.
 |---|---|---|
 | Build process is scripted | L1 | CI pipelines in `.github/workflows/` |
 | Build triggers are auditable | L1 | GitHub Actions audit log |
-| Provenance is generated | L2 | Planned — `actions/attest-build-provenance@v1` in ci-thorough.yml |
-| Provenance is signed | L2 | Planned — GitHub Actions OIDC signing |
+| Provenance is generated | L2 | Active — `actions/attest-build-provenance@e8998f9` (v2) in ci-thorough.yml |
+| Provenance is signed | L2 | Active — GitHub Actions OIDC signing |
 | Build runs on hosted platform | L2 | GitHub-hosted runners (ubuntu-latest) |
 | Build is isolated per build | L3 | GitHub Actions provides this; not yet formally attested |
 | Source integrity verified | L3 | Partial — tag signing planned for Beta |
 
-**Current level: SLSA L1** (scripted builds, auditable triggers)
-**Beta target: SLSA L2** (signed provenance attestation)
+**Current level: SLSA L2** (signed provenance attestation active on every PR and manual trigger)
+**Beta target: SLSA L3** (hermetic builds, formal source integrity)
 
 ### Provenance Attestation
 
-From Beta onwards, every release build generates a signed SLSA provenance
-document using `actions/attest-build-provenance@v1`. This records:
+Every PR build and manual trigger generates a signed SLSA provenance
+document using `actions/attest-build-provenance@v2`. This records:
 - Source commit digest
 - Builder identity (GitHub Actions runner)
 - Build invocation parameters
