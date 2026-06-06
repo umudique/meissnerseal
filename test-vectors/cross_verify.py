@@ -478,13 +478,101 @@ def generate_aad_vectors() -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AEAD_XCHACHA20_POLY1305_V1
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_aead_vectors() -> dict:
+    """Generate aead_xchacha20_v1.json test vectors."""
+    import nacl.bindings
+
+    key   = bytes.fromhex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+    nonce = bytes.fromhex("010203040506070809101112131415161718192021222324")
+    aad   = bytes.fromhex(
+        "617263616e756d2d6161642d7631"          # b"arcanum-aad-v1"  (14 bytes)
+        "0102030405060708090a0b0c0d0e0f10"      # vault_id          (16 bytes)
+        "01000100010001000100"                   # 5 × u16le(1)      (10 bytes)
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"      # record_id         (16 bytes)
+        "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"      # revision_id       (16 bytes)
+        "0100"                                   # record_kind u16le  (2 bytes)
+    )
+    assert len(aad) == 74, f"AAD must be 74 bytes, got {len(aad)}"
+    plaintext = b"secret-payload-for-arcanum-test"
+
+    # libsodium XChaCha20-Poly1305 IETF: returns ciphertext || 16-byte tag
+    ciphertext_with_tag = nacl.bindings.crypto_aead_xchacha20poly1305_ietf_encrypt(
+        plaintext, aad, nonce, key
+    )
+    ciphertext = ciphertext_with_tag[:-16]
+    tag        = ciphertext_with_tag[-16:]
+
+    # Wrong AAD must fail decryption
+    wrong_aad = bytes(aad[:-1]) + bytes([aad[-1] ^ 0xff])
+    try:
+        nacl.bindings.crypto_aead_xchacha20poly1305_ietf_decrypt(
+            ciphertext_with_tag, wrong_aad, nonce, key
+        )
+        raise AssertionError("wrong AAD must not decrypt successfully")
+    except nacl.exceptions.CryptoError:
+        pass  # expected
+
+    return {
+        "profile": "AEAD_XCHACHA20_POLY1305_V1",
+        "version": 1,
+        "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical AAD (libsodium)",
+        "generated_by": "cross_verify.py (pynacl/libsodium)",
+        "cases": [
+            {
+                "id": "xchacha20-basic-encrypt",
+                "description": "Encrypt with canonical 74-byte AAD, verify ciphertext and tag",
+                "inputs": {
+                    "key":       to_hex(key),
+                    "nonce":     to_hex(nonce),
+                    "plaintext": to_hex(plaintext),
+                    "aad":       to_hex(aad),
+                },
+                "expected": {
+                    "ciphertext": to_hex(ciphertext),
+                    "tag":        to_hex(tag),
+                },
+            },
+            {
+                "id": "xchacha20-decrypt-round-trip",
+                "description": "Decrypt ciphertext||tag back to plaintext",
+                "inputs": {
+                    "key":            to_hex(key),
+                    "nonce":          to_hex(nonce),
+                    "ciphertext_tag": to_hex(ciphertext_with_tag),
+                    "aad":            to_hex(aad),
+                },
+                "expected": {
+                    "plaintext": to_hex(plaintext),
+                },
+            },
+            {
+                "id": "xchacha20-wrong-aad-rejected",
+                "description": "Authentication fails when AAD is modified (last byte flipped)",
+                "inputs": {
+                    "key":            to_hex(key),
+                    "nonce":          to_hex(nonce),
+                    "ciphertext_tag": to_hex(ciphertext_with_tag),
+                    "aad":            to_hex(wrong_aad),
+                },
+                "expected": {
+                    "result": "Err",
+                },
+            },
+        ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
 GENERATORS = {
     "kdf":  ("vault_kdf_v1.json",    generate_kdf_vectors),
     "aad":  ("vault_format_v1.json", generate_aad_vectors),
-    # "aead": ("aead_xchacha20_v1.json", generate_aead_vectors),   # TODO MVP-0
+    "aead": ("aead_xchacha20_v1.json", generate_aead_vectors),
     # "transfer": ("transfer_hybrid_v1.json", generate_transfer_vectors),  # TODO MVP-2
     # "recovery": ("recovery_kit_v1.json", generate_recovery_vectors),     # TODO MVP-1
 }
