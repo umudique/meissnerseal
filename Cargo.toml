@@ -15,7 +15,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Arcanum Contributors"]
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/placeholder/arcanum"
+repository = "https://github.com/umudique/arcanum"
 
 [workspace.dependencies]
 # Internal workspace crates — versioned to satisfy cargo-deny wildcard check

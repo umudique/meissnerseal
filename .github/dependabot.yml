@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # Cargo dependencies — weekly security and version updates
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    reviewers:
+      - umudique
+    labels:
+      - dependencies
+    # Group non-security updates to reduce PR noise
+    groups:
+      non-security-updates:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Cryptographic dependencies — update manually after review
+      # Version pinning is a deliberate supply chain control
+      - dependency-name: argon2
+        update-types: ["version-update:semver-major"]
+      - dependency-name: chacha20poly1305
+        update-types: ["version-update:semver-major"]
+      - dependency-name: aes-gcm
+        update-types: ["version-update:semver-major"]
+      - dependency-name: subtle
+        update-types: ["version-update:semver-major"]
+      - dependency-name: zeroize
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions — keep action versions current
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 3
+    reviewers:
+      - umudique
+    labels:
+      - dependencies
+      - ci

@@ -1,0 +1,29 @@
+# CODEOWNERS — mandatory human review for critical files
+#
+# These paths require approval from a listed owner before any PR can be merged.
+# Agents cannot self-approve changes to these paths.
+# Reference: docs/adr/ADR-017-extended-toolchain.md
+
+# Cryptographic implementation — any change here is a security decision
+/crates/arcanum-crypto/         @umudique
+/crates/arcanum-pqc/            @umudique
+
+# Protocol and cryptographic specifications — source of truth
+/specs/                         @umudique
+
+# Architecture decisions — immutable without explicit human approval
+/docs/adr/                      @umudique
+
+# Supply chain and policy configuration
+/deny.toml                      @umudique
+/Cargo.toml                     @umudique
+/rust-toolchain.toml            @umudique
+
+# CI and security scanning pipelines
+/.github/workflows/             @umudique
+/.github/CODEOWNERS             @umudique
+
+# Agent instruction and governance files
+/AGENTS.md                      @umudique
+/docs/agents/                   @umudique
+/docs/security/                 @umudique

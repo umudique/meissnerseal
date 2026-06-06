@@ -1,0 +1,44 @@
+name: Security Scan
+
+# Secret scanning and semantic analysis.
+# Runs on every push and PR — fast enough for the fast loop.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ─── Secret scanning ───────────────────────────────────────────────────────
+  # Detects secrets, tokens, and high-entropy strings in staged and committed code.
+  # A secrets vault must not leak secrets into its own repository.
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for git log scanning
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Semantic analysis ─────────────────────────────────────────────────────
+  # Pattern-based security analysis for Rust.
+  # Catches misuse patterns clippy cannot express.
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep — Rust security rules
+        run: >
+          semgrep
+          --config r/rust.lang.security
+          --config r/rust.lang.correctness
+          --metrics=off
+          --error
+          --quiet
+          .

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Arcanum pre-commit hook
-# Target: < 25 seconds
-# Miri, tests, and fuzz run in CI only.
+# Target: < 30 seconds
+# Miri, tests, fuzz, and coverage run in CI only.
 #
 # Install: git config core.hooksPath .githooks
 # Or run:  scripts/setup-dev.sh
 
+# shellcheck shell=bash
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -20,16 +21,29 @@ warn() { echo -e "${YELLOW}  !${NC} $1"; }
 echo "arcanum pre-commit"
 echo "──────────────────"
 
-# ── Stage 1: Format (~2s) ────────────────────────────────────────────────────
-printf "[1/5] format  "
+# ── Stage 1: Secret scan (~1s) ───────────────────────────────────────────────
+# Run before anything else — a secret in a commit must never reach the remote.
+printf "[1/6] secrets "
+if command -v gitleaks &>/dev/null; then
+    if gitleaks protect --staged --redact --no-banner -q 2>/dev/null; then
+        pass "ok"
+    else
+        fail "gitleaks: potential secret detected in staged files — do not commit"
+    fi
+else
+    warn "gitleaks not installed — skipping (run: scripts/setup-dev.sh)"
+fi
+
+# ── Stage 2: Format (~2s) ────────────────────────────────────────────────────
+printf "[2/6] format  "
 if cargo fmt --all -- --check 2>/dev/null; then
     pass "ok"
 else
     fail "formatting errors — run: cargo fmt --all"
 fi
 
-# ── Stage 2: Compile (~5s) ───────────────────────────────────────────────────
-printf "[2/5] check   "
+# ── Stage 3: Compile (~5s) ───────────────────────────────────────────────────
+printf "[3/6] check   "
 if cargo check --workspace --all-targets --quiet 2>/dev/null; then
     pass "ok"
 else
@@ -38,10 +52,10 @@ else
     fail "compilation errors"
 fi
 
-# ── Stage 3: Lint (~8s) ──────────────────────────────────────────────────────
-printf "[3/5] clippy  "
+# ── Stage 4: Lint (~8s) ──────────────────────────────────────────────────────
+printf "[4/6] clippy  "
 if cargo clippy --workspace --all-targets --all-features -- -D warnings \
-     --quiet 2>/dev/null; then
+     >/dev/null 2>&1; then
     pass "ok"
 else
     echo ""
@@ -50,8 +64,8 @@ else
     fail "clippy warnings/errors — all warnings are treated as errors"
 fi
 
-# ── Stage 4: License + policy (~2s) ─────────────────────────────────────────
-printf "[4/5] deny    "
+# ── Stage 5: License + policy (~2s) ──────────────────────────────────────────
+printf "[5/6] deny    "
 if command -v cargo-deny &>/dev/null || cargo deny --version &>/dev/null 2>&1; then
     if cargo deny check 2>/dev/null; then
         pass "ok"
@@ -61,21 +75,21 @@ if command -v cargo-deny &>/dev/null || cargo deny --version &>/dev/null 2>&1; t
         fail "cargo deny: license violation, banned crate, or CVE policy"
     fi
 else
-    warn "cargo-deny not installed — skipping (install: cargo install cargo-deny)"
+    warn "cargo-deny not installed — skipping (run: scripts/setup-dev.sh)"
 fi
 
-# ── Stage 5: CVE scan (~5s) ──────────────────────────────────────────────────
-printf "[5/5] audit   "
+# ── Stage 6: CVE scan (~5s) ──────────────────────────────────────────────────
+printf "[6/6] audit   "
 if command -v cargo-audit &>/dev/null || cargo audit --version &>/dev/null 2>&1; then
     if cargo audit --quiet 2>/dev/null; then
         pass "ok"
     else
         echo ""
         cargo audit 2>&1 | tail -10
-        fail "cargo audit: vulnerability found — escalate to human (see AGENTS.md §14)"
+        fail "cargo audit: vulnerability found — escalate to human (see AGENTS.md §15)"
     fi
 else
-    warn "cargo-audit not installed — skipping (install: cargo install cargo-audit)"
+    warn "cargo-audit not installed — skipping (run: scripts/setup-dev.sh)"
 fi
 
 echo "──────────────────"
