@@ -69,7 +69,7 @@ jobs:
         with:
           key: fuzz-${{ matrix.target }}
       - name: Install cargo-fuzz
-        run: cargo +nightly install cargo-fuzz --locked
+        run: cargo +nightly install cargo-fuzz
       - name: Build fuzz target
         run: cargo fuzz build ${{ matrix.target }}
       - name: Smoke run — 30 seconds
