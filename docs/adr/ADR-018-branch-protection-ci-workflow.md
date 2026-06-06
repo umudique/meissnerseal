@@ -94,6 +94,16 @@ Would prevent the single developer from bypassing CI even in emergencies
 (e.g., broken CI infra blocking a security patch). Deferred until a
 second developer joins.
 
+**Hardened CI runner model:**
+GitHub-hosted runners already provide ephemeral VMs, managed images, and job
+isolation — equivalent to the core properties of self-hosted ephemeral runners.
+Additional hardening (locked runner image, restricted network egress, privileged
+container controls, custom artifact retention) becomes meaningful when: (a) the
+threat model explicitly includes CI runner compromise, (b) a managed sync
+service handles payment data, or (c) an external security audit requires it.
+Deferred to MVP-5 (Managed Sync Beta), when runner security aligns with the
+broader operational security review.
+
 ---
 
 ## Consequences
