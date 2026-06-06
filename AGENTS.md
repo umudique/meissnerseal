@@ -364,6 +364,44 @@ All tests written in Phase 1 must pass.
 Run all static tools (Section 5).
 Write completion report (Section 13).
 
+**Milestone gate — after Phase 2 completion of each crate**
+
+Before a crate can be marked `API Status: Stable`, two agents must run in order:
+
+```
+1. Consistency Agent
+   Checks spec → implementation alignment.
+   Verdict must be "Clear" (no Critical findings).
+
+2. Security Review Agent
+   Evaluates the implementation against security invariants.
+   Approval recommendation must be "approved" or "approved_with_reservations".
+   "needs_revision" or "rejected" blocks Stable marking.
+
+3. Human reviews both reports → approves Stable marking in CONTRACT.md.
+```
+
+The number of Phase 1 / Phase 2 cycles per crate is not fixed.
+If Phase 1 review requests revision, Phase 1 repeats before Phase 2 begins.
+If Security Review returns "needs_revision", Phase 2 repeats for the flagged items.
+
+```
+Full crate lifecycle:
+
+  Phase 1 → human approval
+      ↓
+  Phase 2 → completion report
+      ↓
+  Consistency Agent → Clear verdict
+      ↓
+  Security Review Agent → approved / approved_with_reservations
+      ↓
+  Human → CONTRACT.md: API Status: Stable
+```
+
+MVP-0 complete gate: Consistency Agent runs across the full repository
+(arcanum-crypto + arcanum-security + arcanum-core) before MVP-0 is declared done.
+
 ---
 
 ## 13. Completion Report
