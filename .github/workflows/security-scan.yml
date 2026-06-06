@@ -4,8 +4,9 @@ name: Security Scan
 # Runs on every push and PR — fast enough for the fast loop.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
