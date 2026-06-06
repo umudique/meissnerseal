@@ -153,7 +153,8 @@ fn build_subkey_info(
             Ok(info)
         }
         (true, None) => Err(KdfError::InvalidInput),
-        (false, _) => Ok(info),
+        (false, None) => Ok(info),
+        (false, Some(_)) => Err(KdfError::InvalidInput),
     }
 }
 
@@ -185,6 +186,35 @@ mod proofs {
         if let Ok(info) = build_subkey_info(SubkeyPurpose::LocalAuditEventKey, &vault_id, None) {
             kani::assert(info.is_ascii(), "HKDF info string must be valid ASCII");
         }
+    }
+
+    #[kani::proof]
+    fn verify_expand_output_length() {
+        let prk = Prk::from_bytes(kani::any::<[u8; 32]>());
+        let info = b"arcanum:test:v1";
+        if let Ok(key) = expand::<32>(&prk, info) {
+            kani::assert(
+                key.as_slice().len() == 32,
+                "expand<32> must produce 32 bytes",
+            );
+        }
+    }
+
+    #[kani::proof]
+    fn verify_derive_subkey_rejects_aead_mismatch() {
+        let root_prk = Prk::from_bytes(kani::any::<[u8; 32]>());
+        let vault_id = kani::any::<[u8; 16]>();
+        // Non-AEAD purpose with Some(aead_id) must be rejected
+        let result = derive_subkey(
+            &root_prk,
+            SubkeyPurpose::LocalAuditEventKey,
+            &vault_id,
+            Some(1),
+        );
+        kani::assert(
+            result.is_err(),
+            "non-AEAD purpose with aead_id must return Err",
+        );
     }
 }
 

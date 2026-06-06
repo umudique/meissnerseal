@@ -9,6 +9,13 @@ pub const ARGON2ID_SALT_DOMAIN_V1: &[u8; 24] = b"arcanum-argon2id-salt-v1";
 const VKEK_SALT_DOMAIN_V1: &[u8; 20] = b"arcanum-vkek-salt-v1";
 const VKEK_INFO_V1: &[u8] = b"arcanum:vault-kek:v1";
 
+/// Maximum allowed memory cost for Argon2id (256 MiB). Prevents DoS via huge allocations.
+pub const ARGON2_MAX_M_COST_KIB: u32 = 262_144;
+/// Maximum allowed iteration count for Argon2id.
+pub const ARGON2_MAX_T_COST: u32 = 16;
+/// Maximum allowed parallelism lanes for Argon2id.
+pub const ARGON2_MAX_P_LANES: u32 = 16;
+
 /// Explicit Argon2id parameter set for `KDF_ARGON2ID_V1`.
 #[derive(Clone, Copy, Debug)]
 pub struct Argon2Params {
@@ -54,6 +61,9 @@ pub fn derive(
         || params.t_cost == 0
         || params.p_lanes == 0
         || params.output_len != MasterUnlockKey::LEN
+        || params.m_cost_kib > ARGON2_MAX_M_COST_KIB
+        || params.t_cost > ARGON2_MAX_T_COST
+        || params.p_lanes > ARGON2_MAX_P_LANES
     {
         return Err(KdfError::InvalidInput);
     }
