@@ -11,15 +11,18 @@ Formal verification in Arcanum covers specific, bounded properties of the
 cryptographic core. Knowing what is and is not proven is as important as
 knowing that proofs exist.
 
-**Proof covers:**
-- `vault header parser` — buffer bounds safety, no overread
-- `AAD_V1` construction — output length == 74 invariant
+**Primitive correctness** (`arcanum-crypto`) — Kani bounded proofs:
 - `Key<N>` types — length invariants at compile time (const generics)
-- `build_aad_v1`, `argon2id_v1_salt`, `derive_master_unlock_key`, `derive_vkek` — output length contracts
+- `build_aad_v1` / `AAD_V1` construction — output length == 74 invariant
+- `argon2id_v1_salt`, `derive_master_unlock_key`, `derive_vkek` — output length contracts
 - `hkdf_info_string` — valid ASCII output
 - Nonce generation — output length matches AEAD profile
-- TLV parser — no buffer overread
-- Record frame parser — `frame_len` bounds respected
+
+**Protocol correctness** (`arcanum-core`) — Kani bounds + formal models:
+- TLV parser — no buffer overread (Kani)
+- Record frame parser — `frame_len` bounds respected (Kani)
+- Transfer replay / downgrade rejection — ProVerif symbolic model (MVP-2)
+- Sync conflict detection / tombstone propagation — TLA+ state machine (MVP-3)
 
 **Proof does not cover:**
 - Correctness of underlying cryptographic primitives (AES-GCM, ML-KEM, Argon2id) — these are verified upstream by RustCrypto
