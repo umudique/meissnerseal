@@ -1,7 +1,7 @@
 name: Security Scan
 
 # Secret scanning and semantic analysis.
-# Runs on every push and PR — fast enough for the fast loop.
+# Runs on push and PRs targeting main.
 on:
   push:
     branches: [main]
