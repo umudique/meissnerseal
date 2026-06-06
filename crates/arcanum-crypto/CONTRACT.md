@@ -18,7 +18,7 @@ argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
          derive_vkek(master_unlock_key, vault_id) -> Result<VaultKeyEncKey>
 
 hkdf::   extract(salt, ikm) -> Prk
-         expand(prk, info, length) -> Result<Key>
+         expand<const N>(prk, info) -> Result<Key<N>>
          derive_subkey(root_prk, purpose, vault_id, aead_id) -> Result<Key>
 
 rng::    random_bytes(len) -> Vec<u8>            // OS CSPRNG only
