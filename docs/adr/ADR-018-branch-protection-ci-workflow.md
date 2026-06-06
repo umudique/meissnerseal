@@ -35,6 +35,7 @@ With GitHub connected and CI operational, the project needed a policy for:
 | Strict status checks | `true` | Branch must be up-to-date with `main` before merge |
 | Required PR reviews | 0 (none) | Single developer; review requirement is unenforceable and blocks self-merge |
 | Dismiss stale reviews | n/a (reviews not required) | — |
+| Required signatures | `true` | All commits on `main` must be signed; SSH signing via `~/.ssh/id_rsa.pub` |
 | Enforce admins | `false` | Allows emergency direct push when CI is broken at the infra level |
 | Allow force pushes | `false` | Protects shared history; force push requires explicit temporary unlock |
 | Allow deletions | `false` | — |

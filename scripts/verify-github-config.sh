@@ -77,6 +77,14 @@ else
     fail "strict status checks disabled — branch can be behind main at merge"
 fi
 
+# ── Signed commits required ──────────────────────────────────────────────────
+SIGNATURES=$(echo "$PROTECTION" | jq -r '.required_signatures.enabled')
+if [ "$SIGNATURES" = "true" ]; then
+    pass "signed commits required"
+else
+    fail "signed commits not required — enable in branch protection (ADR-018)"
+fi
+
 # ── Deletions forbidden ───────────────────────────────────────────────────────
 DELETIONS=$(echo "$PROTECTION" | jq -r '.allow_deletions.enabled')
 if [ "$DELETIONS" = "false" ]; then
