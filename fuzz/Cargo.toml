@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "arcanum-fuzz"
 version = "0.0.0"

@@ -131,7 +131,7 @@ jobs:
   provenance:
     name: SLSA Provenance
     runs-on: ubuntu-latest
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && github.event.repository.visibility == 'public'
     permissions:
       id-token: write      # required for OIDC token (provenance signing)
       contents: read
