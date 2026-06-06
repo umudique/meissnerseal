@@ -68,12 +68,12 @@ until post-Production with explicit sponsor demand.
 
 **SLSA (Supply-chain Levels for Software Artifacts)**
 - Rationale: Arcanum already has scripted CI builds (SLSA L1). Adding
-  `actions/attest-build-provenance@v1` in the release workflow advances to
+  `actions/attest-build-provenance@v2` in the release workflow advances to
   SLSA L2 with minimal effort. Signed provenance attestation is the single
   highest-value supply chain improvement available now.
-- Obligation: Current state is SLSA L1. Beta target is SLSA L2 (signed
-  provenance). Document current level in `docs/security/standards_conformance.md §6`.
-  Provenance attestation job added to `ci-thorough.yml`.
+- Obligation: Current state is SLSA L2 (provenance attestation active on every
+  PR and manual trigger). Beta target is SLSA L3 (hermetic builds).
+  See `docs/security/standards_conformance.md §6`. Provenance job in `ci-thorough.yml`.
 
 **CWE Mapping in Security Review Reports**
 - Rationale: CWE identifiers make findings machine-readable and comparable.
