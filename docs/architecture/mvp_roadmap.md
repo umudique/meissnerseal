@@ -207,7 +207,33 @@ The strongest early demo is:
 
 ---
 
-## 7. Risk Register
+## 7. Deferred Tooling — Milestone Gates
+
+Tools evaluated but deferred to a specific milestone. See ADR-017 for full rationale.
+
+| Tool | Milestone | Trigger condition | What it provides |
+|---|---|---|---|
+| cargo-mutants | MVP-0 complete | arcanum-crypto implementation done | Mutation testing: verifies crypto tests catch actual bugs |
+| cargo-semver-checks | First `API Status: Stable` | Any crate promoted to Stable | Catches breaking API changes not reflected in version bumps |
+
+**cargo-mutants — MVP-0 gate**
+
+Run manually after arcanum-crypto reaches full implementation:
+```
+cargo mutants --package arcanum-crypto
+```
+A mutation that survives (test suite does not catch it) is a test gap in
+security-critical code. Treat surviving mutants in crypto/ as blocking.
+Not added to CI because runtime is O(hours) for full coverage.
+
+**cargo-semver-checks — Stable API gate**
+
+Add to ci-thorough.yml when the first crate is promoted to `API Status: Stable`
+in its CONTRACT.md. Until then, semver-checking an unstable API is undefined.
+
+---
+
+## 8. Risk Register
 
 | Risk | Severity | Mitigation |
 |---|---|---|

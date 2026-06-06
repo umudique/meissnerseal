@@ -1,0 +1,26 @@
+---
+extends: default
+
+rules:
+  line-length:
+    max: 120
+    level: warning
+
+  # GitHub Actions uses `on:` as a map key — `on` is a YAML 1.1 boolean.
+  # Suppress key-level truthy checks to avoid false positives.
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: false
+
+  comments:
+    min-spaces-from-content: 1
+
+  # Allow files without document-start marker (---)
+  document-start:
+    present: false
+
+  # Relax indentation for multi-line strings common in GitHub Actions
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false

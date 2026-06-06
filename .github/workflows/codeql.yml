@@ -1,0 +1,42 @@
+name: CodeQL
+
+# Runs on a schedule and on pushes to main.
+# CodeQL is slow (full compilation + analysis) — not in ci-fast.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"  # 03:00 UTC every Monday
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL Analysis (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: codeql
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+          # Use extended security queries in addition to default
+          queries: security-extended
+
+      - name: Build workspace for analysis
+        run: cargo build --workspace
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:rust
