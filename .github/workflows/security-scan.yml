@@ -9,6 +9,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ─── Secret scanning ───────────────────────────────────────────────────────
   # Detects secrets, tokens, and high-entropy strings in staged and committed code.
