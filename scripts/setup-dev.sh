@@ -100,8 +100,11 @@ echo "→ Installing cargo-kani (mathematical verification)..."
 if cargo kani --version &>/dev/null 2>&1; then
     pass "cargo-kani already installed"
 else
-    cargo install --locked kani-verifier 2>/dev/null && cargo kani setup 2>/dev/null || \
+    if cargo install --locked kani-verifier 2>/dev/null && cargo kani setup 2>/dev/null; then
+        pass "cargo-kani installed"
+    else
         warn "cargo-kani install failed — install manually: cargo install kani-verifier"
+    fi
 fi
 
 # ── gitleaks: secret scanning ────────────────────────────────────────────────
@@ -113,9 +116,11 @@ else
     GITLEAKS_VERSION="8.21.2"
     GITLEAKS_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
     echo "  downloading gitleaks v${GITLEAKS_VERSION}..."
-    curl -sSfL "${GITLEAKS_URL}" | tar -xz -C "${HOME}/.cargo/bin" gitleaks && \
-        pass "gitleaks installed" || \
+    if curl -sSfL "${GITLEAKS_URL}" | tar -xz -C "${HOME}/.cargo/bin" gitleaks; then
+        pass "gitleaks installed"
+    else
         warn "gitleaks install failed — install manually: https://github.com/gitleaks/gitleaks"
+    fi
 fi
 
 # ── System tools check ───────────────────────────────────────────────────────
