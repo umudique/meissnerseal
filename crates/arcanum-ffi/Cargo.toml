@@ -18,4 +18,4 @@ zeroize.workspace = true
 thiserror.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["thiserror"]
+ignored = ["thiserror", "arcanum-core", "arcanum-security", "zeroize"]

@@ -17,3 +17,6 @@ serde_json.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["arcanum-pqc", "arcanum-security", "serde", "serde_json", "uuid", "zeroize"]
