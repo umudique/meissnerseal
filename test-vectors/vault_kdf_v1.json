@@ -1,0 +1,66 @@
+{
+  "profile": "KDF_ARGON2ID_V1",
+  "version": 1,
+  "description": "Argon2id KDF and HKDF derivation chain test vectors",
+  "generated_by": "cross_verify.py",
+  "cases": [
+    {
+      "id": "muk-derivation",
+      "description": "Master Unlock Key from password and vault_id",
+      "inputs": {
+        "password": "test-password-never-real",
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "m_cost_kib": 65536,
+        "t_cost": 3,
+        "p_lanes": 4,
+        "output_len": 32,
+        "argon2_version": "0x13"
+      },
+      "expected": {
+        "argon2_salt": "617263616e756d2d6172676f6e3269642d73616c742d76310102030405060708090a0b0c0d0e0f10",
+        "master_unlock_key": "aa0897fcfbed25db54507b64afb3bc7b46ead8bedda6ad6cdd6ddf01f6a98ccd"
+      }
+    },
+    {
+      "id": "vkek-derivation",
+      "description": "Vault Key Encryption Key from MUK",
+      "inputs": {
+        "master_unlock_key": "aa0897fcfbed25db54507b64afb3bc7b46ead8bedda6ad6cdd6ddf01f6a98ccd",
+        "vault_id": "0102030405060708090a0b0c0d0e0f10"
+      },
+      "expected": {
+        "vault_key_encryption_key": "5172a4ac42a7ac7328c37d4adbc9817e50a54c008fa28455ee94cdc166cf420f"
+      }
+    },
+    {
+      "id": "root-prk-derivation",
+      "description": "Root PRK from Vault Root Key",
+      "inputs": {
+        "vault_root_key": "a0b1c2d3e4f5060718293a4b5c6d7e8f901112131415161718191a1b1c1d1e1f",
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "header_nonce": "010203040506070809101112131415161718192021222324"
+      },
+      "expected": {
+        "root_prk": "24034e17118240323a71f8d880ad3356fa1ba304ea9a7a26945e4708bebec8f9"
+      }
+    },
+    {
+      "id": "subkey-derivation",
+      "description": "All domain-separated subkeys from root PRK",
+      "inputs": {
+        "root_prk": "24034e17118240323a71f8d880ad3356fa1ba304ea9a7a26945e4708bebec8f9",
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "aead_id": 1
+      },
+      "expected": {
+        "item_key_wrapping_key": "39bf9e28a90306246f0bfc3cb8192cd9c362a70825247739875cf57b54611389",
+        "metadata_encryption_key": "b6d170e1b7440e079d06c02e40087744b4d45b37cc9cfef36131e64452b5ea58",
+        "local_audit_event_key": "0418f4ab3c08618fc93e2fd9bbd735da11e83f3c5fe8015e33d28909c30d5707",
+        "sync_envelope_key": "10f22977a2523a2be97aa925945fe5579c2690f74372fd0be5cc57f9d211d4d7",
+        "device_enrollment_key": "68a1a9cf2c3496780d5ba6a039a05a2cdf465b896b7d4cd6be85c0449921fbf7",
+        "recovery_wrapping_key": "d744692d9a7d186cd841002b86ddd55aa65f52364f2f78f42f12451ab16ab335",
+        "export_bundle_key": "c282425b3d6f6e7eea0f02c63f7a9304a4456e478e881bcc9a8e1f72384fe0c1"
+      }
+    }
+  ]
+}

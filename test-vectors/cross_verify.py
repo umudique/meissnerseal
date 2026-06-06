@@ -358,8 +358,8 @@ def generate_kdf_vectors() -> dict:
     # Derive root PRK (requires vault_root_key and header_nonce)
     vault_root_key = bytes.fromhex(
         "a0b1c2d3e4f5060718293a4b5c6d7e8f"
-        "9001112131415161718191a1b1c1d1e1f"
-    )[:32]
+        "901112131415161718191a1b1c1d1e1f"
+    )
     header_nonce = bytes.fromhex(
         "010203040506070809101112131415161718192021222324"
     )
