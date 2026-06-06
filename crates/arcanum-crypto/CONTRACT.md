@@ -13,6 +13,7 @@
 aead::   encrypt(key, plaintext, aad) -> Result<(Ciphertext, XChaCha20Nonce)>
          decrypt(key, nonce, ciphertext, aad) -> Result<Plaintext>
          generate_nonce() -> XChaCha20Nonce        // OS CSPRNG, non-overridable
+         Ciphertext::from(Vec<u8>)                 // construct from vault bytes for decrypt
 
 argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
          derive_vkek(master_unlock_key, vault_id) -> Result<VaultKeyEncKey>
@@ -20,6 +21,8 @@ argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
 hkdf::   extract(salt, ikm) -> Prk
          expand<const N>(prk, info) -> Result<Key<N>>
          derive_subkey(root_prk, purpose, vault_id, aead_id) -> Result<Key>
+         derive_root_prk(vault_root_key, vault_id, header_nonce) -> Prk
+           // SHA256(domain||vault_id||header_nonce) → HKDF-Extract
 
 rng::    random_bytes(len) -> Vec<u8>            // OS CSPRNG only
          random_key() -> [u8; 32]

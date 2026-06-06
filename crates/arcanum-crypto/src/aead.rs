@@ -20,6 +20,14 @@ impl AsRef<[u8]> for Ciphertext {
     }
 }
 
+// Allows arcanum-core to wrap ciphertext bytes loaded from the vault file
+// so they can be passed to `decrypt()`. This is the only public constructor.
+impl From<Vec<u8>> for Ciphertext {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+}
+
 impl core::fmt::Debug for Ciphertext {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Ciphertext([REDACTED])")

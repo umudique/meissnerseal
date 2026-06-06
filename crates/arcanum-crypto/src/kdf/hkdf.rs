@@ -116,8 +116,26 @@ pub fn derive_subkey(
     expand::<{ SubKey::LEN }>(root_prk, info.as_bytes())
 }
 
-#[allow(dead_code)]
-fn derive_root_prk(
+/// Derive the HKDF root PRK from the Vault Root Key.
+///
+/// Implements step 5 of the key hierarchy from `specs/crypto/crypto_design.md` §3:
+///
+/// ```text
+/// root_salt = SHA256("arcanum-root-salt-v1" || vault_id || header_nonce)
+/// root_prk  = HKDF-SHA256-Extract(salt=root_salt, ikm=vault_root_key)
+/// ```
+///
+/// # Contract
+/// ## Preconditions
+/// - `vault_root_key` was decrypted from the `WrappedRootKey` record via VKEK.
+/// - `vault_id` is the canonical 128-bit vault UUID from the header.
+/// - `header_nonce` is the 24-byte nonce from the vault header TLV tag `0x0007`.
+/// ## Postconditions
+/// - Returns a 32-byte `Prk` suitable for subkey expansion (step 6).
+/// ## Invariants
+/// - Uses no custom cryptographic primitive.
+/// - Secret values are not logged, printed, or written to any output.
+pub fn derive_root_prk(
     vault_root_key: &VaultRootKey,
     vault_id: &[u8; 16],
     header_nonce: &HeaderNonce,
