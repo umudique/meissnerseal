@@ -71,10 +71,10 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo +nightly install cargo-fuzz
       - name: Build fuzz target
-        run: cargo fuzz build ${{ matrix.target }}
+        run: cargo +nightly fuzz build ${{ matrix.target }}
       - name: Smoke run — 30 seconds
         run: >
-          cargo fuzz run ${{ matrix.target }}
+          cargo +nightly fuzz run ${{ matrix.target }}
           -- -max_total_time=30
           -rss_limit_mb=512
       - name: Upload crash artifacts (if any)
