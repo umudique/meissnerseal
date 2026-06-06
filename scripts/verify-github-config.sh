@@ -85,6 +85,14 @@ else
     fail "signed commits not required — enable in branch protection (ADR-018)"
 fi
 
+# ── Linear history required ───────────────────────────────────────────────────
+LINEAR=$(echo "$PROTECTION" | jq -r '.required_linear_history.enabled')
+if [ "$LINEAR" = "true" ]; then
+    pass "linear history required (no merge commits)"
+else
+    fail "linear history not required — enable in branch protection (ADR-018)"
+fi
+
 # ── Deletions forbidden ───────────────────────────────────────────────────────
 DELETIONS=$(echo "$PROTECTION" | jq -r '.allow_deletions.enabled')
 if [ "$DELETIONS" = "false" ]; then

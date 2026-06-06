@@ -36,6 +36,7 @@ With GitHub connected and CI operational, the project needed a policy for:
 | Required PR reviews | 0 (none) | Single developer; review requirement is unenforceable and blocks self-merge |
 | Dismiss stale reviews | n/a (reviews not required) | — |
 | Required signatures | `true` | All commits on `main` must be signed; SSH signing via `~/.ssh/id_rsa.pub` |
+| Required linear history | `true` | Merge commits forbidden; PRs must be rebased or squashed — keeps `git bisect` reliable |
 | Enforce admins | `false` | Allows emergency direct push when CI is broken at the infra level |
 | Allow force pushes | `false` | Protects shared history; force push requires explicit temporary unlock |
 | Allow deletions | `false` | — |
