@@ -116,9 +116,7 @@ jobs:
   kani:
     name: Kani
     runs-on: ubuntu-latest
-    # kani-github-action installs Kani binary which can take 30-60 min on shared runners.
-    # Non-blocking until we have a faster install strategy (cargo-binstall or cached binary).
-    continue-on-error: true
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: model-checking/kani-github-action@f838096619a707b0f6b2118cf435eaccfa33e51f # v1.1
