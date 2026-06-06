@@ -22,6 +22,44 @@
         "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100",
         "aad_length": 74
       }
+    },
+    {
+      "id": "aad-pqc-mlkem768-wrappedrootkey",
+      "description": "D5: AAD edge with pqc_profile=PQC_MLKEM_768_V1 (0x0001) and record_kind=WrappedRootKey (0x0002) (\u00a77)",
+      "inputs": {
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "format_version": 1,
+        "schema_profile": 1,
+        "aead_profile": 1,
+        "kdf_profile": 1,
+        "pqc_profile": 1,
+        "record_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "revision_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "record_kind": 2
+      },
+      "expected": {
+        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
+        "aad_length": 74
+      }
+    },
+    {
+      "id": "aad-auditevent-kind",
+      "description": "D5: AAD edge with varying record_kind=AuditEvent (0x0005), no PQC (\u00a77)",
+      "inputs": {
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "format_version": 1,
+        "schema_profile": 1,
+        "aead_profile": 1,
+        "kdf_profile": 1,
+        "pqc_profile": 0,
+        "record_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "revision_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "record_kind": 5
+      },
+      "expected": {
+        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0500",
+        "aad_length": 74
+      }
     }
   ]
 }

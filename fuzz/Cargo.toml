@@ -9,10 +9,6 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
-# cargo-machete: arcanum-core declared for fuzz targets — stubs not yet referencing it
-[package.metadata.cargo-machete]
-ignored = ["arcanum-core"]
-
 [[bin]]
 name = "vault_header"
 path = "fuzz_targets/vault_header.rs"

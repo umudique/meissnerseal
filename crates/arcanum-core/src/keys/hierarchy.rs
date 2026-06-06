@@ -37,9 +37,11 @@ const AEAD_ID: u16 = 1;
 ///   key material.
 /// - Constructed exclusively by [`derive_session_keys`] or [`create_session_keys`].
 /// - Subkeys sync, device-enroll, and recovery are omitted for MVP-0.
+/// - The `VaultRootKey` is **not** retained: it exists only transiently inside
+///   [`derive_session_keys`]/[`create_session_keys`] to derive `root_prk`, and
+///   is dropped (ZeroizeOnDrop) before this struct is returned. A live session
+///   never needs the raw VRK (F-05).
 pub struct UnlockedKeys {
-    /// Vault Root Key — unwrapped from the `WrappedRootKey` record.
-    pub vault_root_key: Key<32>,
     /// Item Key Wrapping Key — wraps per-revision Record Encryption Keys.
     pub item_wrap_key: Key<32>,
     /// Metadata Encryption Key.
@@ -78,7 +80,8 @@ pub struct UnlockedKeys {
 ///   constructed per `vault_format_v1.md` §7 with `record_kind = 0x0002`.
 ///
 /// ## Postconditions
-/// - On success: returns [`UnlockedKeys`] with all five subkeys fully derived.
+/// - On success: returns [`UnlockedKeys`] with all four HKDF subkeys fully
+///   derived (the VaultRootKey is consumed during derivation, not retained).
 /// - On Argon2id failure, AEAD authentication failure, or HKDF failure:
 ///   returns `Err` — no key material is exposed in the error value.
 ///
@@ -109,11 +112,14 @@ pub fn derive_session_keys(
     let ciphertext = Ciphertext::from(wrapped_root_key_ciphertext.to_vec());
     let vrk_plaintext =
         decrypt(&aead_key, &nonce, &ciphertext, aad).map_err(|_| CoreError::Auth)?;
-    let vrk_bytes: [u8; 32] = vrk_plaintext
+    let mut vrk_bytes: [u8; 32] = vrk_plaintext
         .as_ref()
         .try_into()
         .map_err(|_| CoreError::Crypto)?;
     let vault_root_key = Key::<32>::from_bytes(vrk_bytes);
+    // F-04: the intermediate stack copy of the VRK is not ZeroizeOnDrop —
+    // wipe it explicitly now that ownership has moved into `Key<32>`.
+    zeroize::Zeroize::zeroize(&mut vrk_bytes);
 
     // [5–6] VaultRootKey → root_prk → subkeys
     derive_subkeys(vault_root_key, vault_id, header_nonce)
@@ -173,7 +179,7 @@ pub fn create_session_keys(
     Ok((unlocked, ciphertext.as_ref().to_vec(), nonce_bytes))
 }
 
-/// Shared step 5–6: VaultRootKey → root_prk → five subkeys.
+/// Shared step 5–6: VaultRootKey → root_prk → four HKDF subkeys.
 fn derive_subkeys(
     vault_root_key: Key<32>,
     vault_id: &[u8; 16],
@@ -205,7 +211,6 @@ fn derive_subkeys(
         .map_err(|_| CoreError::Crypto)?;
 
     Ok(UnlockedKeys {
-        vault_root_key,
         item_wrap_key: Key::<32>::from_bytes(*item_wrap.as_bytes()),
         metadata_key: Key::<32>::from_bytes(*metadata.as_bytes()),
         audit_key: Key::<32>::from_bytes(*audit.as_bytes()),

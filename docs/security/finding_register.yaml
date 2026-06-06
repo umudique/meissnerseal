@@ -1,0 +1,334 @@
+# Arcanum — Finding Register
+#
+# Durable audit artifact: every security finding and verification-coverage gap,
+# with finding -> remediation -> verification traceability.
+# Maps to NIST SSDF RV.1/RV.2/RV.3 (see docs/security/standards_conformance.md §3).
+#
+# kind:     security_review | coverage_gap
+# status:   open | resolved | accepted | deferred | rejected
+# blocking: true if it blocks the named gate (e.g. an API Status: Stable mark)
+# Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
+
+version: 1
+updated: 2026-06-07
+
+findings:
+  # ── arcanum-core code-review findings (Consistency + Security agents) ─────────
+  - id: F-01
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "Zero revision_id used in AAD — weakens cross-revision binding"
+    cwe: CWE-345
+    severity: medium
+    blocking: false
+    status: deferred
+    remediation: "Phase 3: store + bind real revision_id (arcanum-ops P3-1/P3-2)"
+    verification: ""
+    commit: ""
+
+  - id: F-02
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "Zero record_id in create() AAD"
+    cwe: CWE-345
+    severity: medium
+    blocking: false
+    status: deferred
+    remediation: "Phase 3 (arcanum-ops P3-3)"
+    verification: ""
+    commit: ""
+
+  - id: F-03
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "Hardcoded KDF params instead of header-read params"
+    cwe: CWE-1188
+    severity: medium
+    blocking: false
+    status: deferred
+    remediation: "Phase 3: read KDF param TLV from header (arcanum-ops P3-4)"
+    verification: ""
+    commit: ""
+
+  - id: F-04
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "Unzeroized vrk_bytes [u8;32] stack copy of VaultRootKey"
+    cwe: CWE-316
+    severity: medium
+    blocking: true
+    status: resolved
+    remediation: "zeroize(&mut vrk_bytes) after Key::from_bytes in hierarchy.rs"
+    verification: "cargo build/test clean (35 tests); SEC re-review"
+    commit: ""   # to fill at WS-PUSH
+
+  - id: F-05
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "pub vault_root_key field exposed raw VRK cross-crate"
+    cwe: CWE-732
+    severity: medium
+    blocking: true
+    status: resolved
+    remediation: "Field removed from UnlockedKeys — VRK consumed in derivation, not retained"
+    verification: "cargo build/test clean; no dead-code; SEC re-review"
+    commit: ""
+
+  - id: F-06
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "pqc_profile silently defaults to 0 when TAG_PQC_PROFILE absent (downgrade surface)"
+    cwe: CWE-754
+    severity: low-medium
+    blocking: false
+    status: deferred
+    remediation: "MVP-0 fail-safe (PQC inactive, AAD binds pqc_profile); MVP-2: None+reject. Documented inline in format.rs (arcanum-ops DEC-1)"
+    verification: "Inline note present in format.rs"
+    commit: ""
+
+  - id: F-07
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "KDF profile parsed with read_u16_prefix (accepts trailing bytes) vs read_tlv_u16 elsewhere"
+    cwe: CWE-20
+    severity: low
+    blocking: false
+    status: rejected
+    remediation: "FALSE POSITIVE — spec §4 defines KDF TLV as profile_id||params_len||param_tlv[]; prefix-read is correct (reads profile_id, skips param section)"
+    verification: "specs/protocol/vault_format_v1.md §4"
+    commit: ""
+
+  - id: F-08
+    kind: security_review
+    source: "Security Review Agent — arcanum-core"
+    date: 2026-06-06
+    description: "All fuzz targets were empty stubs — false 'fuzz-tested parsers' assurance"
+    cwe: CWE-1025
+    severity: medium
+    blocking: true
+    status: resolved
+    remediation: "vault_header->parse_header+parse_record_table, encrypted_item->parse_record_frame wired; 4 future targets marked PENDING (parsers not implemented until MVP-2/3)"
+    verification: "cargo +nightly fuzz check clean; smoke run vault_header 1.3M / encrypted_item 2.8M runs, no crash"
+    commit: ""
+
+  # ── Test-vector coverage gaps (MVP-0 verification analysis) ──────────────────
+  # A1 + B*/C*/D* closed by TV-1 (generate) + TV-2 (negatives) + TV-3 (Rust
+  # consume & assert). A2 (CI drift guard) stays open until TV-4. Resolving
+  # commit SHAs filled at WS-PUSH merge.
+  - id: A1
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "test_vectors.rs empty — no JSON vectors consumed/asserted by Rust (cross-verification inert)"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-3"
+    verification: "crypto src/test_vectors.rs + core tests/vectors.rs consume all 7 vector files; cargo test --workspace green 2026-06-07"
+    commit: ""
+
+  - id: A2
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "No CI step runs cross_verify.py / guards against vector drift"
+    cwe: null
+    severity: high
+    blocking: true
+    status: open
+    remediation: "arcanum-ops TV-4 (run + git diff --exit-code)"
+    verification: ""
+    commit: ""
+
+  - id: B1
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing wrap/unwrap round-trip vector (VKEK + VRK + AAD -> WrappedRootKey); assurance matrix row 5"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_wrap_v1.json; asserted by crypto vault_wrap_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: B2
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing KDF parameter TLV encoding vector (profile_id||params_len||0x0101-0x0105); assurance matrix row 4"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_kdf_param_tlv_v1.json; asserted by core vault_kdf_param_tlv_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: B3
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Single vault_id only — cross-vault domain separation not covered"
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: "arcanum-ops TV-1 (P1)"
+    verification: "vault_wrap_v1.json cross-vault case; asserted by TV-3; cargo test green 2026-06-07"
+    commit: ""
+
+  - id: B4
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "No wrong-password MUK-distinctness vector"
+    cwe: null
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: "arcanum-ops TV-1 (P2)"
+    verification: "vault_wrap_v1.json wrong-password case; asserted by TV-3; cargo test green 2026-06-07"
+    commit: ""
+
+  - id: C1
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing tampered-ciphertext -> Err AEAD vector (spec §10)"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "aead_xchacha20_v1.json C1; asserted Err by crypto aead_xchacha20_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: C2
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing tampered-tag -> Err AEAD vector (spec §10)"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "aead_xchacha20_v1.json C2; asserted Err by crypto aead_xchacha20_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: C3
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing wrong-key -> Err AEAD vector"
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: "arcanum-ops TV-1 (P1)"
+    verification: "aead_xchacha20_v1.json C3; asserted Err by crypto aead_xchacha20_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: C4
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing empty-plaintext encrypt edge vector"
+    cwe: null
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: "arcanum-ops TV-1 (P2)"
+    verification: "aead_xchacha20_v1.json C4; asserted by crypto aead_xchacha20_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D1
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing 26-byte file prefix vector (MAGIC + version + lengths); spec §2"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_format_struct_v1.json d1; asserted by core vault_format_struct_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D2
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing full header TLV round-trip vector (7 required tags -> parse_header); spec §3"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_format_struct_v1.json d2; asserted via parse_header by core vault_format_struct_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D3
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing record table vector; spec §5"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_format_struct_v1.json d3; asserted via parse_record_table by core vault_format_struct_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D4
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "Missing record frame vector; spec §6"
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-1"
+    verification: "vault_format_struct_v1.json d4; asserted via parse_record_frame by core vault_format_struct_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D5
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: "AAD edges uncovered: pqc_profile != 0 and record_kind variations; spec §7"
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: "arcanum-ops TV-1 (P1)"
+    verification: "vault_format_v1.json AAD edge cases; asserted by core vault_format_v1_aad_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""
+
+  - id: D6
+    kind: coverage_gap
+    source: "Test-vector coverage analysis"
+    date: 2026-06-06
+    description: >-
+      Missing all 7 negative format reject fixtures (spec §10): wrong magic,
+      unsupported format_version, length-exceeds-file, unknown critical TLV tag,
+      nonce_len/AEAD mismatch, ciphertext_len exceeds frame, AEAD auth failure.
+    cwe: null
+    severity: high
+    blocking: true
+    status: resolved
+    remediation: "arcanum-ops TV-2 (vault_format_negative_v1.json)"
+    verification: "vault_format_negative_v1.json (7 fixtures); each asserted Err by core vault_format_negative_v1_vectors (TV-3); cargo test green 2026-06-07"
+    commit: ""

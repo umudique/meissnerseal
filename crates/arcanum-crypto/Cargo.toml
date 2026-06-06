@@ -19,5 +19,11 @@ zeroize.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# Test-only: deserialize test-vectors/*.json known-answer vectors. Already a
+# vetted workspace dependency (used by arcanum-core); no new supply-chain crate
+# and no version change — only test code links it.
+serde_json.workspace = true
+
 [package.metadata.cargo-machete]
 ignored = ["aes-gcm"]

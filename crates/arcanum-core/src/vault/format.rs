@@ -156,6 +156,11 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let mut created_at = None;
     let mut kdf_profile = None;
     let mut aead_profile = None;
+    // F-06 (deferred to MVP-2): a missing TAG_PQC_PROFILE defaults to profile 0
+    // ("no PQC"). This is the correct fail-safe for MVP-0 where PQC is not active
+    // and the 74-byte AAD already binds pqc_profile. When PQC becomes active in
+    // MVP-2 this MUST change to `None` + reject so a stripped tag cannot force a
+    // silent downgrade. See Security Review F-06.
     let mut pqc_profile = Some(0);
     let mut schema_profile = None;
     let mut header_nonce = None;

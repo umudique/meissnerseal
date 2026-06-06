@@ -88,6 +88,13 @@ for security-sensitive tasks. It mandates:
 - Security finding format: `file:line | CWE-XXX | description | severity`
 - Verification section: tools run, results, test vectors
 
+**Amendment 2026-06-07 (format, non-substantive).** The template is now
+*render-from-source* rather than copy-paste verbatim blocks: a shared `common`
+block plus a per-role delta, expanded to a prose prompt via the render recipe in
+`AGENT_PROMPT_TEMPLATE.md §1`. The decision to use structured, role-specific
+prompts is unchanged; only its encoding was deduplicated (~70% less marginal
+read per prompt). See also ADR-022 for where live execution state is tracked.
+
 ### No AI attribution in commits
 
 **Adopted.** Commits do not carry `Co-Authored-By` or equivalent AI

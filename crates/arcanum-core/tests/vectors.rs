@@ -1,0 +1,365 @@
+//! Integration known-answer tests for arcanum-core vault parsing (finding A1).
+//!
+//! Deserializes `test-vectors/*.json` and drives the real public
+//! `vault::format` API: positives must round-trip to the documented fields and
+//! AAD bytes; negatives must be rejected (fail-closed). The negative AEAD case
+//! drives `arcanum_crypto::aead::decrypt`. Vectors carry no real secrets and no
+//! plaintext is printed; failure messages reference only the case id.
+
+// REASON: KAT-consumption test over fixed, non-secret vectors. Indexing,
+// unchecked arithmetic, casts, and expect/panic/unwrap are acceptable in this
+// test-only code, which never ships in a release binary.
+#![allow(
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used
+)]
+
+use arcanum_core::vault::format::{
+    build_aad, parse_header, parse_record_frame, parse_record_table, RecordFrame, HEADER_MIN_LEN,
+};
+use arcanum_crypto::aead::{decrypt, Ciphertext};
+use arcanum_crypto::types::{AeadKey, XChaCha20Nonce};
+use serde_json::Value;
+use std::path::PathBuf;
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+fn vectors_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vectors")
+}
+
+fn load(name: &str) -> Value {
+    let path = vectors_dir().join(name);
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    serde_json::from_str(&text).expect("valid JSON vector file")
+}
+
+fn unhex(s: &str) -> Vec<u8> {
+    assert!(
+        s.len().is_multiple_of(2),
+        "hex string must have even length"
+    );
+    s.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16).expect("hex digit");
+            let lo = (pair[1] as char).to_digit(16).expect("hex digit");
+            ((hi << 4) | lo) as u8
+        })
+        .collect()
+}
+
+fn arr<const N: usize>(s: &str) -> [u8; N] {
+    <[u8; N]>::try_from(unhex(s).as_slice()).expect("fixed-width hex field")
+}
+
+fn find<'a>(v: &'a Value, id: &str) -> &'a Value {
+    v["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .find(|c| c["id"].as_str() == Some(id))
+        .unwrap_or_else(|| panic!("missing case {id}"))
+}
+
+fn u16_from_hex_tag(s: &str) -> u16 {
+    u16::from_str_radix(s.trim_start_matches("0x"), 16).expect("hex tag")
+}
+
+// ── vault_format_v1.json — canonical 74-byte AAD construction (§7) ───────────
+
+#[test]
+fn vault_format_v1_aad_vectors() {
+    let v = load("vault_format_v1.json");
+    for c in v["cases"].as_array().expect("cases") {
+        let id = c["id"].as_str().expect("id");
+        let i = &c["inputs"];
+        let vault_id = arr::<16>(i["vault_id"].as_str().unwrap());
+        let record_id = arr::<16>(i["record_id"].as_str().unwrap());
+        let revision_id = arr::<16>(i["revision_id"].as_str().unwrap());
+        let aad = build_aad(
+            &vault_id,
+            i["format_version"].as_u64().unwrap() as u16,
+            i["schema_profile"].as_u64().unwrap() as u16,
+            i["aead_profile"].as_u64().unwrap() as u16,
+            i["kdf_profile"].as_u64().unwrap() as u16,
+            i["pqc_profile"].as_u64().unwrap() as u16,
+            &record_id,
+            &revision_id,
+            i["record_kind"].as_u64().unwrap() as u16,
+        );
+        let expected = unhex(c["expected"]["aad_hex"].as_str().unwrap());
+        assert_eq!(aad.as_slice(), expected.as_slice(), "case {id}: AAD bytes");
+        assert_eq!(aad.len(), 74, "case {id}: AAD length");
+    }
+}
+
+// ── vault_format_struct_v1.json — D1 prefix / D2 header / D3 table / D4 frame ─
+
+#[test]
+fn vault_format_struct_v1_vectors() {
+    let v = load("vault_format_struct_v1.json");
+    let d1 = find(&v, "d1-file-prefix");
+    let d2 = find(&v, "d2-header-tlv");
+    let d3 = find(&v, "d3-record-table");
+    let d4 = find(&v, "d4-record-frame");
+
+    let prefix = unhex(d1["expected"]["prefix_hex"].as_str().unwrap());
+    let header = unhex(d2["expected"]["header_hex"].as_str().unwrap());
+    let record_table = unhex(d3["expected"]["record_table_hex"].as_str().unwrap());
+    let frame = unhex(d4["expected"]["frame_hex"].as_str().unwrap());
+
+    // D1: structural fields of the 26-byte prefix.
+    assert_eq!(&prefix[0..8], b"ARCANUM\x01", "d1: magic");
+    let format_version = u16::from_le_bytes(prefix[8..10].try_into().unwrap());
+    let header_len = u32::from_le_bytes(prefix[10..14].try_into().unwrap()) as usize;
+    let record_table_len = u32::from_le_bytes(prefix[14..18].try_into().unwrap()) as usize;
+    assert_eq!(
+        format_version,
+        d1["inputs"]["format_version"].as_u64().unwrap() as u16,
+        "d1: format_version"
+    );
+    assert_eq!(
+        header_len,
+        d1["inputs"]["header_len"].as_u64().unwrap() as usize,
+        "d1: header_len"
+    );
+    assert_eq!(
+        record_table_len,
+        d1["inputs"]["record_table_len"].as_u64().unwrap() as usize,
+        "d1: record_table_len"
+    );
+
+    // Assemble a complete, internally consistent blob: prefix || header ||
+    // record_table || frame. The prefix's declared lengths match each section,
+    // so parse_header accepts it and yields the D2 header fields.
+    let mut blob = Vec::new();
+    blob.extend_from_slice(&prefix);
+    blob.extend_from_slice(&header);
+    blob.extend_from_slice(&record_table);
+    blob.extend_from_slice(&frame);
+
+    // D2: header TLV round-trip.
+    let parsed = parse_header(&blob).expect("d2: header must parse");
+    let i = &d2["inputs"];
+    assert_eq!(
+        parsed.vault_id,
+        arr::<16>(i["vault_id"].as_str().unwrap()),
+        "d2: vault_id"
+    );
+    assert_eq!(
+        parsed.created_at,
+        i["created_at_ms"].as_u64().unwrap(),
+        "d2: created_at"
+    );
+    assert_eq!(
+        parsed.kdf_profile,
+        i["kdf_profile"].as_u64().unwrap() as u16,
+        "d2: kdf_profile"
+    );
+    assert_eq!(
+        parsed.aead_profile,
+        i["aead_profile"].as_u64().unwrap() as u16,
+        "d2: aead_profile"
+    );
+    assert_eq!(
+        parsed.pqc_profile,
+        i["pqc_profile"].as_u64().unwrap() as u16,
+        "d2: pqc_profile"
+    );
+    assert_eq!(
+        parsed.schema_profile,
+        i["schema_profile"].as_u64().unwrap() as u16,
+        "d2: schema_profile"
+    );
+    assert_eq!(
+        parsed.header_nonce,
+        arr::<24>(i["header_nonce"].as_str().unwrap()),
+        "d2: header_nonce"
+    );
+
+    // D3: record table round-trip.
+    let entries = parse_record_table(&blob, HEADER_MIN_LEN + header_len, record_table_len)
+        .expect("d3: record table must parse");
+    let records = d3["expected"]["records"].as_array().unwrap();
+    assert_eq!(entries.len(), records.len(), "d3: record count");
+    for (entry, rec) in entries.iter().zip(records.iter()) {
+        assert_eq!(
+            entry.record_id,
+            arr::<16>(rec["record_id"].as_str().unwrap()),
+            "d3: record_id"
+        );
+        assert_eq!(
+            entry.record_kind,
+            u16_from_hex_tag(rec["record_kind"].as_str().unwrap()),
+            "d3: record_kind"
+        );
+        assert_eq!(
+            entry.frame_offset,
+            rec["frame_offset"].as_u64().unwrap(),
+            "d3: frame_offset"
+        );
+        assert_eq!(
+            entry.frame_len,
+            rec["frame_len"].as_u64().unwrap() as u32,
+            "d3: frame_len"
+        );
+    }
+
+    // D4: encrypted record frame round-trip.
+    let frame_len = d4["expected"]["frame_len"].as_u64().unwrap() as u32;
+    let rf = parse_record_frame(&frame, frame_len).expect("d4: frame must parse");
+    let i = &d4["inputs"];
+    assert_eq!(
+        rf.frame_version,
+        i["frame_version"].as_u64().unwrap() as u16,
+        "d4: frame_version"
+    );
+    assert_eq!(
+        rf.record_id,
+        arr::<16>(i["record_id"].as_str().unwrap()),
+        "d4: record_id"
+    );
+    assert_eq!(
+        rf.nonce,
+        arr::<24>(i["nonce"].as_str().unwrap()),
+        "d4: nonce"
+    );
+    assert_eq!(
+        rf.ciphertext_len as usize,
+        rf.ciphertext.len(),
+        "d4: ciphertext_len consistency"
+    );
+    assert_eq!(
+        rf.ciphertext.as_slice(),
+        unhex(d4["expected"]["ciphertext_with_tag_hex"].as_str().unwrap()).as_slice(),
+        "d4: ciphertext_with_tag"
+    );
+}
+
+// ── vault_kdf_param_tlv_v1.json — KDF parameter TLV block (§4) ────────────────
+
+#[test]
+fn vault_kdf_param_tlv_v1_vectors() {
+    let v = load("vault_kdf_param_tlv_v1.json");
+    let c = find(&v, "kdf-param-tlv-argon2id-v1");
+    let block = unhex(c["expected"]["kdf_profile_value_hex"].as_str().unwrap());
+
+    // kdf_profile_value := profile_id:u16le || params_len:u32le || param TLVs
+    let profile_id = u16::from_le_bytes(block[0..2].try_into().unwrap());
+    assert_eq!(
+        profile_id,
+        c["inputs"]["profile_id"].as_u64().unwrap() as u16,
+        "kdf: profile_id"
+    );
+    let params_len = u32::from_le_bytes(block[2..6].try_into().unwrap()) as usize;
+    assert_eq!(
+        params_len,
+        c["expected"]["params_len"].as_u64().unwrap() as usize,
+        "kdf: params_len"
+    );
+    let tlvs = &block[6..];
+    assert_eq!(
+        tlvs.len(),
+        params_len,
+        "kdf: param block length matches params_len"
+    );
+
+    // Walk KdfParamTlv := tag:u16le || len:u16le || value[len].
+    let expected_tlvs = c["expected"]["parsed_tlvs"].as_array().unwrap();
+    let mut cursor = 0usize;
+    for exp in expected_tlvs {
+        let tag = u16::from_le_bytes(tlvs[cursor..cursor + 2].try_into().unwrap());
+        let len = u16::from_le_bytes(tlvs[cursor + 2..cursor + 4].try_into().unwrap()) as usize;
+        let value = &tlvs[cursor + 4..cursor + 4 + len];
+        assert_eq!(
+            tag,
+            u16_from_hex_tag(exp["tag"].as_str().unwrap()),
+            "kdf: tlv tag"
+        );
+        assert_eq!(len, exp["len"].as_u64().unwrap() as usize, "kdf: tlv len");
+        assert_eq!(
+            value,
+            unhex(exp["value_hex"].as_str().unwrap()).as_slice(),
+            "kdf: tlv value"
+        );
+        cursor += 4 + len;
+    }
+    assert_eq!(cursor, params_len, "kdf: consumed exactly params_len bytes");
+    assert_eq!(expected_tlvs.len(), 5, "kdf: five Argon2id params");
+}
+
+// ── vault_format_negative_v1.json — §10 reject rules (fail closed) ───────────
+
+/// Drive a full blob through header -> record table -> first record frame.
+/// Returns `Some(frame)` only if every layer parses; otherwise `None`.
+fn drive_to_frame(blob: &[u8]) -> Option<RecordFrame> {
+    parse_header(blob).ok()?;
+    let header_len = u32::from_le_bytes(blob.get(10..14)?.try_into().ok()?) as usize;
+    let record_table_len = u32::from_le_bytes(blob.get(14..18)?.try_into().ok()?) as usize;
+    let entries = parse_record_table(blob, HEADER_MIN_LEN + header_len, record_table_len).ok()?;
+    let entry = entries.first()?;
+    let frame_offset = usize::try_from(entry.frame_offset).ok()?;
+    let frame_bytes = blob.get(frame_offset..)?;
+    parse_record_frame(frame_bytes, entry.frame_len).ok()
+}
+
+#[test]
+fn vault_format_negative_v1_vectors() {
+    let v = load("vault_format_negative_v1.json");
+
+    // The AEAD-auth-failure fixture tampered the frame produced by the D4 struct
+    // vector; read its key + AAD from that vector rather than hardcoding.
+    let sv = load("vault_format_struct_v1.json");
+    let d4 = find(&sv, "d4-record-frame");
+    let aead_key = AeadKey::from_bytes(arr::<32>(d4["inputs"]["key"].as_str().unwrap()));
+    let aead_aad = unhex(d4["inputs"]["aad"].as_str().unwrap());
+
+    for c in v["cases"].as_array().expect("cases") {
+        let id = c["id"].as_str().expect("id");
+        let reason = c["expected"]["reason"].as_str().expect("reason");
+        assert_eq!(
+            c["expected"]["result"].as_str(),
+            Some("Err"),
+            "case {id}: must be a reject case"
+        );
+        let blob = unhex(c["inputs"]["input_hex"].as_str().unwrap());
+
+        match reason {
+            // Rejected at the header parser.
+            "wrong_magic"
+            | "unsupported_format_version"
+            | "header_len_exceeds_file"
+            | "unknown_critical_tlv_tag" => {
+                assert!(
+                    parse_header(&blob).is_err(),
+                    "case {id}: parse_header must reject"
+                );
+            }
+            // Header is valid; rejected at the record-frame parser.
+            "nonce_len_aead_mismatch" | "ciphertext_len_exceeds_frame" => {
+                assert!(
+                    drive_to_frame(&blob).is_none(),
+                    "case {id}: frame parse must reject"
+                );
+            }
+            // Structurally valid frame; rejected by AEAD authentication.
+            "aead_auth_failure" => {
+                let frame = drive_to_frame(&blob)
+                    .expect("case aead_auth_failure: frame must be structurally valid");
+                let nonce = XChaCha20Nonce::from_bytes(frame.nonce);
+                let ciphertext = Ciphertext::from(frame.ciphertext);
+                assert!(
+                    decrypt(&aead_key, &nonce, &ciphertext, &aead_aad).is_err(),
+                    "case {id}: AEAD must reject the tampered frame"
+                );
+            }
+            other => panic!("unknown negative reason tag: {other}"),
+        }
+    }
+}

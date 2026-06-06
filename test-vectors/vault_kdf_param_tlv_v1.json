@@ -1,0 +1,57 @@
+{
+  "profile": "KDF_ARGON2ID_V1",
+  "version": 1,
+  "description": "KDF parameter TLV block encoding (vault_format_v1.md \u00a74)",
+  "generated_by": "cross_verify.py",
+  "cases": [
+    {
+      "id": "kdf-param-tlv-argon2id-v1",
+      "description": "profile_id:u16le || params_len:u32le || param TLVs 0x0101-0x0105 (\u00a74)",
+      "inputs": {
+        "profile_id": 1,
+        "m_cost_kib": 65536,
+        "t_cost": 3,
+        "p_lanes": 4,
+        "output_len": 32,
+        "argon2_version": "0x13"
+      },
+      "expected": {
+        "kdf_profile_value_hex": "0100260000000101040000000100020104000300000003010400040000000401020020000501040013000000",
+        "params_len": 38,
+        "param_tlvs_hex": "0101040000000100020104000300000003010400040000000401020020000501040013000000",
+        "parsed_tlvs": [
+          {
+            "tag": "0x0101",
+            "name": "m_cost_kib",
+            "len": 4,
+            "value_hex": "00000100"
+          },
+          {
+            "tag": "0x0102",
+            "name": "t_cost",
+            "len": 4,
+            "value_hex": "03000000"
+          },
+          {
+            "tag": "0x0103",
+            "name": "p_lanes",
+            "len": 4,
+            "value_hex": "04000000"
+          },
+          {
+            "tag": "0x0104",
+            "name": "output_len",
+            "len": 2,
+            "value_hex": "2000"
+          },
+          {
+            "tag": "0x0105",
+            "name": "argon2_version",
+            "len": 4,
+            "value_hex": "13000000"
+          }
+        ]
+      }
+    }
+  ]
+}

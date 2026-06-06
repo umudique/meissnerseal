@@ -1,5 +1,7 @@
 /target/
 /fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
 **/*.rs.bk
 *.arcv
 *.arcexp
