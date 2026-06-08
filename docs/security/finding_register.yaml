@@ -64,7 +64,7 @@ findings:
     status: resolved
     remediation: "zeroize(&mut vrk_bytes) after Key::from_bytes in hierarchy.rs"
     verification: "cargo build/test clean (35 tests); SEC re-review"
-    commit: ""   # to fill at WS-PUSH
+    commit: "fed9c72"
 
   - id: F-05
     kind: security_review
@@ -77,7 +77,7 @@ findings:
     status: resolved
     remediation: "Field removed from UnlockedKeys — VRK consumed in derivation, not retained"
     verification: "cargo build/test clean; no dead-code; SEC re-review"
-    commit: ""
+    commit: "fed9c72"
 
   - id: F-06
     kind: security_review
@@ -116,7 +116,7 @@ findings:
     status: resolved
     remediation: "vault_header->parse_header+parse_record_table, encrypted_item->parse_record_frame wired; 4 future targets marked PENDING (parsers not implemented until MVP-2/3)"
     verification: "cargo +nightly fuzz check clean; smoke run vault_header 1.3M / encrypted_item 2.8M runs, no crash"
-    commit: ""
+    commit: "fed9c72"
 
   # ── Test-vector coverage gaps (MVP-0 verification analysis) ──────────────────
   # A1 + B*/C*/D* closed by TV-1 (generate) + TV-2 (negatives) + TV-3 (Rust
