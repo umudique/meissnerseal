@@ -23,7 +23,7 @@ findings:
     severity: medium
     blocking: false
     status: deferred
-    remediation: "Phase 3: store + bind real revision_id (arcanum-ops P3-1/P3-2)"
+    remediation: "Phase 3: store + bind real revision_id (arcanum-ops P3-1/P3-2). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — deferral is contract-incompatible while CONTRACT P-02 requires canonical AAD]"
     verification: ""
     commit: ""
 
@@ -36,7 +36,7 @@ findings:
     severity: medium
     blocking: false
     status: deferred
-    remediation: "Phase 3 (arcanum-ops P3-3)"
+    remediation: "Phase 3 (arcanum-ops P3-3). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — zero record_id contradicts CONTRACT P-02 canonical AAD]"
     verification: ""
     commit: ""
 
@@ -49,7 +49,7 @@ findings:
     severity: medium
     blocking: false
     status: deferred
-    remediation: "Phase 3: read KDF param TLV from header (arcanum-ops P3-4)"
+    remediation: "Phase 3: read KDF param TLV from header (arcanum-ops P3-4). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — also conflicts with arcanum-crypto CONTRACT G-05 no-hardcoded-params]"
     verification: ""
     commit: ""
 
@@ -332,3 +332,46 @@ findings:
     remediation: "arcanum-ops TV-2 (vault_format_negative_v1.json)"
     verification: "vault_format_negative_v1.json (7 fixtures); each asserted Err by core vault_format_negative_v1_vectors (TV-3); cargo test green 2026-06-07"
     commit: "fed9c72"
+
+  # ── MVP-0 Stable-readiness milestone review (Consistency + Security agents) ───
+  # Surfaced 2026-06-08 reviewing feat/mvp0-test-vectors before CORE-STABLE.
+  # All three block marking arcanum-core API Stable until resolved OR formally
+  # re-scoped in CONTRACT/spec/ADR. See arcanum-ops CORE-STABLE (re-blocked).
+  - id: F-09
+    kind: security_review
+    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    date: 2026-06-08
+    description: "create() does not serialize/persist a vault file (no temp-file/fsync/rename crash-safe write); returns a session after key derivation only"
+    cwe: CWE-693
+    severity: high
+    blocking: true
+    status: open
+    remediation: "Implement crash-safe vault write (serialize -> encrypt -> temp -> fsync -> rename -> fsync parent) OR re-scope CONTRACT to exclude persistence from the Stable surface"
+    verification: ""
+    commit: ""
+
+  - id: F-10
+    kind: security_review
+    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    date: 2026-06-08
+    description: "Session derivation expands 4 HKDF subkeys while crypto_design.md §3 specifies 7 registry subkeys; cross_verify.py SUBKEY_PURPOSES also defines 7 — vector-vs-impl gap"
+    cwe: CWE-325
+    severity: high
+    blocking: true
+    status: open
+    remediation: "Derive all 7 specified subkeys OR formally narrow the spec/CONTRACT to the MVP-0 4-subkey subset with an ADR"
+    verification: ""
+    commit: ""
+
+  - id: F-11
+    kind: consistency
+    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    date: 2026-06-08
+    description: "CONTRACT.md states create() returns VaultHandle and VaultSession comes only via unlock(), but the implementation returns VaultSession from create()"
+    cwe: CWE-684
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Reconcile CONTRACT.md with the implemented create()/unlock() return types before marking Stable"
+    verification: ""
+    commit: ""
