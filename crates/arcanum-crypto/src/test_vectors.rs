@@ -28,20 +28,25 @@ mod tests {
     use crate::kdf::hkdf::{derive_root_prk, derive_subkey, Prk, SubkeyPurpose};
     use crate::types::{AeadKey, HeaderNonce, Key, MasterUnlockKey, VaultRootKey, XChaCha20Nonce};
     use serde_json::Value;
-    use std::path::PathBuf;
     use subtle::ConstantTimeEq;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    fn vectors_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vectors")
-    }
-
+    /// Load a KAT vector file. The JSON is embedded at compile time via
+    /// `include_str!` so the test is hermetic — it performs no runtime file
+    /// `open`, which keeps it runnable under Miri's enabled isolation. The
+    /// on-disk files remain the source of truth (the CI drift guard regenerates
+    /// and `git diff`s them); cargo recompiles when they change.
     fn load(name: &str) -> Value {
-        let path = vectors_dir().join(name);
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        serde_json::from_str(&text).expect("valid JSON vector file")
+        let text = match name {
+            "vault_kdf_v1.json" => include_str!("../../../test-vectors/vault_kdf_v1.json"),
+            "aead_xchacha20_v1.json" => {
+                include_str!("../../../test-vectors/aead_xchacha20_v1.json")
+            }
+            "vault_wrap_v1.json" => include_str!("../../../test-vectors/vault_wrap_v1.json"),
+            other => panic!("unknown vector file {other}"),
+        };
+        serde_json::from_str(text).expect("valid JSON vector file")
     }
 
     fn unhex(s: &str) -> Vec<u8> {
