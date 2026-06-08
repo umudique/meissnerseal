@@ -22,10 +22,10 @@ findings:
     cwe: CWE-345
     severity: medium
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "Phase 3: store + bind real revision_id (arcanum-ops P3-1/P3-2). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — deferral is contract-incompatible while CONTRACT P-02 requires canonical AAD]"
-    verification: ""
-    commit: ""
+    verification: "CORE-4 (ADR-025 Option A): create() generates a CSPRNG revision_id, binds it into the canonical AAD (§7) before create_session_keys, and persists it in the §6 frame; parse_record_frame now exposes revision_id and unlock() rebuilds the AAD from it (no more zero_revision). Substitution-resistance proven: patching the persisted revision_id makes unlock() fail AEAD auth (test unlock_rejects_patched_frame_revision_id). 44 core tests green, clippy -D warnings clean."
+    commit: "1f8e8fb"
 
   - id: F-02
     kind: security_review
@@ -35,10 +35,10 @@ findings:
     cwe: CWE-345
     severity: medium
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "Phase 3 (arcanum-ops P3-3). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — zero record_id contradicts CONTRACT P-02 canonical AAD]"
-    verification: ""
-    commit: ""
+    verification: "CORE-4 (ADR-025 Option A): create() generates a CSPRNG record_id, binds it into the canonical AAD (§7) before create_session_keys, and persists it in both the record-table entry and the §6 frame; unlock() rebuilds the AAD from frame.record_id. Substitution-resistance proven: patching the persisted record_id makes unlock() fail AEAD auth (test unlock_rejects_patched_frame_record_id). Same commit as F-01."
+    commit: "1f8e8fb"
 
   - id: F-03
     kind: security_review
