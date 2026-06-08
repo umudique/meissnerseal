@@ -72,6 +72,25 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc --workspace
 
+  # ─── Test vectors ────────────────────────────────────────────────────────────
+  # Generator drift or dependency degradation must fail closed.
+  vectors:
+    name: Test vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: '3.12'
+      - name: Install test-vector dependencies
+        run: pip install -r test-vectors/requirements.txt
+      - name: Regenerate and compare test vectors
+        run: |
+          python3 test-vectors/cross_verify.py | tee /tmp/cv.out
+          grep -qE "missing dependency|skipped|✗" /tmp/cv.out \
+            && { echo "generator degraded"; exit 1; }
+          git diff --exit-code test-vectors/
+
   # ─── CVE scan ──────────────────────────────────────────────────────────────
   audit:
     name: Audit
