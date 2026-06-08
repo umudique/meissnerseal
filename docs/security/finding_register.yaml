@@ -398,6 +398,19 @@ findings:
     severity: low
     blocking: false
     status: open
-    remediation: "DECISION PENDING (HUMAN): either (a) implement the full §5 byte-model — expose+serialize+parse the table revision_id consistently — or (b) amend vault_format_v1.md §5 to drop the table revision_id (frame is authoritative), reconciling spec to code. Same class as F-11."
+    remediation: "DECISION 2026-06-08 (HUMAN): option (a) — implement the full §5 byte-model. Add revision_id to RecordTableEntry; serialize/parse it consistently with the frame's revision_id (same value for the WRK record); keep the 46-byte entry layout. Regenerate the affected test vectors (cross_verify.py) so the TV-4 drift guard stays green. Rejected (b) drop-from-spec: chosen to keep the table sync-ready (index-level revision is a sync/transfer affordance). See F-14 for the latent table-authentication requirement this creates."
+    verification: ""
+    commit: ""
+
+  - id: F-14
+    kind: design
+    source: "Derived from F-13 decision (a), GATE-CORE-REV re-review — arcanum-core"
+    date: 2026-06-08
+    description: "The record table is cleartext (I-03) and unauthenticated; once F-13(a) stores a real revision_id in the table, there are two revision sources — the frame's (AEAD-authenticated, authoritative) and the table's (cleartext, unauthenticated). Harmless in MVP-0 (no consumer trusts the table revision), but a tampered table revision becomes an integrity gap the moment a consumer (sync/transfer reconciliation) relies on it"
+    cwe: CWE-345
+    severity: low
+    blocking: false
+    status: deferred
+    remediation: "BEFORE any consumer trusts table-level metadata (sync/transfer): design table/index authentication — e.g. a table digest bound into record-frame AAD, or a dedicated table MAC, under a new schema_profile. Until then, the table revision_id is advisory only and MUST NOT be trusted for security decisions; the frame revision remains authoritative."
     verification: ""
     commit: ""
