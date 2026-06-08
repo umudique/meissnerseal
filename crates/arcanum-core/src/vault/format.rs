@@ -144,8 +144,14 @@ pub struct RecordFrame {
     /// Record frame version.
     pub frame_version: u16,
 
-    /// 128-bit record identifier.
+    /// 128-bit record identifier from `vault_format_v1.md` §6.
     pub record_id: [u8; 16],
+
+    /// 128-bit record revision identifier from `vault_format_v1.md` §6.
+    ///
+    /// This value is authenticated through canonical AAD and must be exposed so
+    /// unlock can rebuild the exact AAD used when the frame was encrypted.
+    pub revision_id: [u8; 16],
 
     /// AEAD nonce bytes.
     pub nonce: [u8; 24],
@@ -386,7 +392,8 @@ pub fn serialize_record_table(entries: &[RecordTableEntry]) -> Result<Vec<u8>> {
 /// - On success, returns one complete encrypted frame whose declared lengths
 ///   match the emitted bytes.
 /// - [`parse_record_frame`] over the returned bytes reconstructs the encrypted
-///   frame metadata and ciphertext bytes.
+///   frame metadata, including `record_id`, `revision_id`, and ciphertext
+///   bytes.
 /// - Returns `Err` with no partial frame if any declared length is inconsistent
 ///   or unsupported.
 ///
@@ -412,7 +419,7 @@ pub fn serialize_record_frame(frame: &RecordFrame, aad: &[u8; 74]) -> Result<Vec
     let mut bytes = Vec::with_capacity(frame_len);
     bytes.extend_from_slice(&frame.frame_version.to_le_bytes());
     bytes.extend_from_slice(&frame.record_id);
-    bytes.extend_from_slice(&[0u8; 16]);
+    bytes.extend_from_slice(&frame.revision_id);
     bytes.extend_from_slice(&1u16.to_le_bytes());
     bytes.push(
         u8::try_from(XCHACHA20_NONCE_LEN).map_err(|_| format_error("nonce length overflow"))?,
@@ -791,6 +798,9 @@ pub fn parse_record_table(
 /// - `frame_len` is the declared length from the record table.
 /// ## Postconditions
 /// - Returns the parsed frame or `Err`.
+/// - On success, exposes both stored identifiers from §6:
+///   `record_id[16]` and `revision_id[16]`, so callers can rebuild canonical
+///   AAD per §7.
 /// - Rejects if `ciphertext_len` exceeds frame boundary.
 /// ## Invariants
 /// - Never returns partial output on malformed input.
@@ -807,6 +817,7 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
     let mut cursor = 2;
     let record_id = read_array_at::<16>(frame, cursor)?;
     cursor += 16;
+    let revision_id = read_array_at::<16>(frame, cursor)?;
     cursor += 16;
     let _aead_profile = read_u16_le(frame, cursor)?;
     cursor += 2;
@@ -848,6 +859,7 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
     Ok(RecordFrame {
         frame_version,
         record_id,
+        revision_id,
         nonce,
         ciphertext_len,
         ciphertext: frame[cursor..ciphertext_end].to_vec(),
@@ -1215,6 +1227,7 @@ mod tests {
         let frame = RecordFrame {
             frame_version: 1,
             record_id: RECORD_ID,
+            revision_id: REVISION_ID,
             nonce: [0x33; 24],
             ciphertext_len: usize_to_u32_for_test(ciphertext.len()),
             ciphertext,
@@ -1228,6 +1241,7 @@ mod tests {
             if let Ok(parsed) = parsed {
                 assert_eq!(parsed.frame_version, frame.frame_version);
                 assert_eq!(parsed.record_id, frame.record_id);
+                assert_eq!(parsed.revision_id, frame.revision_id);
                 assert_eq!(parsed.nonce, frame.nonce);
                 assert_eq!(parsed.ciphertext_len, frame.ciphertext_len);
                 assert_eq!(parsed.ciphertext, frame.ciphertext);

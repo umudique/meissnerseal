@@ -65,6 +65,9 @@ pub struct UnlockParams {
 ///
 /// ## Postconditions
 /// - On success: key hierarchy is derived and a [`VaultSession`] is returned.
+/// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
+///   for the WrappedRootKey frame before AAD construction; those same IDs are
+///   persisted in the record-table/frame metadata.
 /// - On failure: `Err` is returned and no partial file remains on disk.
 ///
 /// ## Invariants
@@ -89,15 +92,14 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
     let vault_id: [u8; 16] = arcanum_crypto::rng::random_bytes(16)
         .try_into()
         .map_err(|_| CoreError::Crypto)?;
+    let record_id: [u8; 16] = arcanum_crypto::rng::random_bytes(16)
+        .try_into()
+        .map_err(|_| CoreError::Crypto)?;
+    let revision_id: [u8; 16] = arcanum_crypto::rng::random_bytes(16)
+        .try_into()
+        .map_err(|_| CoreError::Crypto)?;
     let header_nonce = arcanum_crypto::rng::random_nonce_xchacha20();
 
-    // Build canonical AAD for the WrappedRootKey record.
-    // TODO(Phase 3 F-01/F-03): replace zero_id with real random record_id and
-    // revision_id once the vault serialization path is implemented. Using zero
-    // IDs here means the AAD does not bind to a specific record or revision,
-    // weakening cross-record substitution resistance. Acceptable for MVP-0
-    // because create() does not yet persist a vault file.
-    let zero_id = [0u8; 16];
     let aad = build_aad(
         &vault_id,
         1,
@@ -105,8 +107,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
         1,
         1,
         0,
-        &zero_id,
-        &zero_id,
+        &record_id,
+        &revision_id,
         RECORD_KIND_WRAPPED_ROOT_KEY,
     );
 
@@ -121,6 +123,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
         &vault_id,
         &header_nonce,
         &kdf_params,
+        &record_id,
+        &revision_id,
         &wrk_ciphertext,
         &wrk_nonce,
         &aad,
@@ -139,7 +143,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
 /// - `wrk_ciphertext` is the already-produced authenticated ciphertext for the
 ///   WrappedRootKey frame returned by `create_session_keys`.
 /// - `wrk_nonce` is the already-produced AEAD nonce for that ciphertext.
-/// - `aad` is the exact canonical AAD used when `wrk_ciphertext` was created.
+/// - `aad` is the exact canonical AAD used when `wrk_ciphertext` was created
+///   from the CSPRNG `record_id` and `revision_id`.
 ///
 /// ## Postconditions
 /// - On success, `path` exists as a durable `.arcv` vault file and no sibling
@@ -149,6 +154,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
 ///   partial vault at `path`.
 /// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
 ///   and never writes plaintext key material.
+/// - Persists the same WrappedRootKey `record_id` and `revision_id` in the
+///   record-table entry and encrypted record frame that were used to build AAD.
 ///
 /// ## Invariants
 /// - Crash-safe order is exactly:
@@ -163,6 +170,8 @@ fn persist_vault(
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
     kdf_params: &HeaderKdfParams,
+    record_id: &[u8; 16],
+    revision_id: &[u8; 16],
     wrk_ciphertext: &[u8],
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
@@ -174,6 +183,8 @@ fn persist_vault(
         vault_id,
         header_nonce,
         kdf_params,
+        record_id,
+        revision_id,
         wrk_ciphertext,
         wrk_nonce,
         aad,
@@ -194,6 +205,8 @@ fn persist_vault_inner(
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
     kdf_params: &HeaderKdfParams,
+    record_id: &[u8; 16],
+    revision_id: &[u8; 16],
     wrk_ciphertext: &[u8],
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
@@ -217,7 +230,8 @@ fn persist_vault_inner(
     let header_bytes = serialize_header(&header)?;
     let frame = RecordFrame {
         frame_version: FORMAT_VERSION,
-        record_id: [0u8; 16],
+        record_id: *record_id,
+        revision_id: *revision_id,
         nonce: *wrk_nonce,
         ciphertext_len: u32::try_from(wrk_ciphertext.len())
             .map_err(|_| CoreError::Format("ciphertext length overflow".into()))?,
@@ -234,7 +248,7 @@ fn persist_vault_inner(
     let frame_len = u32::try_from(frame_bytes.len())
         .map_err(|_| CoreError::Format("record frame length overflow".into()))?;
     let entry = RecordTableEntry {
-        record_id: [0u8; 16],
+        record_id: *record_id,
         record_kind: RECORD_KIND_WRAPPED_ROOT_KEY,
         frame_offset: u64::try_from(frame_offset)
             .map_err(|_| CoreError::Format("frame offset overflow".into()))?,
@@ -352,12 +366,6 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
         .ok_or_else(|| CoreError::Format("frame offset out of bounds".into()))?;
     let frame = parse_record_frame(frame_slice, wrk_entry.frame_len)?;
 
-    // Build canonical AAD for this record.
-    // TODO(Phase 3 F-01): replace zero_revision with the actual revision_id
-    // stored in the record frame once parse_record_frame exposes it.
-    // Using zero here will cause AAD mismatch if the stored frame was encrypted
-    // with a non-zero revision_id (security review F-01).
-    let zero_revision = [0u8; 16];
     let aad = build_aad(
         &header.vault_id,
         header.format_version,
@@ -366,7 +374,7 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
         header.kdf_profile,
         header.pqc_profile,
         &frame.record_id,
-        &zero_revision,
+        &frame.revision_id,
         RECORD_KIND_WRAPPED_ROOT_KEY,
     );
 
@@ -429,6 +437,68 @@ mod tests {
 
     fn tmp_path_for(path: &std::path::Path) -> std::path::PathBuf {
         path.with_extension("arcv.tmp")
+    }
+
+    fn read_u32_for_test(bytes: &[u8], offset: usize) -> u32 {
+        let end = offset.checked_add(4).expect("u32 fixture end");
+        let array: [u8; 4] = bytes
+            .get(offset..end)
+            .expect("u32 fixture slice")
+            .try_into()
+            .expect("u32 fixture");
+        u32::from_le_bytes(array)
+    }
+
+    fn wrapped_root_frame_for_test(path: &std::path::Path) -> (Vec<u8>, RecordFrame, usize, u32) {
+        let bytes = std::fs::read(path).expect("read vault fixture");
+        let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
+            .expect("header length fixture");
+        let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
+            .expect("record table length fixture");
+        let record_table_offset = HEADER_MIN_LEN
+            .checked_add(header_len)
+            .expect("record table offset fixture");
+        let entries = parse_record_table(&bytes, record_table_offset, record_table_len)
+            .expect("record table");
+        let entry = entries
+            .iter()
+            .find(|entry| entry.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY)
+            .expect("wrapped root key entry");
+        let frame_offset = usize::try_from(entry.frame_offset).expect("frame offset fixture");
+        let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
+        let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
+        (bytes, frame, frame_offset, entry.frame_len)
+    }
+
+    fn frame_record_id_offset(path: &std::path::Path) -> (Vec<u8>, usize) {
+        let (bytes, _frame, frame_offset, _frame_len) = wrapped_root_frame_for_test(path);
+        (
+            bytes,
+            frame_offset
+                .checked_add(2)
+                .expect("record id offset fixture"),
+        )
+    }
+
+    fn frame_revision_id_offset(path: &std::path::Path) -> (Vec<u8>, usize) {
+        let (bytes, _frame, frame_offset, _frame_len) = wrapped_root_frame_for_test(path);
+        let offset = frame_offset
+            .checked_add(2)
+            .and_then(|value| value.checked_add(16))
+            .expect("revision id offset fixture");
+        (bytes, offset)
+    }
+
+    fn create_test_vault(path: &std::path::Path, password: &[u8]) {
+        let tmp_path = tmp_path_for(path);
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&tmp_path);
+        let session = create(CreateVaultParams {
+            path: path.to_path_buf(),
+            password: SecretBytes::new(password.to_vec()),
+        })
+        .expect("create fixture");
+        lock(session).expect("lock fixture");
     }
 
     /// Compile-time invariant: `VaultSession` must not implement `Debug`.
@@ -552,6 +622,8 @@ mod tests {
             &[0x11; 16],
             &[0x22; 24],
             &HeaderKdfParams::canonical_argon2id_v1(),
+            &[0x66; 16],
+            &[0x77; 16],
             &[0x33; 32],
             &[0x44; 24],
             &[0x55; 74],
@@ -609,5 +681,104 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// `create()` must persist non-zero frame identifiers and `unlock()` must
+    /// authenticate using AAD reconstructed from those stored identifiers.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_persists_nonzero_frame_ids_and_unlock_authenticates() {
+        let path = unique_temp_vault_path("real-frame-ids");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"real-frame-ids-password-never-real");
+
+        let (_bytes, frame, _frame_offset, _frame_len) = wrapped_root_frame_for_test(&path);
+        assert_ne!(frame.record_id, [0u8; 16]);
+        assert_ne!(frame.revision_id, [0u8; 16]);
+
+        let unlock_result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"real-frame-ids-password-never-real".to_vec()),
+        });
+        assert!(unlock_result.is_ok());
+        if let Ok(session) = unlock_result {
+            assert!(lock(session).is_ok());
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Patching the persisted frame revision_id must invalidate the AAD and
+    /// make unlock fail closed with no session returned.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_patched_frame_revision_id() {
+        let path = unique_temp_vault_path("patched-revision");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"patched-revision-password-never-real");
+
+        let (mut bytes, revision_offset) = frame_revision_id_offset(&path);
+        let value = bytes
+            .get_mut(revision_offset)
+            .expect("revision patch fixture");
+        *value ^= 0x01;
+        std::fs::write(&path, bytes).expect("patch revision fixture");
+
+        let unlock_result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"patched-revision-password-never-real".to_vec()),
+        });
+        assert!(unlock_result.is_err());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Patching the persisted frame record_id must invalidate the AAD and make
+    /// unlock fail closed with no session returned.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_patched_frame_record_id() {
+        let path = unique_temp_vault_path("patched-record");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"patched-record-password-never-real");
+
+        let (mut bytes, record_offset) = frame_record_id_offset(&path);
+        let value = bytes.get_mut(record_offset).expect("record patch fixture");
+        *value ^= 0x01;
+        std::fs::write(&path, bytes).expect("patch record fixture");
+
+        let unlock_result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"patched-record-password-never-real".to_vec()),
+        });
+        assert!(unlock_result.is_err());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Two independent create() calls must assign distinct WrappedRootKey
+    /// record identifiers and revision identifiers.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_assigns_unique_record_and_revision_ids() {
+        let path_a = unique_temp_vault_path("unique-a");
+        let path_b = unique_temp_vault_path("unique-b");
+        let tmp_a = tmp_path_for(&path_a);
+        let tmp_b = tmp_path_for(&path_b);
+        create_test_vault(&path_a, b"unique-a-password-never-real");
+        create_test_vault(&path_b, b"unique-b-password-never-real");
+
+        let (_bytes_a, frame_a, _offset_a, _len_a) = wrapped_root_frame_for_test(&path_a);
+        let (_bytes_b, frame_b, _offset_b, _len_b) = wrapped_root_frame_for_test(&path_b);
+        assert_ne!(frame_a.record_id, frame_b.record_id);
+        assert_ne!(frame_a.revision_id, frame_b.revision_id);
+
+        let _ = std::fs::remove_file(&path_a);
+        let _ = std::fs::remove_file(&path_b);
+        let _ = std::fs::remove_file(&tmp_a);
+        let _ = std::fs::remove_file(&tmp_b);
     }
 }
