@@ -345,10 +345,10 @@ findings:
     cwe: CWE-693
     severity: high
     blocking: true
-    status: open
+    status: resolved
     remediation: "Implement crash-safe vault write (serialize -> encrypt -> temp -> fsync -> rename -> fsync parent) OR re-scope CONTRACT to exclude persistence from the Stable surface"
-    verification: ""
-    commit: ""
+    verification: "CORE-3 (ADR-025 Option A): persist_vault implements §8 sequence (serialize -> embed existing WRK ciphertext/nonce -> .arcv.tmp create_new -> sync_all -> atomic rename -> fsync parent -> cleanup tmp+target on any error). v1 serializers added (prefix/header/KDF-TLV/record-table/frame), byte-inverse of parse_* (roundtrip tests). create->unlock roundtrip green; missing-parent failure leaves no .arcv/.tmp (G-06). 40 core tests green, clippy -D warnings clean. AAD placeholders kept consistent both sides — real record_id/revision_id binding is F-01/F-02 (CORE-4)."
+    commit: "7f11558"
 
   - id: F-10
     kind: security_review
