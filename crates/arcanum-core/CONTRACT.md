@@ -97,6 +97,11 @@ recovery::
 
 [P-03] RecoveryKit must be generated at vault creation or first unlock.
        Delayed generation is not supported in MVP.
+
+[P-04] UnlockedKeys contains all seven HKDF subkeys from
+       specs/crypto/crypto_design.md §5:
+       item-wrap, metadata, audit, sync-envelope, device-enroll,
+       recovery-wrap, export-bundle.
 ```
 
 ---

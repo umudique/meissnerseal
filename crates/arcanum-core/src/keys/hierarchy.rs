@@ -7,7 +7,7 @@ use arcanum_crypto::{
     aead::{decrypt, encrypt, Ciphertext},
     kdf::{
         argon2::{derive, derive_vkek},
-        hkdf::{derive_root_prk, derive_subkey, SubkeyPurpose},
+        hkdf::{derive_root_prk, derive_subkey, Prk, SubkeyPurpose},
     },
     rng::random_key,
     types::{AeadKey, HeaderNonce, Key, VaultRootKey, XChaCha20Nonce},
@@ -21,15 +21,35 @@ const AEAD_ID: u16 = 1;
 
 /// Unlocked key material for a vault session.
 ///
+/// # Contract
+///
+/// ## Preconditions
+/// - Constructed only after successful VaultRootKey recovery and root PRK
+///   derivation from `specs/crypto/crypto_design.md` §3 steps 5-6.
+///
+/// ## Postconditions
+/// - Contains all seven HKDF subkeys from the §5 registry:
+///   item-wrap, metadata, audit, sync-envelope, device-enroll, recovery-wrap,
+///   and export-bundle.
+/// - Each field is exactly the 32-byte output of
+///   `HKDF-Expand(root_prk, <registry info>, 32)` for its registered
+///   `SubkeyPurpose`.
+///
+/// ## Invariants
+/// - All seven subkeys are domain-separated by distinct ASCII HKDF info strings
+///   from `crypto_design.md` §5; item-wrap and metadata are AEAD-scoped, the
+///   other five are not.
+/// - Does **not** implement `Clone`, `PartialEq`, or `Debug` — contains secret
+///   key material.
+/// - All fields use `arcanum_crypto::types::Key<32>`, which implements
+///   `ZeroizeOnDrop`. Memory is cleared when this struct is dropped.
+///
 /// All fields use `arcanum_crypto::types::Key<32>`, which implements
 /// `ZeroizeOnDrop`. Memory is cleared when this struct is dropped.
 ///
 /// # Security invariants
 ///
-/// - Does **not** implement `Clone`, `PartialEq`, or `Debug` — contains secret
-///   key material.
 /// - Constructed exclusively by [`derive_session_keys`] or [`create_session_keys`].
-/// - Subkeys sync, device-enroll, and recovery are omitted for MVP-0.
 /// - The `VaultRootKey` is **not** retained: it exists only transiently inside
 ///   [`derive_session_keys`]/[`create_session_keys`] to derive `root_prk`, and
 ///   is dropped (ZeroizeOnDrop) before this struct is returned. A live session
@@ -41,6 +61,12 @@ pub struct UnlockedKeys {
     pub metadata_key: Key<32>,
     /// Local Audit Event Key.
     pub audit_key: Key<32>,
+    /// Sync Envelope Key.
+    pub sync_envelope_key: Key<32>,
+    /// Device Enrollment Key.
+    pub device_enrollment_key: Key<32>,
+    /// Recovery Wrapping Key.
+    pub recovery_wrapping_key: Key<32>,
     /// Export Bundle Key.
     pub export_key: Key<32>,
 }
@@ -95,7 +121,7 @@ pub fn derive_master_unlock_key_with_header_params(
 /// [3] HKDF-Expand(vkek_prk, info="arcanum:vault-kek:v1") → VKEK
 /// [4] AEAD-decrypt(key=VKEK, wrapped_root_key_ciphertext, aad) → VaultRootKey
 /// [5] HKDF-Extract(salt=SHA256("arcanum-root-salt-v1"||vault_id||header_nonce), ikm=VRK) → root_prk
-/// [6] HKDF-Expand(root_prk, info per registry) × 4 HKDF subkeys → UnlockedKeys\n///     (VaultRootKey = step 4 AEAD output, not HKDF; sync/device/recovery subkeys deferred to MVP-2/3)
+/// [6] HKDF-Expand(root_prk, info per registry) × 7 HKDF subkeys → UnlockedKeys
 /// ```
 ///
 /// # Contract
@@ -115,7 +141,7 @@ pub fn derive_master_unlock_key_with_header_params(
 ///   constructed per `vault_format_v1.md` §7 with `record_kind = 0x0002`.
 ///
 /// ## Postconditions
-/// - On success: returns [`UnlockedKeys`] with all four HKDF subkeys fully
+/// - On success: returns [`UnlockedKeys`] with all seven HKDF subkeys fully
 ///   derived (the VaultRootKey is consumed during derivation, not retained).
 /// - On Argon2id failure, AEAD authentication failure, or HKDF failure:
 ///   returns `Err` — no key material is exposed in the error value.
@@ -158,7 +184,10 @@ pub fn derive_session_keys(
     zeroize::Zeroize::zeroize(&mut vrk_bytes);
 
     // [5–6] VaultRootKey → root_prk → subkeys
-    derive_subkeys(vault_root_key, vault_id, header_nonce)
+    let vrk = VaultRootKey::from_bytes(*vault_root_key.as_bytes());
+    let hn = HeaderNonce::from_bytes(*header_nonce);
+    let root_prk = derive_root_prk(&vrk, vault_id, &hn);
+    derive_subkeys(&root_prk, vault_id, AEAD_ID)
 }
 
 /// Wrap a freshly generated `VaultRootKey` for storage in a new vault.
@@ -213,46 +242,80 @@ pub fn create_session_keys(
 
     // [5–6] Derive subkeys
     let nonce_bytes: [u8; 24] = *enc_nonce.as_bytes();
-    let unlocked = derive_subkeys(vault_root_key, vault_id, header_nonce)?;
+    let vrk = VaultRootKey::from_bytes(*vault_root_key.as_bytes());
+    let hn = HeaderNonce::from_bytes(*header_nonce);
+    let root_prk = derive_root_prk(&vrk, vault_id, &hn);
+    let unlocked = derive_subkeys(&root_prk, vault_id, AEAD_ID)?;
 
     Ok((unlocked, ciphertext.as_ref().to_vec(), nonce_bytes))
 }
 
-/// Shared step 5–6: VaultRootKey → root_prk → four HKDF subkeys.
-fn derive_subkeys(
-    vault_root_key: Key<32>,
+/// Derive all seven vault session subkeys from the root PRK.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `root_prk` was produced by `arcanum-crypto::kdf::hkdf::derive_root_prk`
+///   from the current vault's VaultRootKey, vault_id, and header_nonce.
+/// - `vault_id` is the canonical 128-bit vault UUID from the header.
+/// - `aead_id` is the supported AEAD profile identifier used for AEAD-scoped
+///   subkeys.
+///
+/// ## Postconditions
+/// - On success, returns [`UnlockedKeys`] with all seven registry subkeys:
+///   item-wrap, metadata, audit, sync-envelope, device-enroll, recovery-wrap,
+///   and export-bundle.
+/// - Each returned field is exactly
+///   `HKDF-Expand(root_prk, <crypto_design.md §5 registry info>, 32)` for its
+///   corresponding `SubkeyPurpose`.
+/// - If any HKDF expansion fails, returns `Err` with no partial
+///   [`UnlockedKeys`].
+///
+/// ## Invariants
+/// - Delegates every HKDF expansion to `arcanum-crypto::kdf::hkdf::derive_subkey`.
+/// - Does not build HKDF info strings in arcanum-core and does not implement
+///   cryptographic primitives directly.
+/// - All seven subkeys are pairwise domain-separated by distinct
+///   `SubkeyPurpose` registry entries.
+pub fn derive_subkeys(
+    root_prk: &Prk,
     vault_id: &[u8; 16],
-    header_nonce: &[u8; 24],
+    aead_id: u16,
 ) -> crate::error::Result<UnlockedKeys> {
-    // [5] Delegate root PRK derivation to arcanum_crypto (CONTRACT A-01).
-    let vrk = VaultRootKey::from_bytes(*vault_root_key.as_bytes());
-    let hn = HeaderNonce::from_bytes(*header_nonce);
-    let root_prk = derive_root_prk(&vrk, vault_id, &hn);
-
-    // [6] One HKDF-Expand per subkey
     let item_wrap = derive_subkey(
-        &root_prk,
+        root_prk,
         SubkeyPurpose::ItemKeyWrappingKey,
         vault_id,
-        Some(AEAD_ID),
+        Some(aead_id),
     )
     .map_err(|_| CoreError::Crypto)?;
     let metadata = derive_subkey(
-        &root_prk,
+        root_prk,
         SubkeyPurpose::MetadataEncryptionKey,
         vault_id,
-        Some(AEAD_ID),
+        Some(aead_id),
     )
     .map_err(|_| CoreError::Crypto)?;
-    let audit = derive_subkey(&root_prk, SubkeyPurpose::LocalAuditEventKey, vault_id, None)
+    let audit = derive_subkey(root_prk, SubkeyPurpose::LocalAuditEventKey, vault_id, None)
         .map_err(|_| CoreError::Crypto)?;
-    let export = derive_subkey(&root_prk, SubkeyPurpose::ExportBundleKey, vault_id, None)
+    let sync_envelope = derive_subkey(root_prk, SubkeyPurpose::SyncEnvelopeKey, vault_id, None)
+        .map_err(|_| CoreError::Crypto)?;
+    let device_enrollment =
+        derive_subkey(root_prk, SubkeyPurpose::DeviceEnrollmentKey, vault_id, None)
+            .map_err(|_| CoreError::Crypto)?;
+    let recovery_wrapping =
+        derive_subkey(root_prk, SubkeyPurpose::RecoveryWrappingKey, vault_id, None)
+            .map_err(|_| CoreError::Crypto)?;
+    let export = derive_subkey(root_prk, SubkeyPurpose::ExportBundleKey, vault_id, None)
         .map_err(|_| CoreError::Crypto)?;
 
     Ok(UnlockedKeys {
         item_wrap_key: Key::<32>::from_bytes(*item_wrap.as_bytes()),
         metadata_key: Key::<32>::from_bytes(*metadata.as_bytes()),
         audit_key: Key::<32>::from_bytes(*audit.as_bytes()),
+        sync_envelope_key: Key::<32>::from_bytes(*sync_envelope.as_bytes()),
+        device_enrollment_key: Key::<32>::from_bytes(*device_enrollment.as_bytes()),
+        recovery_wrapping_key: Key::<32>::from_bytes(*recovery_wrapping.as_bytes()),
         export_key: Key::<32>::from_bytes(*export.as_bytes()),
     })
 }

@@ -18,13 +18,15 @@
     clippy::unwrap_used
 )]
 
-use arcanum_core::keys::hierarchy::derive_master_unlock_key_with_header_params;
+use arcanum_core::keys::hierarchy::{
+    derive_master_unlock_key_with_header_params, derive_subkeys, UnlockedKeys,
+};
 use arcanum_core::vault::format::{
     build_aad, parse_header, parse_kdf_profile_params, parse_record_frame, parse_record_table,
     RecordFrame, ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
 };
 use arcanum_crypto::aead::{decrypt, Ciphertext};
-use arcanum_crypto::types::{AeadKey, XChaCha20Nonce};
+use arcanum_crypto::types::{AeadKey, HkdfPrk, Key, XChaCha20Nonce};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -118,6 +120,32 @@ fn duplicate_kdf_param_tlv(block: &mut Vec<u8>, tag: u16) {
     block.extend_from_slice(&tlv);
     let next_params_len = kdf_params_len(block) + len;
     set_kdf_params_len(block, next_params_len as u32);
+}
+
+fn subkey_derivation_case() -> Value {
+    find(&load("vault_kdf_v1.json"), "subkey-derivation").clone()
+}
+
+fn derive_vector_unlocked_keys() -> UnlockedKeys {
+    let c = subkey_derivation_case();
+    let root_prk = HkdfPrk::from_bytes(arr::<32>(c["inputs"]["root_prk"].as_str().unwrap()));
+    let vault_id = arr::<16>(c["inputs"]["vault_id"].as_str().unwrap());
+    let aead_id = c["inputs"]["aead_id"].as_u64().unwrap() as u16;
+
+    derive_subkeys(&root_prk, &vault_id, aead_id)
+        .expect("all seven HKDF registry subkeys must derive")
+}
+
+fn vector_subkeys(keys: &UnlockedKeys) -> [&Key<32>; 7] {
+    [
+        &keys.item_wrap_key,
+        &keys.metadata_key,
+        &keys.audit_key,
+        &keys.sync_envelope_key,
+        &keys.device_enrollment_key,
+        &keys.recovery_wrapping_key,
+        &keys.export_key,
+    ]
 }
 
 // ── vault_format_v1.json — canonical 74-byte AAD construction (§7) ───────────
@@ -451,6 +479,82 @@ fn header_sourced_kdf_params_reproduce_existing_muk_vector() {
         .expect("header-sourced params must reproduce the existing MUK vector");
 
     assert_eq!(muk.as_slice(), expected_muk.as_slice(), "MUK vector");
+}
+
+#[test]
+fn vault_kdf_v1_all_seven_subkeys_match_vectors() {
+    let c = subkey_derivation_case();
+    let expected = &c["expected"];
+    let keys = derive_vector_unlocked_keys();
+
+    assert_eq!(
+        keys.item_wrap_key.as_slice(),
+        unhex(expected["item_key_wrapping_key"].as_str().unwrap()).as_slice(),
+        "item key wrapping key"
+    );
+    assert_eq!(
+        keys.metadata_key.as_slice(),
+        unhex(expected["metadata_encryption_key"].as_str().unwrap()).as_slice(),
+        "metadata encryption key"
+    );
+    assert_eq!(
+        keys.audit_key.as_slice(),
+        unhex(expected["local_audit_event_key"].as_str().unwrap()).as_slice(),
+        "local audit event key"
+    );
+    assert_eq!(
+        keys.sync_envelope_key.as_slice(),
+        unhex(expected["sync_envelope_key"].as_str().unwrap()).as_slice(),
+        "sync envelope key"
+    );
+    assert_eq!(
+        keys.device_enrollment_key.as_slice(),
+        unhex(expected["device_enrollment_key"].as_str().unwrap()).as_slice(),
+        "device enrollment key"
+    );
+    assert_eq!(
+        keys.recovery_wrapping_key.as_slice(),
+        unhex(expected["recovery_wrapping_key"].as_str().unwrap()).as_slice(),
+        "recovery wrapping key"
+    );
+    assert_eq!(
+        keys.export_key.as_slice(),
+        unhex(expected["export_bundle_key"].as_str().unwrap()).as_slice(),
+        "export bundle key"
+    );
+}
+
+#[test]
+fn vault_kdf_v1_all_seven_subkeys_are_pairwise_distinct() {
+    let keys = derive_vector_unlocked_keys();
+    let subkeys = vector_subkeys(&keys);
+
+    for (left_index, left) in subkeys.iter().enumerate() {
+        for right in subkeys.iter().skip(left_index + 1) {
+            assert!(
+                !bool::from(left.ct_eq(right)),
+                "HKDF registry subkeys must be pairwise domain-separated"
+            );
+        }
+    }
+}
+
+#[test]
+fn unlocked_keys_exposes_all_seven_registry_subkeys() {
+    fn require_all_fields(keys: &UnlockedKeys) -> [&[u8]; 7] {
+        [
+            keys.item_wrap_key.as_slice(),
+            keys.metadata_key.as_slice(),
+            keys.audit_key.as_slice(),
+            keys.sync_envelope_key.as_slice(),
+            keys.device_enrollment_key.as_slice(),
+            keys.recovery_wrapping_key.as_slice(),
+            keys.export_key.as_slice(),
+        ]
+    }
+
+    let keys = derive_vector_unlocked_keys();
+    assert_eq!(require_all_fields(&keys).len(), 7);
 }
 
 // ── vault_format_negative_v1.json — §10 reject rules (fail closed) ───────────
