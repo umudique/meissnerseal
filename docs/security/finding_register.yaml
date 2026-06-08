@@ -371,7 +371,7 @@ findings:
     cwe: CWE-684
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Reconcile CONTRACT.md with the implemented create()/unlock() return types before marking Stable"
-    verification: ""
-    commit: ""
+    verification: "CORE-5 (HUMAN decision, ADR-026): resolved code->contract, NOT contract->code (consistent with ADR-025). create() now returns a locked VaultHandle { path } and drops/zeroizes the derived keys before returning; a live VaultSession is obtainable ONLY via unlock() (P-01 preserved, single session-birth chokepoint). CONTRACT already declared create()->VaultHandle and P-01, so the code was brought up to it (no CONTRACT edit needed). 45 core tests green incl. create_returns_handle_not_session; clippy -D warnings/audit clean. commit 1fe0468 (code) + 6ef2500 (ADR-026)."
+    commit: "1fe0468"
