@@ -18,8 +18,10 @@
     clippy::unwrap_used
 )]
 
+use arcanum_core::keys::hierarchy::derive_master_unlock_key_with_header_params;
 use arcanum_core::vault::format::{
-    build_aad, parse_header, parse_record_frame, parse_record_table, RecordFrame, HEADER_MIN_LEN,
+    build_aad, parse_header, parse_kdf_profile_params, parse_record_frame, parse_record_table,
+    RecordFrame, ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
 };
 use arcanum_crypto::aead::{decrypt, Ciphertext};
 use arcanum_crypto::types::{AeadKey, XChaCha20Nonce};
@@ -69,6 +71,53 @@ fn find<'a>(v: &'a Value, id: &str) -> &'a Value {
 
 fn u16_from_hex_tag(s: &str) -> u16 {
     u16::from_str_radix(s.trim_start_matches("0x"), 16).expect("hex tag")
+}
+
+fn kdf_profile_value_from_vector() -> Vec<u8> {
+    let v = load("vault_kdf_param_tlv_v1.json");
+    let c = find(&v, "kdf-param-tlv-argon2id-v1");
+    unhex(c["expected"]["kdf_profile_value_hex"].as_str().unwrap())
+}
+
+fn set_kdf_params_len(block: &mut [u8], params_len: u32) {
+    block[2..6].copy_from_slice(&params_len.to_le_bytes());
+}
+
+fn kdf_params_len(block: &[u8]) -> usize {
+    u32::from_le_bytes(block[2..6].try_into().unwrap()) as usize
+}
+
+fn find_kdf_param_tlv(block: &[u8], wanted_tag: u16) -> Option<(usize, usize)> {
+    let params_len = kdf_params_len(block);
+    let mut cursor = 6usize;
+    let end = 6 + params_len;
+    while cursor + 4 <= end {
+        let tag = u16::from_le_bytes(block[cursor..cursor + 2].try_into().unwrap());
+        let len = u16::from_le_bytes(block[cursor + 2..cursor + 4].try_into().unwrap()) as usize;
+        if cursor + 4 + len > end {
+            return None;
+        }
+        if tag == wanted_tag {
+            return Some((cursor, 4 + len));
+        }
+        cursor += 4 + len;
+    }
+    None
+}
+
+fn remove_kdf_param_tlv(block: &mut Vec<u8>, tag: u16) {
+    let (offset, len) = find_kdf_param_tlv(block, tag).expect("TLV tag present");
+    block.drain(offset..offset + len);
+    let next_params_len = kdf_params_len(block) - len;
+    set_kdf_params_len(block, next_params_len as u32);
+}
+
+fn duplicate_kdf_param_tlv(block: &mut Vec<u8>, tag: u16) {
+    let (offset, len) = find_kdf_param_tlv(block, tag).expect("TLV tag present");
+    let tlv = block[offset..offset + len].to_vec();
+    block.extend_from_slice(&tlv);
+    let next_params_len = kdf_params_len(block) + len;
+    set_kdf_params_len(block, next_params_len as u32);
 }
 
 // ── vault_format_v1.json — canonical 74-byte AAD construction (§7) ───────────
@@ -292,6 +341,116 @@ fn vault_kdf_param_tlv_v1_vectors() {
     }
     assert_eq!(cursor, params_len, "kdf: consumed exactly params_len bytes");
     assert_eq!(expected_tlvs.len(), 5, "kdf: five Argon2id params");
+}
+
+#[test]
+fn parse_kdf_profile_params_reads_argon2id_values_from_vector() {
+    let v = load("vault_kdf_param_tlv_v1.json");
+    let c = find(&v, "kdf-param-tlv-argon2id-v1");
+    let params = parse_kdf_profile_params(&kdf_profile_value_from_vector())
+        .expect("valid KDF parameter TLV must parse");
+
+    assert_eq!(params.profile_id, KDF_ARGON2ID_V1, "profile id");
+    assert_eq!(
+        params.argon2.m_cost_kib,
+        c["inputs"]["m_cost_kib"].as_u64().unwrap() as u32,
+        "m_cost_kib"
+    );
+    assert_eq!(
+        params.argon2.t_cost,
+        c["inputs"]["t_cost"].as_u64().unwrap() as u32,
+        "t_cost"
+    );
+    assert_eq!(
+        params.argon2.p_lanes,
+        c["inputs"]["p_lanes"].as_u64().unwrap() as u32,
+        "p_lanes"
+    );
+    assert_eq!(
+        params.argon2.output_len,
+        c["inputs"]["output_len"].as_u64().unwrap() as usize,
+        "output_len"
+    );
+    assert_eq!(params.argon2_version, ARGON2_VERSION_0X13, "argon2_version");
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_argon2_version() {
+    let mut block = kdf_profile_value_from_vector();
+    let (offset, _) = find_kdf_param_tlv(&block, 0x0105).expect("argon2_version TLV");
+    block[offset + 4..offset + 8].copy_from_slice(&0x12u32.to_le_bytes());
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_missing_required_tag() {
+    let mut block = kdf_profile_value_from_vector();
+    remove_kdf_param_tlv(&mut block, 0x0102);
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_duplicate_tag() {
+    let mut block = kdf_profile_value_from_vector();
+    duplicate_kdf_param_tlv(&mut block, 0x0101);
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_value_length() {
+    let mut block = kdf_profile_value_from_vector();
+    let (offset, _) = find_kdf_param_tlv(&block, 0x0104).expect("output_len TLV");
+    block[offset + 2..offset + 4].copy_from_slice(&4u16.to_le_bytes());
+    let next_params_len = kdf_params_len(&block) + 2;
+    set_kdf_params_len(&mut block, next_params_len as u32);
+    block.splice(offset + 6..offset + 6, [0u8, 0u8]);
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_params_len_shorter_than_tlvs() {
+    let mut block = kdf_profile_value_from_vector();
+    let next_params_len = kdf_params_len(&block) - 1;
+    set_kdf_params_len(&mut block, next_params_len as u32);
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_trailing_garbage_after_declared_params() {
+    let mut block = kdf_profile_value_from_vector();
+    block.extend_from_slice(&[0xaa, 0xbb]);
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_unknown_profile_id() {
+    let mut block = kdf_profile_value_from_vector();
+    block[0..2].copy_from_slice(&0x0002u16.to_le_bytes());
+
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+fn header_sourced_kdf_params_reproduce_existing_muk_vector() {
+    let params = parse_kdf_profile_params(&kdf_profile_value_from_vector())
+        .expect("valid KDF parameter TLV must parse");
+    let v = load("vault_kdf_v1.json");
+    let c = find(&v, "muk-derivation");
+    let password = c["inputs"]["password"].as_str().unwrap().as_bytes();
+    let vault_id = arr::<16>(c["inputs"]["vault_id"].as_str().unwrap());
+    let expected_muk = unhex(c["expected"]["master_unlock_key"].as_str().unwrap());
+
+    let muk = derive_master_unlock_key_with_header_params(password, &vault_id, &params)
+        .expect("header-sourced params must reproduce the existing MUK vector");
+
+    assert_eq!(muk.as_slice(), expected_muk.as_slice(), "MUK vector");
 }
 
 // ── vault_format_negative_v1.json — §10 reject rules (fail closed) ───────────

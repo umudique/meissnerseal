@@ -5,7 +5,8 @@ use arcanum_security::secret_lifecycle::SecretBytes;
 use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
 use crate::vault::format::{
-    build_aad, parse_header, parse_record_frame, parse_record_table, HEADER_MIN_LEN,
+    build_aad, parse_header, parse_record_frame, parse_record_table, HeaderKdfParams,
+    HEADER_MIN_LEN,
 };
 
 // WrappedRootKey record_kind value from vault_format_v1.md §5.
@@ -107,9 +108,10 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
     );
 
     // Derive key hierarchy and wrap the VaultRootKey.
+    let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
     let (keys, _wrk_ciphertext, _wrk_nonce) = params
         .password
-        .with_secret(|pw| create_session_keys(pw, &vault_id, &header_nonce, &aad))?;
+        .with_secret(|pw| create_session_keys(pw, &vault_id, &header_nonce, &kdf_params, &aad))?;
 
     // MVP-0: vault file serialization is deferred to Phase 3.
     // The key hierarchy is fully derived; the session is returned.
@@ -214,6 +216,7 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
             pw,
             &header.vault_id,
             &header.header_nonce,
+            &header.kdf_params,
             &frame.ciphertext,
             &frame.nonce,
             &aad,

@@ -1,6 +1,10 @@
 //! Vault binary format contracts.
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
+use arcanum_crypto::kdf::argon2::{
+    Argon2Params, ARGON2_MAX_M_COST_KIB, ARGON2_MAX_P_LANES, ARGON2_MAX_T_COST,
+};
+
 use crate::error::{CoreError, Result};
 
 const PREFIX_MAGIC_OFFSET: usize = 0;
@@ -15,6 +19,13 @@ const RECORD_TABLE_COUNT_LEN: usize = 4;
 const RECORD_TABLE_ENTRY_LEN: usize = 46;
 const RECORD_FRAME_FIXED_PREFIX_LEN: usize = 2 + 16 + 16 + 2 + 1;
 const XCHACHA20_NONCE_LEN: usize = 24;
+const KDF_PROFILE_HEADER_LEN: usize = 6;
+const KDF_PARAM_TLV_HEADER_LEN: usize = 4;
+const TAG_KDF_M_COST_KIB: u16 = 0x0101;
+const TAG_KDF_T_COST: u16 = 0x0102;
+const TAG_KDF_P_LANES: u16 = 0x0103;
+const TAG_KDF_OUTPUT_LEN: u16 = 0x0104;
+const TAG_KDF_ARGON2_VERSION: u16 = 0x0105;
 
 /// Vault file magic bytes.
 pub const MAGIC: &[u8; 8] = b"ARCANUM\x01";
@@ -46,6 +57,43 @@ pub const TAG_SCHEMA_PROFILE: u16 = 0x0006;
 /// Header TLV tag: header nonce.
 pub const TAG_HEADER_NONCE: u16 = 0x0007;
 
+/// Supported KDF profile: KDF_ARGON2ID_V1.
+pub const KDF_ARGON2ID_V1: u16 = 0x0001;
+
+/// Supported Argon2 version for KDF_ARGON2ID_V1.
+pub const ARGON2_VERSION_0X13: u32 = 0x13;
+
+/// Header-sourced KDF parameters parsed from TAG_KDF_PROFILE.
+#[derive(Clone, Copy, Debug)]
+pub struct HeaderKdfParams {
+    /// KDF profile identifier.
+    pub profile_id: u16,
+
+    /// Explicit Argon2id cost/output parameters from the vault header.
+    pub argon2: Argon2Params,
+
+    /// Validated Argon2 version. For KDF_ARGON2ID_V1 this must be 0x13.
+    pub argon2_version: u32,
+}
+
+impl HeaderKdfParams {
+    /// Canonical ADR-006 KDF_ARGON2ID_V1 parameter set for new vault creation.
+    ///
+    /// Existing vault unlock must use [`parse_kdf_profile_params`] instead.
+    pub const fn canonical_argon2id_v1() -> Self {
+        Self {
+            profile_id: KDF_ARGON2ID_V1,
+            argon2: Argon2Params {
+                m_cost_kib: 65_536,
+                t_cost: 3,
+                p_lanes: 4,
+                output_len: 32,
+            },
+            argon2_version: ARGON2_VERSION_0X13,
+        }
+    }
+}
+
 /// Parsed vault header.
 pub struct VaultHeader {
     /// 128-bit vault identifier.
@@ -65,6 +113,9 @@ pub struct VaultHeader {
 
     /// KDF profile identifier.
     pub kdf_profile: u16,
+
+    /// Header-sourced KDF parameters.
+    pub kdf_params: HeaderKdfParams,
 
     /// PQC profile identifier.
     pub pqc_profile: u16,
@@ -155,6 +206,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let mut vault_id = None;
     let mut created_at = None;
     let mut kdf_profile = None;
+    let mut kdf_params = None;
     let mut aead_profile = None;
     // F-06 (deferred to MVP-2): a missing TAG_PQC_PROFILE defaults to profile 0
     // ("no PQC"). This is the correct fail-safe for MVP-0 where PQC is not active
@@ -190,7 +242,9 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
             TAG_VAULT_ID => vault_id = Some(read_array::<16>(value, "invalid vault_id length")?),
             TAG_CREATED_AT => created_at = Some(read_tlv_u64(value, "invalid created_at length")?),
             TAG_KDF_PROFILE => {
-                kdf_profile = Some(read_u16_prefix(value, "invalid kdf_profile length")?);
+                let parsed = parse_kdf_profile_params(value)?;
+                kdf_profile = Some(parsed.profile_id);
+                kdf_params = Some(parsed);
             }
             TAG_AEAD_PROFILE => {
                 aead_profile = Some(read_tlv_u16(value, "invalid aead_profile length")?);
@@ -224,8 +278,143 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
         schema_profile: schema_profile.ok_or_else(|| format_error("missing schema_profile"))?,
         aead_profile: aead_profile.ok_or_else(|| format_error("missing aead_profile"))?,
         kdf_profile: kdf_profile.ok_or_else(|| format_error("missing kdf_profile"))?,
+        kdf_params: kdf_params.ok_or_else(|| format_error("missing kdf params"))?,
         pqc_profile: pqc_profile.ok_or_else(|| format_error("missing pqc_profile"))?,
         header_nonce: header_nonce.ok_or_else(|| format_error("missing header_nonce"))?,
+    })
+}
+
+/// Parse the `TAG_KDF_PROFILE` value into typed Argon2id parameters.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `value` is exactly the value bytes from header TLV tag `0x0003`.
+/// - `value` is encoded as:
+///   `profile_id:u16le || params_len:u32le || kdf_param_tlv[params_len]`.
+/// - For `KDF_ARGON2ID_V1`, the parameter TLVs are:
+///   `0x0101 m_cost_kib:u32le`, `0x0102 t_cost:u32le`,
+///   `0x0103 p_lanes:u32le`, `0x0104 output_len:u16le`, and
+///   `0x0105 argon2_version:u32le`.
+///
+/// ## Postconditions
+/// - On success, returns one complete [`HeaderKdfParams`] value sourced only
+///   from the header TLV bytes.
+/// - Returns `Err` if the profile id is unsupported, `argon2_version != 0x13`,
+///   a required tag is missing, a required tag is duplicated, a tag has the
+///   wrong value length, `params_len` does not match the declared TLV section,
+///   or any trailing bytes remain after the declared parameters.
+/// - Returns `Err` without a partial parameter set on every malformed input.
+///
+/// ## Invariants
+/// - Fails closed: there is no silent fallback to ADR-006 default parameters.
+/// - Performs parsing and validation only; it does not derive keys or call
+///   cryptographic primitives.
+/// - Error messages contain no password bytes or derived key material.
+pub fn parse_kdf_profile_params(value: &[u8]) -> Result<HeaderKdfParams> {
+    if value.len() < KDF_PROFILE_HEADER_LEN {
+        return Err(format_error("truncated KDF profile value"));
+    }
+
+    let profile_id = u16::from_le_bytes(read_array(&value[0..2], "invalid kdf profile id")?);
+    if profile_id != KDF_ARGON2ID_V1 {
+        return Err(format_error("unsupported KDF profile"));
+    }
+
+    let params_len = usize::try_from(u32::from_le_bytes(read_array(
+        &value[2..6],
+        "invalid KDF params length",
+    )?))
+    .map_err(|_| format_error("KDF params length overflow"))?;
+    let params_end = KDF_PROFILE_HEADER_LEN
+        .checked_add(params_len)
+        .ok_or_else(|| format_error("KDF params length overflow"))?;
+    if params_end != value.len() {
+        return Err(format_error("KDF params length mismatch"));
+    }
+
+    let mut m_cost_kib = None;
+    let mut t_cost = None;
+    let mut p_lanes = None;
+    let mut output_len = None;
+    let mut argon2_version = None;
+    let mut cursor = KDF_PROFILE_HEADER_LEN;
+
+    while cursor < params_end {
+        let remaining = params_end - cursor;
+        if remaining < KDF_PARAM_TLV_HEADER_LEN {
+            return Err(format_error("truncated KDF parameter TLV"));
+        }
+
+        let tag = u16::from_le_bytes(read_array(
+            &value[cursor..cursor + 2],
+            "invalid KDF parameter tag",
+        )?);
+        let len = usize::from(u16::from_le_bytes(read_array(
+            &value[cursor + 2..cursor + 4],
+            "invalid KDF parameter length",
+        )?));
+        let value_start = cursor + KDF_PARAM_TLV_HEADER_LEN;
+        let value_end = value_start
+            .checked_add(len)
+            .ok_or_else(|| format_error("KDF parameter length overflow"))?;
+        if value_end > params_end {
+            return Err(format_error("truncated KDF parameter value"));
+        }
+
+        let param_value = &value[value_start..value_end];
+        match tag {
+            TAG_KDF_M_COST_KIB => {
+                reject_duplicate(m_cost_kib.is_some(), "duplicate m_cost_kib")?;
+                m_cost_kib = Some(read_kdf_u32(param_value, "invalid m_cost_kib length")?);
+            }
+            TAG_KDF_T_COST => {
+                reject_duplicate(t_cost.is_some(), "duplicate t_cost")?;
+                t_cost = Some(read_kdf_u32(param_value, "invalid t_cost length")?);
+            }
+            TAG_KDF_P_LANES => {
+                reject_duplicate(p_lanes.is_some(), "duplicate p_lanes")?;
+                p_lanes = Some(read_kdf_u32(param_value, "invalid p_lanes length")?);
+            }
+            TAG_KDF_OUTPUT_LEN => {
+                reject_duplicate(output_len.is_some(), "duplicate output_len")?;
+                output_len = Some(usize::from(read_kdf_u16(
+                    param_value,
+                    "invalid output_len length",
+                )?));
+            }
+            TAG_KDF_ARGON2_VERSION => {
+                reject_duplicate(argon2_version.is_some(), "duplicate argon2_version")?;
+                argon2_version = Some(read_kdf_u32(param_value, "invalid argon2_version length")?);
+            }
+            _ => return Err(format_error("unknown KDF parameter tag")),
+        }
+
+        cursor = value_end;
+    }
+
+    if cursor != params_end {
+        return Err(format_error("trailing KDF parameter garbage"));
+    }
+
+    let argon2_version = argon2_version.ok_or_else(|| format_error("missing argon2_version"))?;
+    if argon2_version != ARGON2_VERSION_0X13 {
+        return Err(format_error("unsupported Argon2 version"));
+    }
+
+    let argon2 = Argon2Params {
+        m_cost_kib: m_cost_kib.ok_or_else(|| format_error("missing m_cost_kib"))?,
+        t_cost: t_cost.ok_or_else(|| format_error("missing t_cost"))?,
+        p_lanes: p_lanes.ok_or_else(|| format_error("missing p_lanes"))?,
+        output_len: output_len.ok_or_else(|| format_error("missing output_len"))?,
+    };
+
+    validate_argon2_params(&argon2)?;
+
+    Ok(HeaderKdfParams {
+        profile_id,
+        argon2,
+        argon2_version,
     })
 }
 
@@ -446,12 +635,50 @@ fn read_tlv_u16(value: &[u8], error: &'static str) -> Result<u16> {
     Ok(u16::from_le_bytes(read_array(value, error)?))
 }
 
-fn read_u16_prefix(value: &[u8], error: &'static str) -> Result<u16> {
-    if value.len() < 2 {
+fn read_kdf_u16(value: &[u8], error: &'static str) -> Result<u16> {
+    read_tlv_u16(value, error)
+}
+
+fn read_kdf_u32(value: &[u8], error: &'static str) -> Result<u32> {
+    if value.len() != 4 {
         return Err(format_error(error));
     }
 
-    Ok(u16::from_le_bytes(read_array(&value[..2], error)?))
+    Ok(u32::from_le_bytes(read_array(value, error)?))
+}
+
+fn reject_duplicate(is_duplicate: bool, error: &'static str) -> Result<()> {
+    if is_duplicate {
+        return Err(format_error(error));
+    }
+
+    Ok(())
+}
+
+fn validate_argon2_params(params: &Argon2Params) -> Result<()> {
+    if params.m_cost_kib == 0 {
+        return Err(format_error("invalid zero m_cost_kib"));
+    }
+    if params.t_cost == 0 {
+        return Err(format_error("invalid zero t_cost"));
+    }
+    if params.p_lanes == 0 {
+        return Err(format_error("invalid zero p_lanes"));
+    }
+    if params.output_len != 32 {
+        return Err(format_error("invalid output_len"));
+    }
+    if params.m_cost_kib > ARGON2_MAX_M_COST_KIB {
+        return Err(format_error("m_cost_kib exceeds safety limit"));
+    }
+    if params.t_cost > ARGON2_MAX_T_COST {
+        return Err(format_error("t_cost exceeds safety limit"));
+    }
+    if params.p_lanes > ARGON2_MAX_P_LANES {
+        return Err(format_error("p_lanes exceeds safety limit"));
+    }
+
+    Ok(())
 }
 
 fn read_tlv_u64(value: &[u8], error: &'static str) -> Result<u64> {

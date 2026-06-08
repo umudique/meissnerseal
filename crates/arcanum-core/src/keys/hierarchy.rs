@@ -6,7 +6,7 @@
 use arcanum_crypto::{
     aead::{decrypt, encrypt, Ciphertext},
     kdf::{
-        argon2::{derive, derive_vkek, Argon2Params},
+        argon2::{derive, derive_vkek},
         hkdf::{derive_root_prk, derive_subkey, SubkeyPurpose},
     },
     rng::random_key,
@@ -14,14 +14,7 @@ use arcanum_crypto::{
 };
 
 use crate::error::CoreError;
-
-/// KDF_ARGON2ID_V1 parameters for MVP-0 (read from vault header in Phase 3+).
-const KDF_PARAMS: Argon2Params = Argon2Params {
-    m_cost_kib: 65_536,
-    t_cost: 3,
-    p_lanes: 4,
-    output_len: 32,
-};
+use crate::vault::format::{HeaderKdfParams, ARGON2_VERSION_0X13, KDF_ARGON2ID_V1};
 
 /// Profile ID for AEAD_XCHACHA20_POLY1305_V1.
 const AEAD_ID: u16 = 1;
@@ -52,6 +45,46 @@ pub struct UnlockedKeys {
     pub export_key: Key<32>,
 }
 
+/// Derive the Master Unlock Key using KDF parameters parsed from the vault header.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `password` is non-empty secret material provided by the caller and is never
+///   logged, printed, or written to an error value.
+/// - `vault_id` is the canonical 128-bit vault UUID from the header TLV.
+/// - `kdf_params` was produced by `vault::format::parse_kdf_profile_params`
+///   from the same vault header being unlocked.
+/// - `kdf_params.profile_id == KDF_ARGON2ID_V1` and
+///   `kdf_params.argon2_version == 0x13`.
+///
+/// ## Postconditions
+/// - On success, returns exactly the Master Unlock Key produced by
+///   `arcanum_crypto::kdf::argon2::derive(password, vault_id, &kdf_params.argon2)`.
+/// - On invalid parameters, unsupported version/profile, backend failure, or
+///   empty password, returns `Err` with no partial key material.
+///
+/// ## Invariants
+/// - Consumes header-sourced Argon2id parameters; it must not read or use the
+///   module-level ADR-006 compatibility constant.
+/// - Delegates cryptographic work only to `arcanum-crypto`; it does not
+///   implement Argon2id or hashing directly.
+/// - Error values contain no password bytes or derived key material.
+pub fn derive_master_unlock_key_with_header_params(
+    password: &[u8],
+    vault_id: &[u8; 16],
+    kdf_params: &HeaderKdfParams,
+) -> crate::error::Result<arcanum_crypto::types::MasterUnlockKey> {
+    if password.is_empty()
+        || kdf_params.profile_id != KDF_ARGON2ID_V1
+        || kdf_params.argon2_version != ARGON2_VERSION_0X13
+    {
+        return Err(CoreError::Crypto);
+    }
+
+    derive(password, vault_id, &kdf_params.argon2).map_err(|_| CoreError::Crypto)
+}
+
 /// Derive the full key hierarchy from a password and vault header.
 ///
 /// Executes derivation chain steps 1–6 from `specs/crypto/crypto_design.md` §3:
@@ -72,6 +105,8 @@ pub struct UnlockedKeys {
 /// - `vault_id` is the canonical 128-bit vault UUID from the header TLV.
 /// - `header_nonce` is the 24-byte nonce stored in the vault header TLV tag
 ///   `0x0007`.
+/// - `kdf_params` was parsed and validated from the vault header TLV tag
+///   `0x0003`; no hardcoded KDF parameters are used on unlock.
 /// - `wrapped_root_key_ciphertext` is the VKEK-encrypted `VaultRootKey`
 ///   ciphertext from the `WrappedRootKey` record frame.
 /// - `wrapped_root_key_nonce` is the 24-byte AEAD nonce stored in the
@@ -96,12 +131,13 @@ pub fn derive_session_keys(
     password: &[u8],
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
+    kdf_params: &HeaderKdfParams,
     wrapped_root_key_ciphertext: &[u8],
     wrapped_root_key_nonce: &[u8; 24],
     aad: &[u8; 74],
 ) -> crate::error::Result<UnlockedKeys> {
     // [1] Argon2id → MasterUnlockKey
-    let muk = derive(password, vault_id, &KDF_PARAMS).map_err(|_| CoreError::Crypto)?;
+    let muk = derive_master_unlock_key_with_header_params(password, vault_id, kdf_params)?;
 
     // [2–3] MUK → VKEK via HKDF
     let vkek = derive_vkek(&muk, vault_id).map_err(|_| CoreError::Crypto)?;
@@ -138,6 +174,8 @@ pub fn derive_session_keys(
 /// - `vault_id` is the canonical 128-bit vault UUID assigned to the new vault.
 /// - `header_nonce` is a fresh 24-byte random nonce generated for the vault
 ///   header (not reused from any prior vault).
+/// - `kdf_params` is the explicit KDF parameter set that will be serialized into
+///   the new vault header.
 /// - `aad` is the canonical 74-byte AAD for the `WrappedRootKey` record,
 ///   constructed per `vault_format_v1.md` §7 with `record_kind = 0x0002`.
 ///
@@ -158,13 +196,14 @@ pub fn create_session_keys(
     password: &[u8],
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
+    kdf_params: &HeaderKdfParams,
     aad: &[u8; 74],
 ) -> crate::error::Result<(UnlockedKeys, Vec<u8>, [u8; 24])> {
     // [1] Generate fresh VaultRootKey from OS CSPRNG
     let vault_root_key = Key::<32>::from_bytes(random_key());
 
     // [2–3] Argon2id → MUK → VKEK
-    let muk = derive(password, vault_id, &KDF_PARAMS).map_err(|_| CoreError::Crypto)?;
+    let muk = derive_master_unlock_key_with_header_params(password, vault_id, kdf_params)?;
     let vkek = derive_vkek(&muk, vault_id).map_err(|_| CoreError::Crypto)?;
 
     // [4] Encrypt VaultRootKey with VKEK
@@ -245,6 +284,10 @@ mod tests {
         )
     }
 
+    fn test_kdf_params() -> HeaderKdfParams {
+        HeaderKdfParams::canonical_argon2id_v1()
+    }
+
     /// `derive_session_keys` fails closed when ciphertext is wrong (AEAD failure).
     #[test]
     fn test_derive_session_keys_auth_failure() {
@@ -253,10 +296,12 @@ mod tests {
         let ciphertext = [0u8; 47];
         let nonce = [0u8; 24];
         let aad = test_aad();
+        let kdf_params = test_kdf_params();
         let result = derive_session_keys(
             password,
             &VAULT_ID,
             &HEADER_NONCE,
+            &kdf_params,
             &ciphertext,
             &nonce,
             &aad,
@@ -270,7 +315,8 @@ mod tests {
     fn test_create_session_keys_succeeds() {
         let password = b"test-password-never-real";
         let aad = test_aad();
-        let result = create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &aad);
+        let kdf_params = test_kdf_params();
+        let result = create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &kdf_params, &aad);
         let (_keys, ciphertext, nonce) = result.expect("create_session_keys must succeed");
         // 32-byte VRK + 16-byte Poly1305 tag = 48 bytes
         assert_eq!(
@@ -287,15 +333,17 @@ mod tests {
     fn test_create_then_derive_roundtrip() {
         let password = b"test-password-never-real";
         let aad = test_aad();
+        let kdf_params = test_kdf_params();
 
         let (created, ciphertext, wrk_nonce) =
-            create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &aad)
+            create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &kdf_params, &aad)
                 .expect("create must succeed");
 
         let derived = derive_session_keys(
             password,
             &VAULT_ID,
             &HEADER_NONCE,
+            &kdf_params,
             &ciphertext,
             &wrk_nonce,
             &aad,
