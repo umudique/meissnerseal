@@ -24,7 +24,7 @@ const RECORD_TABLE_LEN_OFFSET: usize = 14;
 /// # Security invariants
 ///
 /// - Never constructed directly by callers.
-///   Obtained exclusively through [`create`] or [`unlock`].
+///   Obtained exclusively through [`unlock`].
 /// - Does **not** implement `Clone`, `PartialEq`, or `Debug` — contains secret
 ///   key material.
 /// - Consuming ownership via [`lock`] ensures the caller cannot use the session
@@ -111,10 +111,6 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
         Ok(())
     })?;
 
-    if params.path.exists() {
-        return Err(CoreError::InvalidState("vault already exists".into()));
-    }
-
     // Generate vault_id and header_nonce from OS CSPRNG.
     let vault_id: [u8; 16] = arcanum_crypto::rng::random_bytes(16)
         .try_into()
@@ -181,6 +177,15 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 /// - On any serialization, write, fsync, rename, or parent fsync failure,
 ///   returns `Err`, removes the temporary file if present, and leaves no
 ///   partial vault at `path`.
+/// - Atomically claims `path` up front with `create_new(true)`. This exclusive
+///   claim is the no-overwrite gate; no racy `exists()` check is trusted for
+///   final-path ownership. If a crash occurs after the claim and before rename,
+///   the empty claimed target is fail-safe: the next `create()` returns
+///   AlreadyExists rather than overwriting.
+/// - Cleanup removes only files this call exclusively created: the sibling
+///   temporary file, and the target only if this call won the create-new claim.
+///   It must never blindly remove a pre-existing or concurrently-created target
+///   file.
 /// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
 ///   and never writes plaintext key material.
 /// - Persists the same WrappedRootKey `record_id` and `revision_id` in the
@@ -206,22 +211,33 @@ fn persist_vault(
     aad: &[u8; 74],
 ) -> Result<()> {
     let tmp_path = path.with_extension("arcv.tmp");
-    let result = persist_vault_inner(
-        path,
-        &tmp_path,
-        vault_id,
-        header_nonce,
-        kdf_params,
-        record_id,
-        revision_id,
-        wrk_ciphertext,
-        wrk_nonce,
-        aad,
-    );
+    let mut target_claimed = false;
+    let result = (|| -> Result<()> {
+        let target_claim = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        target_claimed = true;
+        persist_vault_inner(
+            path,
+            &tmp_path,
+            target_claim,
+            vault_id,
+            header_nonce,
+            kdf_params,
+            record_id,
+            revision_id,
+            wrk_ciphertext,
+            wrk_nonce,
+            aad,
+        )
+    })();
 
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp_path);
-        let _ = std::fs::remove_file(path);
+        if target_claimed {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     result
@@ -231,6 +247,7 @@ fn persist_vault(
 fn persist_vault_inner(
     path: &std::path::Path,
     tmp_path: &std::path::Path,
+    target_claim: std::fs::File,
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
     kdf_params: &HeaderKdfParams,
@@ -240,10 +257,6 @@ fn persist_vault_inner(
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
 ) -> Result<()> {
-    if path.exists() {
-        return Err(CoreError::InvalidState("vault already exists".into()));
-    }
-
     let created_at = unix_time_millis()?;
     let header = VaultHeader {
         vault_id: *vault_id,
@@ -293,10 +306,7 @@ fn persist_vault_inner(
     tmp_file.write_all(&vault_bytes)?;
     tmp_file.sync_all()?;
     drop(tmp_file);
-
-    if path.exists() {
-        return Err(CoreError::InvalidState("vault already exists".into()));
-    }
+    drop(target_claim);
 
     std::fs::rename(tmp_path, path)?;
     fsync_parent(path)?;
@@ -428,7 +438,7 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
 /// # Contract
 ///
 /// ## Preconditions
-/// - `session` was obtained through [`unlock`] or [`create`].
+/// - `session` was obtained through [`unlock`].
 ///
 /// ## Postconditions
 /// - The [`UnlockedKeys`] held in `session` is dropped; all 32-byte key fields
@@ -667,6 +677,39 @@ mod tests {
         assert!(result.is_err());
         assert!(!path.exists());
         assert!(!tmp_path.exists());
+    }
+
+    /// F-12: a persistence failure on a pre-existing target must not overwrite
+    /// or delete that target. Phase 2 pins this through an atomic create-new
+    /// final-path claim; until then, the current cleanup path deletes `path`.
+    #[test]
+    fn persist_failure_preserves_preexisting_target_file() {
+        let path = unique_temp_vault_path("preexisting-target");
+        let tmp_path = tmp_path_for(&path);
+        let original = b"pre-existing-vault-placeholder";
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        std::fs::write(&path, original).expect("write fixture");
+
+        let result = persist_vault(
+            &path,
+            &[0x11; 16],
+            &[0x22; 24],
+            &HeaderKdfParams::canonical_argon2id_v1(),
+            &[0x66; 16],
+            &[0x77; 16],
+            &[0x33; 32],
+            &[0x44; 24],
+            &[0x55; 74],
+        );
+
+        assert!(result.is_err());
+        assert!(!tmp_path.exists());
+        let preserved = std::fs::read(&path).expect("pre-existing target must remain");
+        assert_eq!(preserved, original);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
     }
 
     /// `create()` must never overwrite an existing vault path.
