@@ -384,10 +384,10 @@ findings:
     cwe: CWE-367
     severity: high
     blocking: true
-    status: open
+    status: resolved
     remediation: "Atomically claim the final path up-front (OpenOptions create_new on the target, replacing the racy exists() check); only remove the target on error if this call exclusively created it (never blind remove_file(path)). Keep crash-safe temp+fsync+rename+fsync-parent; portable across Linux/macOS/Windows (no renameat2 RENAME_NOREPLACE dependency)."
-    verification: ""
-    commit: ""
+    verification: "CORE-6 (commit 7653d32): persist_vault now claims the final path up-front via OpenOptions::create_new(true) — this O_EXCL claim is the sole no-overwrite gate (racy exists() checks removed). target_claimed flag gates cleanup: on error only the temp is removed, and the target only when THIS call won the claim, so a pre-existing/foreign vault is never deleted (test persist_failure_preserves_preexisting_target_file). Crash-safe temp+sync_all+rename+fsync-parent retained; the claim File is drop()'d before rename, so Windows rename-replace is safe (cross-platform, no renameat2). Orchestrator verified the drop-before-rename ordering. 47 core tests green, clippy -D warnings/audit clean."
+    commit: "7653d32"
 
   - id: F-13
     kind: consistency
@@ -397,10 +397,10 @@ findings:
     cwe: CWE-345
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: "DECISION 2026-06-08 (HUMAN): option (a) — implement the full §5 byte-model. Add revision_id to RecordTableEntry; serialize/parse it consistently with the frame's revision_id (same value for the WRK record); keep the 46-byte entry layout. Regenerate the affected test vectors (cross_verify.py) so the TV-4 drift guard stays green. Rejected (b) drop-from-spec: chosen to keep the table sync-ready (index-level revision is a sync/transfer affordance). See F-14 for the latent table-authentication requirement this creates."
-    verification: ""
-    commit: ""
+    verification: "CORE-6 (commit 44b5303): RecordTableEntry carries revision_id at the §5 position; serialize_record_table writes it and parse_record_table reads it (no more zero placeholder); persist_vault sets the WRK entry's table revision_id = frame revision_id. 46-byte entry layout preserved; cross_verify.py clean with git diff --exit-code test-vectors/ showing no drift (the vectors already encoded real §5 revision bytes). Table value stays advisory per F-14; frame AAD remains authoritative."
+    commit: "44b5303"
 
   - id: F-14
     kind: design
