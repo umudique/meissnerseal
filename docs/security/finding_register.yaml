@@ -48,10 +48,10 @@ findings:
     cwe: CWE-1188
     severity: medium
     blocking: false
-    status: deferred
-    remediation: "Phase 3: read KDF param TLV from header (arcanum-ops P3-4). [Stable-gate: BLOCKING for core API Stable per milestone review 2026-06-08 — also conflicts with arcanum-crypto CONTRACT G-05 no-hardcoded-params]"
-    verification: ""
-    commit: ""
+    status: resolved
+    remediation: "arcanum-ops CORE-1 (ADR-025 Option A): parse vault header §4 KDF param TLV into HeaderKdfParams; unlock derivation consumes header-sourced params; hardcoded KDF_PARAMS removed from derivation path"
+    verification: "format.rs parse_kdf_profile_params parses vault_kdf_param_tlv_v1.json + fail-closed rejects 7 malformed cases (wrong version/missing tag/duplicate/bad length/params_len mismatch/trailing garbage/unknown profile); header-sourced params reproduce vault_kdf_v1.json MUK; cargo test/clippy -D warnings green 2026-06-08"
+    commit: "0f37503"
 
   - id: F-04
     kind: security_review
