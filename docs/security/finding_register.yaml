@@ -143,10 +143,10 @@ findings:
     cwe: null
     severity: high
     blocking: true
-    status: open
+    status: resolved
     remediation: "arcanum-ops TV-4 (run + git diff --exit-code)"
-    verification: ""
-    commit: ""
+    verification: "ci-fast.yml 'vectors' job: regenerate via cross_verify.py, fail-closed grep on degraded generators, git diff --exit-code test-vectors/; registered as required status check 'Test vectors' on main branch protection (2026-06-08, human-authorized, ADR-018)"
+    commit: "a3a8a65"
 
   - id: B1
     kind: coverage_gap
