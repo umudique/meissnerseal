@@ -375,3 +375,29 @@ findings:
     remediation: "Reconcile CONTRACT.md with the implemented create()/unlock() return types before marking Stable"
     verification: "CORE-5 (HUMAN decision, ADR-026): resolved code->contract, NOT contract->code (consistent with ADR-025). create() now returns a locked VaultHandle { path } and drops/zeroizes the derived keys before returning; a live VaultSession is obtainable ONLY via unlock() (P-01 preserved, single session-birth chokepoint). CONTRACT already declared create()->VaultHandle and P-01, so the code was brought up to it (no CONTRACT edit needed). 45 core tests green incl. create_returns_handle_not_session; clippy -D warnings/audit clean. commit 1fe0468 (code) + 6ef2500 (ADR-026)."
     commit: "1fe0468"
+
+  - id: F-12
+    kind: security_review
+    source: "Milestone re-review GATE-CORE-REV (Security agent) — arcanum-core"
+    date: 2026-06-08
+    description: "persist_vault TOCTOU: exists()-check then std::fs::rename can clobber a vault created in the window (rename overwrites on Unix); error-path cleanup remove_file(path) can delete a concurrently-created target it does not own — violates 'never overwrite' (G-01/G-06)"
+    cwe: CWE-367
+    severity: high
+    blocking: true
+    status: open
+    remediation: "Atomically claim the final path up-front (OpenOptions create_new on the target, replacing the racy exists() check); only remove the target on error if this call exclusively created it (never blind remove_file(path)). Keep crash-safe temp+fsync+rename+fsync-parent; portable across Linux/macOS/Windows (no renameat2 RENAME_NOREPLACE dependency)."
+    verification: ""
+    commit: ""
+
+  - id: F-13
+    kind: consistency
+    source: "Milestone re-review GATE-CORE-REV (Consistency + Security agents) — arcanum-core"
+    date: 2026-06-08
+    description: "Record-table entry revision_id[16] (spec vault_format_v1.md §5) is not modeled: RecordTableEntry omits it, serialize_record_table writes zero bytes, parse_record_table skips it. WRK auth binds the FRAME revision_id (so F-01 not reopened), but the on-disk §5 byte-model deviates from spec — unauthenticated/unused table field"
+    cwe: CWE-345
+    severity: low
+    blocking: false
+    status: open
+    remediation: "DECISION PENDING (HUMAN): either (a) implement the full §5 byte-model — expose+serialize+parse the table revision_id consistently — or (b) amend vault_format_v1.md §5 to drop the table revision_id (frame is authoritative), reconciling spec to code. Same class as F-11."
+    verification: ""
+    commit: ""
