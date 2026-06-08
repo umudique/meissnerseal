@@ -358,10 +358,10 @@ findings:
     cwe: CWE-325
     severity: high
     blocking: true
-    status: open
-    remediation: "Derive all 7 specified subkeys OR formally narrow the spec/CONTRACT to the MVP-0 4-subkey subset with an ADR"
-    verification: ""
-    commit: ""
+    status: resolved
+    remediation: "arcanum-ops CORE-2 (ADR-025 Option A): derive_subkeys now derives all 7 registry subkeys via arcanum_crypto derive_subkey; UnlockedKeys exposes all 7; fail-closed (any subkey error -> Err, no partial struct)"
+    verification: "all 7 subkeys byte-match vault_kdf_v1.json subkey-derivation case; pairwise distinct (ct_eq); UnlockedKeys completeness asserted; cargo test/clippy -D warnings/audit green 2026-06-08"
+    commit: "eab82e7"
 
   - id: F-11
     kind: consistency
