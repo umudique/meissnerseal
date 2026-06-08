@@ -39,6 +39,28 @@ pub struct VaultSession {
     keys: UnlockedKeys,
 }
 
+/// Non-secret handle for a created vault on disk.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Constructed only after a vault file has been durably created at `path`.
+///
+/// ## Postconditions
+/// - Identifies the locked vault file that can later be opened with [`unlock`].
+/// - Contains no key material and no plaintext secrets.
+///
+/// ## Invariants
+/// - This is intentionally `Debug`: unlike [`VaultSession`], it carries only
+///   non-secret routing metadata.
+/// - Holding a `VaultHandle` does not imply live key material is resident; a
+///   live [`VaultSession`] is obtainable only through [`unlock`] (CONTRACT P-01).
+#[derive(Debug)]
+pub struct VaultHandle {
+    /// Filesystem path of the persisted vault file.
+    pub path: std::path::PathBuf,
+}
+
 /// Parameters for creating a new vault.
 pub struct CreateVaultParams {
     /// Filesystem path at which the vault file will be created.
@@ -55,7 +77,7 @@ pub struct UnlockParams {
     pub password: SecretBytes,
 }
 
-/// Create a new vault at the given path and return an unlocked session.
+/// Create a new locked vault at the given path and return a non-secret handle.
 ///
 /// # Contract
 ///
@@ -64,10 +86,12 @@ pub struct UnlockParams {
 /// - `params.password` must be non-empty.
 ///
 /// ## Postconditions
-/// - On success: key hierarchy is derived and a [`VaultSession`] is returned.
+/// - On success: key hierarchy is derived only long enough to wrap and persist
+///   the VaultRootKey, then dropped/zeroized before this function returns.
 /// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
 ///   for the WrappedRootKey frame before AAD construction; those same IDs are
 ///   persisted in the record-table/frame metadata.
+/// - On success: returns a [`VaultHandle`], never a live [`VaultSession`].
 /// - On failure: `Err` is returned and no partial file remains on disk.
 ///
 /// ## Invariants
@@ -75,7 +99,10 @@ pub struct UnlockParams {
 ///   parent (CONTRACT G-01).
 /// - Never writes plaintext key material to disk.
 /// - Never returns partial output on cryptographic failure (CONTRACT G-06).
-pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
+/// - A live [`VaultSession`] is obtainable only through [`unlock`] (CONTRACT
+///   P-01), preserving the single session-birth chokepoint for future
+///   sync/transfer/device/recovery and hardware re-auth layers.
+pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
     // Validate preconditions.
     params.password.with_secret(|b| -> Result<()> {
         if b.is_empty() {
@@ -130,7 +157,9 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
         &aad,
     )?;
 
-    Ok(VaultSession { keys })
+    drop(keys);
+
+    Ok(VaultHandle { path: params.path })
 }
 
 /// Persist a newly-created vault with the crash-safe strategy from
@@ -493,12 +522,12 @@ mod tests {
         let tmp_path = tmp_path_for(path);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&tmp_path);
-        let session = create(CreateVaultParams {
+        let handle = create(CreateVaultParams {
             path: path.to_path_buf(),
             password: SecretBytes::new(password.to_vec()),
         })
         .expect("create fixture");
-        lock(session).expect("lock fixture");
+        assert_eq!(handle.path, path);
     }
 
     /// Compile-time invariant: `VaultSession` must not implement `Debug`.
@@ -545,8 +574,8 @@ mod tests {
         assert!(unlock(params).is_err());
     }
 
-    /// `create()` succeeds with a valid password and non-existent path,
-    /// and the returned session can be locked.
+    /// `create()` succeeds with a valid password and returns only a handle;
+    /// the live session is obtained through `unlock()` and then locked.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn test_create_and_lock() {
@@ -559,7 +588,13 @@ mod tests {
             path: path.clone(),
             password: SecretBytes::new(b"test-password-never-real".to_vec()),
         };
-        let session = create(params).expect("create must succeed");
+        let handle = create(params).expect("create must return handle");
+        assert_eq!(handle.path, path);
+        let session = unlock(UnlockParams {
+            path: handle.path.clone(),
+            password: SecretBytes::new(b"test-password-never-real".to_vec()),
+        })
+        .expect("unlock must return session");
         lock(session).expect("lock must succeed");
 
         let _ = std::fs::remove_file(&path);
@@ -582,8 +617,8 @@ mod tests {
             password: SecretBytes::new(b"roundtrip-password-never-real".to_vec()),
         });
         assert!(create_result.is_ok());
-        if let Ok(session) = create_result {
-            assert!(lock(session).is_ok());
+        if let Ok(handle) = create_result {
+            assert_eq!(handle.path, path);
         }
 
         let unlock_result = unlock(UnlockParams {
@@ -673,11 +708,40 @@ mod tests {
         });
 
         assert!(result.is_ok());
-        if let Ok(session) = result {
-            assert!(lock(session).is_ok());
+        if let Ok(handle) = result {
+            assert_eq!(handle.path, path);
         }
         assert!(path.exists());
         assert!(!tmp_path.exists());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// `create()` returns a non-secret handle, not a live session; opening the
+    /// created vault requires an explicit `unlock()` call.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_returns_handle_not_session() {
+        let path = unique_temp_vault_path("handle-only");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let handle = create(CreateVaultParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"handle-only-password-never-real".to_vec()),
+        })
+        .expect("create must return handle");
+        assert_eq!(handle.path, path);
+        assert!(handle.path.exists());
+
+        let session = unlock(UnlockParams {
+            path: handle.path.clone(),
+            password: SecretBytes::new(b"handle-only-password-never-real".to_vec()),
+        })
+        .expect("unlock must return session");
+        lock(session).expect("lock must succeed");
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
