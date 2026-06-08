@@ -292,6 +292,7 @@ fn persist_vault_inner(
     let entry = RecordTableEntry {
         record_id: *record_id,
         record_kind: RECORD_KIND_WRAPPED_ROOT_KEY,
+        revision_id: *revision_id,
         frame_offset: u64::try_from(frame_offset)
             .map_err(|_| CoreError::Format("frame offset overflow".into()))?,
         frame_len,
@@ -507,6 +508,29 @@ mod tests {
         let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
         let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
         (bytes, frame, frame_offset, entry.frame_len)
+    }
+
+    fn wrapped_root_entry_and_frame_for_test(
+        path: &std::path::Path,
+    ) -> (RecordTableEntry, RecordFrame) {
+        let bytes = std::fs::read(path).expect("read vault fixture");
+        let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
+            .expect("header length fixture");
+        let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
+            .expect("record table length fixture");
+        let record_table_offset = HEADER_MIN_LEN
+            .checked_add(header_len)
+            .expect("record table offset fixture");
+        let entries = parse_record_table(&bytes, record_table_offset, record_table_len)
+            .expect("record table");
+        let entry = entries
+            .into_iter()
+            .find(|entry| entry.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY)
+            .expect("wrapped root key entry");
+        let frame_offset = usize::try_from(entry.frame_offset).expect("frame offset fixture");
+        let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
+        let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
+        (entry, frame)
     }
 
     fn frame_record_id_offset(path: &std::path::Path) -> (Vec<u8>, usize) {
@@ -811,6 +835,24 @@ mod tests {
         if let Ok(session) = unlock_result {
             assert!(lock(session).is_ok());
         }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// F-13: the §5 record-table revision_id must carry the same WRK revision
+    /// stored in the authoritative §6 frame.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_persists_table_revision_id_matching_frame_revision_id() {
+        let path = unique_temp_vault_path("table-frame-revision");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"table-frame-revision-password-never-real");
+
+        let (entry, frame) = wrapped_root_entry_and_frame_for_test(&path);
+        assert_ne!(entry.revision_id, [0u8; 16]);
+        assert_eq!(entry.record_id, frame.record_id);
+        assert_eq!(entry.revision_id, frame.revision_id);
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);

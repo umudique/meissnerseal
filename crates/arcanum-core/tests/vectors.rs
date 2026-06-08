@@ -277,6 +277,11 @@ fn vault_format_struct_v1_vectors() {
             "d3: record_kind"
         );
         assert_eq!(
+            entry.revision_id,
+            arr::<16>(rec["revision_id"].as_str().unwrap()),
+            "d3: revision_id"
+        );
+        assert_eq!(
             entry.frame_offset,
             rec["frame_offset"].as_u64().unwrap(),
             "d3: frame_offset"

@@ -132,6 +132,14 @@ pub struct RecordTableEntry {
     /// Record kind enum value.
     pub record_kind: u16,
 
+    /// 128-bit record revision identifier from `vault_format_v1.md` §5.
+    ///
+    /// For the WrappedRootKey record in MVP-0, this advisory table value must
+    /// equal the authoritative `revision_id` stored in the encrypted record
+    /// frame. Authenticating the table itself is deferred to F-14; frame AAD
+    /// remains authoritative.
+    pub revision_id: [u8; 16],
+
     /// Offset of the record frame in the vault file.
     pub frame_offset: u64,
 
@@ -352,7 +360,8 @@ pub fn serialize_kdf_profile_params(params: &HeaderKdfParams) -> Result<Vec<u8>>
 /// - On success, returns `record_count:u32le` followed by one 46-byte entry for
 ///   each record.
 /// - [`parse_record_table`] over the returned bytes reconstructs the same table
-///   metadata.
+///   metadata, including `revision_id[16]` in the §5 field position between
+///   `record_kind` and `frame_offset`.
 /// - Returns `Err` without partial output if any count or length would overflow
 ///   the v1 encoding.
 ///
@@ -372,7 +381,7 @@ pub fn serialize_record_table(entries: &[RecordTableEntry]) -> Result<Vec<u8>> {
     for entry in entries {
         bytes.extend_from_slice(&entry.record_id);
         bytes.extend_from_slice(&entry.record_kind.to_le_bytes());
-        bytes.extend_from_slice(&[0u8; 16]);
+        bytes.extend_from_slice(&entry.revision_id);
         bytes.extend_from_slice(&entry.frame_offset.to_le_bytes());
         bytes.extend_from_slice(&entry.frame_len.to_le_bytes());
     }
@@ -741,6 +750,9 @@ pub fn parse_kdf_profile_params(value: &[u8]) -> Result<HeaderKdfParams> {
 /// ## Postconditions
 /// - Returns all record table entries or `Err`.
 /// - Rejects truncated table.
+/// - On success, exposes the full §5 byte model:
+///   `record_id[16]`, `record_kind:u16le`, `revision_id[16]`,
+///   `frame_offset:u64le`, and `frame_len:u32le`.
 /// ## Invariants
 /// - Never returns partial output on malformed input.
 /// - Does not perform cryptographic operations directly.
@@ -773,6 +785,7 @@ pub fn parse_record_table(
         cursor += 16;
         let record_kind = read_u16_le(bytes, cursor)?;
         cursor += 2;
+        let revision_id = read_array_at::<16>(bytes, cursor)?;
         cursor += 16;
         let frame_offset = read_u64_le(bytes, cursor)?;
         cursor += 8;
@@ -782,6 +795,7 @@ pub fn parse_record_table(
         entries.push(RecordTableEntry {
             record_id,
             record_kind,
+            revision_id,
             frame_offset,
             frame_len,
         });
@@ -1201,6 +1215,7 @@ mod tests {
         let entry = RecordTableEntry {
             record_id: RECORD_ID,
             record_kind: 0x0002,
+            revision_id: REVISION_ID,
             frame_offset: 128,
             frame_len: 96,
         };
@@ -1214,6 +1229,7 @@ mod tests {
                 assert_eq!(parsed.len(), 1);
                 assert_eq!(parsed[0].record_id, RECORD_ID);
                 assert_eq!(parsed[0].record_kind, 0x0002);
+                assert_eq!(parsed[0].revision_id, REVISION_ID);
                 assert_eq!(parsed[0].frame_offset, 128);
                 assert_eq!(parsed[0].frame_len, 96);
             }
