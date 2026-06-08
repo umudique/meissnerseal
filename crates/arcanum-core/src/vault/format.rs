@@ -157,6 +157,313 @@ pub struct RecordFrame {
     pub ciphertext: Vec<u8>,
 }
 
+/// Serialize the fixed 26-byte vault prefix from `vault_format_v1.md` §2.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `format_version` is the supported vault format version.
+/// - `header_len`, `record_table_len`, and `body_len` are the exact byte
+///   lengths of the serialized header TLV section, record table, and body.
+///
+/// ## Postconditions
+/// - On success, returns exactly 26 bytes:
+///   `MAGIC || format_version:u16le || header_len:u32le ||
+///   record_table_len:u32le || body_len:u64le`.
+/// - The returned bytes are accepted by the prefix checks inside
+///   [`parse_header`] when paired with matching serialized sections.
+/// - Returns `Err` instead of emitting a partial prefix on unsupported input.
+///
+/// ## Invariants
+/// - This is serialization only; it never performs cryptography and never
+///   handles plaintext key material.
+pub fn serialize_prefix(
+    format_version: u16,
+    header_len: u32,
+    record_table_len: u32,
+    body_len: u64,
+) -> Result<Vec<u8>> {
+    if format_version != FORMAT_VERSION {
+        return Err(format_error("unsupported format version"));
+    }
+
+    let mut bytes = Vec::with_capacity(HEADER_MIN_LEN);
+    bytes.extend_from_slice(MAGIC);
+    bytes.extend_from_slice(&format_version.to_le_bytes());
+    bytes.extend_from_slice(&header_len.to_le_bytes());
+    bytes.extend_from_slice(&record_table_len.to_le_bytes());
+    bytes.extend_from_slice(&body_len.to_le_bytes());
+    Ok(bytes)
+}
+
+/// Serialize a vault header TLV section as the byte-inverse of [`parse_header`].
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `header` contains every required MVP-0 header field from
+///   `vault_format_v1.md` §3.
+/// - `header.kdf_params` is the same KDF profile/parameter set that will be
+///   used for key derivation and is serializable by
+///   [`serialize_kdf_profile_params`].
+///
+/// ## Postconditions
+/// - On success, returns the canonical header TLV bytes, excluding the 26-byte
+///   file prefix.
+/// - `parse_header(serialize_prefix(...header_len...) || output || matching
+///   table/body)` reconstructs the same public header fields.
+/// - Returns `Err` with no partial header bytes if any required field cannot be
+///   encoded exactly.
+///
+/// ## Invariants
+/// - Emits only public header metadata and authenticated algorithm identifiers.
+/// - Does not derive keys, encrypt data, or write to disk.
+pub fn serialize_header(header: &VaultHeader) -> Result<Vec<u8>> {
+    if header.format_version != FORMAT_VERSION {
+        return Err(format_error("unsupported format version"));
+    }
+    if header.kdf_profile != header.kdf_params.profile_id {
+        return Err(format_error("KDF profile mismatch"));
+    }
+
+    let mut bytes = Vec::new();
+    write_header_tlv(&mut bytes, TAG_VAULT_ID, CRITICAL_FLAG, &header.vault_id)?;
+    write_header_tlv(
+        &mut bytes,
+        TAG_CREATED_AT,
+        CRITICAL_FLAG,
+        &header.created_at.to_le_bytes(),
+    )?;
+    let kdf_profile = serialize_kdf_profile_params(&header.kdf_params)?;
+    write_header_tlv(&mut bytes, TAG_KDF_PROFILE, CRITICAL_FLAG, &kdf_profile)?;
+    write_header_tlv(
+        &mut bytes,
+        TAG_AEAD_PROFILE,
+        CRITICAL_FLAG,
+        &header.aead_profile.to_le_bytes(),
+    )?;
+    write_header_tlv(
+        &mut bytes,
+        TAG_PQC_PROFILE,
+        0,
+        &header.pqc_profile.to_le_bytes(),
+    )?;
+    write_header_tlv(
+        &mut bytes,
+        TAG_SCHEMA_PROFILE,
+        CRITICAL_FLAG,
+        &header.schema_profile.to_le_bytes(),
+    )?;
+    write_header_tlv(
+        &mut bytes,
+        TAG_HEADER_NONCE,
+        CRITICAL_FLAG,
+        &header.header_nonce,
+    )?;
+
+    Ok(bytes)
+}
+
+/// Serialize the `TAG_KDF_PROFILE` value from `vault_format_v1.md` §4.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `params.profile_id == KDF_ARGON2ID_V1`.
+/// - `params.argon2_version == ARGON2_VERSION_0X13`.
+/// - `params.argon2` has already passed the same validation enforced by
+///   [`parse_kdf_profile_params`].
+///
+/// ## Postconditions
+/// - On success, returns
+///   `profile_id:u16le || params_len:u32le || kdf_param_tlv[params_len]`
+///   with all five required Argon2id parameter TLVs encoded exactly once.
+/// - `parse_kdf_profile_params(output)` returns an equivalent
+///   [`HeaderKdfParams`].
+/// - Returns `Err` without partial bytes if the profile, version, or parameter
+///   set is unsupported.
+///
+/// ## Invariants
+/// - Never silently substitutes ADR-006 defaults for caller-provided values.
+/// - Performs no cryptographic operations.
+pub fn serialize_kdf_profile_params(params: &HeaderKdfParams) -> Result<Vec<u8>> {
+    if params.profile_id != KDF_ARGON2ID_V1 {
+        return Err(format_error("unsupported KDF profile"));
+    }
+    if params.argon2_version != ARGON2_VERSION_0X13 {
+        return Err(format_error("unsupported Argon2 version"));
+    }
+    validate_argon2_params(&params.argon2)?;
+
+    let mut param_tlvs = Vec::new();
+    write_kdf_param_tlv(
+        &mut param_tlvs,
+        TAG_KDF_M_COST_KIB,
+        &params.argon2.m_cost_kib.to_le_bytes(),
+    )?;
+    write_kdf_param_tlv(
+        &mut param_tlvs,
+        TAG_KDF_T_COST,
+        &params.argon2.t_cost.to_le_bytes(),
+    )?;
+    write_kdf_param_tlv(
+        &mut param_tlvs,
+        TAG_KDF_P_LANES,
+        &params.argon2.p_lanes.to_le_bytes(),
+    )?;
+    let output_len =
+        u16::try_from(params.argon2.output_len).map_err(|_| format_error("output_len overflow"))?;
+    write_kdf_param_tlv(
+        &mut param_tlvs,
+        TAG_KDF_OUTPUT_LEN,
+        &output_len.to_le_bytes(),
+    )?;
+    write_kdf_param_tlv(
+        &mut param_tlvs,
+        TAG_KDF_ARGON2_VERSION,
+        &params.argon2_version.to_le_bytes(),
+    )?;
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&params.profile_id.to_le_bytes());
+    bytes.extend_from_slice(
+        &len_to_u32(param_tlvs.len(), "KDF params length overflow")?.to_le_bytes(),
+    );
+    bytes.extend_from_slice(&param_tlvs);
+    Ok(bytes)
+}
+
+/// Serialize the record table from `vault_format_v1.md` §5.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Each entry describes a frame fully contained in the serialized vault body.
+/// - Record identifiers, kinds, offsets, and lengths are the canonical values
+///   that will be authenticated through record AAD and frame parsing.
+///
+/// ## Postconditions
+/// - On success, returns `record_count:u32le` followed by one 46-byte entry for
+///   each record.
+/// - [`parse_record_table`] over the returned bytes reconstructs the same table
+///   metadata.
+/// - Returns `Err` without partial output if any count or length would overflow
+///   the v1 encoding.
+///
+/// ## Invariants
+/// - Emits public routing metadata only; it never serializes plaintext keys or
+///   item plaintext.
+pub fn serialize_record_table(entries: &[RecordTableEntry]) -> Result<Vec<u8>> {
+    let count = len_to_u32(entries.len(), "record table count overflow")?;
+    let entries_len = entries
+        .len()
+        .checked_mul(RECORD_TABLE_ENTRY_LEN)
+        .and_then(|len| RECORD_TABLE_COUNT_LEN.checked_add(len))
+        .ok_or_else(|| format_error("record table length overflow"))?;
+
+    let mut bytes = Vec::with_capacity(entries_len);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for entry in entries {
+        bytes.extend_from_slice(&entry.record_id);
+        bytes.extend_from_slice(&entry.record_kind.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 16]);
+        bytes.extend_from_slice(&entry.frame_offset.to_le_bytes());
+        bytes.extend_from_slice(&entry.frame_len.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
+/// Serialize an encrypted record frame from `vault_format_v1.md` §6.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `frame.ciphertext` is already authenticated ciphertext with tag appended.
+/// - `frame.nonce` is the AEAD nonce already produced for this frame.
+/// - `aad` is the exact canonical AAD used during encryption.
+///
+/// ## Postconditions
+/// - On success, returns one complete encrypted frame whose declared lengths
+///   match the emitted bytes.
+/// - [`parse_record_frame`] over the returned bytes reconstructs the encrypted
+///   frame metadata and ciphertext bytes.
+/// - Returns `Err` with no partial frame if any declared length is inconsistent
+///   or unsupported.
+///
+/// ## Invariants
+/// - Does not encrypt, decrypt, or generate nonces; callers provide only the
+///   already-encrypted frame material.
+/// - Never writes plaintext key material.
+pub fn serialize_record_frame(frame: &RecordFrame, aad: &[u8; 74]) -> Result<Vec<u8>> {
+    if frame.nonce.len() != XCHACHA20_NONCE_LEN {
+        return Err(format_error("invalid nonce length"));
+    }
+    if frame.ciphertext_len != len_to_u32(frame.ciphertext.len(), "ciphertext length overflow")? {
+        return Err(format_error("ciphertext length mismatch"));
+    }
+
+    let frame_len = RECORD_FRAME_FIXED_PREFIX_LEN
+        .checked_add(XCHACHA20_NONCE_LEN)
+        .and_then(|len| len.checked_add(4))
+        .and_then(|len| len.checked_add(aad.len()))
+        .and_then(|len| len.checked_add(4))
+        .and_then(|len| len.checked_add(frame.ciphertext.len()))
+        .ok_or_else(|| format_error("record frame length overflow"))?;
+    let mut bytes = Vec::with_capacity(frame_len);
+    bytes.extend_from_slice(&frame.frame_version.to_le_bytes());
+    bytes.extend_from_slice(&frame.record_id);
+    bytes.extend_from_slice(&[0u8; 16]);
+    bytes.extend_from_slice(&1u16.to_le_bytes());
+    bytes.push(
+        u8::try_from(XCHACHA20_NONCE_LEN).map_err(|_| format_error("nonce length overflow"))?,
+    );
+    bytes.extend_from_slice(&frame.nonce);
+    bytes.extend_from_slice(&len_to_u32(aad.len(), "AAD length overflow")?.to_le_bytes());
+    bytes.extend_from_slice(aad);
+    bytes.extend_from_slice(&frame.ciphertext_len.to_le_bytes());
+    bytes.extend_from_slice(&frame.ciphertext);
+
+    Ok(bytes)
+}
+
+/// Serialize a complete vault file from prefix components and serialized
+/// sections.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `header`, `record_table`, and `body` are individually canonical
+///   serializations for vault format v1.
+///
+/// ## Postconditions
+/// - On success, returns bytes accepted by [`parse_header`],
+///   [`parse_record_table`], and [`parse_record_frame`] when read back.
+/// - Returns `Err` instead of emitting a partial vault file if any section
+///   length cannot be represented or does not match its encoded prefix.
+///
+/// ## Invariants
+/// - Concatenates public metadata and encrypted frames only.
+/// - Does not perform cryptography or filesystem I/O.
+pub fn serialize_vault_file(header: &[u8], record_table: &[u8], body: &[u8]) -> Result<Vec<u8>> {
+    let header_len = len_to_u32(header.len(), "header length overflow")?;
+    let record_table_len = len_to_u32(record_table.len(), "record table length overflow")?;
+    let body_len = len_to_u64(body.len(), "body length overflow")?;
+    let prefix = serialize_prefix(FORMAT_VERSION, header_len, record_table_len, body_len)?;
+    let capacity = prefix
+        .len()
+        .checked_add(header.len())
+        .and_then(|len| len.checked_add(record_table.len()))
+        .and_then(|len| len.checked_add(body.len()))
+        .ok_or_else(|| format_error("vault file length overflow"))?;
+
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(&prefix);
+    bytes.extend_from_slice(header);
+    bytes.extend_from_slice(record_table);
+    bytes.extend_from_slice(body);
+    Ok(bytes)
+}
+
 /// Parse vault header from bytes.
 ///
 /// # Contract
@@ -601,6 +908,31 @@ fn format_error(message: &'static str) -> CoreError {
     CoreError::Format(message.to_string())
 }
 
+fn len_to_u32(value: usize, error: &'static str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| format_error(error))
+}
+
+fn len_to_u64(value: usize, error: &'static str) -> Result<u64> {
+    u64::try_from(value).map_err(|_| format_error(error))
+}
+
+fn write_header_tlv(bytes: &mut Vec<u8>, tag: u16, flags: u8, value: &[u8]) -> Result<()> {
+    bytes.extend_from_slice(&tag.to_le_bytes());
+    bytes.push(flags);
+    bytes.extend_from_slice(&len_to_u32(value.len(), "header TLV length overflow")?.to_le_bytes());
+    bytes.extend_from_slice(value);
+    Ok(())
+}
+
+fn write_kdf_param_tlv(bytes: &mut Vec<u8>, tag: u16, value: &[u8]) -> Result<()> {
+    let len =
+        u16::try_from(value.len()).map_err(|_| format_error("KDF parameter length overflow"))?;
+    bytes.extend_from_slice(&tag.to_le_bytes());
+    bytes.extend_from_slice(&len.to_le_bytes());
+    bytes.extend_from_slice(value);
+    Ok(())
+}
+
 fn read_array<const N: usize>(bytes: &[u8], error: &'static str) -> Result<[u8; N]> {
     bytes.try_into().map_err(|_| format_error(error))
 }
@@ -732,6 +1064,13 @@ mod tests {
         0xbf,
     ];
 
+    fn usize_to_u32_for_test(value: usize) -> u32 {
+        match u32::try_from(value) {
+            Ok(value) => value,
+            Err(_) => panic!("test fixture length must fit u32"),
+        }
+    }
+
     #[test]
     fn test_magic_bytes_constant() {
         assert_eq!(MAGIC, b"ARCANUM\x01");
@@ -752,5 +1091,159 @@ mod tests {
     #[test]
     fn test_parse_record_frame_rejects_truncated() {
         assert!(parse_record_frame(&[], 100).is_err());
+    }
+
+    #[test]
+    fn serialize_prefix_roundtrip_matches_v1_layout() {
+        let prefix = serialize_prefix(FORMAT_VERSION, 10, 4, 64);
+
+        assert!(prefix.is_ok());
+        if let Ok(bytes) = prefix {
+            assert_eq!(bytes.len(), HEADER_MIN_LEN);
+            assert_eq!(&bytes[0..8], MAGIC);
+            assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), FORMAT_VERSION);
+            assert_eq!(
+                u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]),
+                10
+            );
+            assert_eq!(
+                u32::from_le_bytes([bytes[14], bytes[15], bytes[16], bytes[17]]),
+                4
+            );
+            assert_eq!(
+                u64::from_le_bytes([
+                    bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23], bytes[24],
+                    bytes[25],
+                ]),
+                64
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_kdf_profile_params_roundtrip_parses_same_params() {
+        let params = HeaderKdfParams::canonical_argon2id_v1();
+        let serialized = serialize_kdf_profile_params(&params);
+
+        assert!(serialized.is_ok());
+        if let Ok(bytes) = serialized {
+            let parsed = parse_kdf_profile_params(&bytes);
+            assert!(parsed.is_ok());
+            if let Ok(parsed) = parsed {
+                assert_eq!(parsed.profile_id, params.profile_id);
+                assert_eq!(parsed.argon2.m_cost_kib, params.argon2.m_cost_kib);
+                assert_eq!(parsed.argon2.t_cost, params.argon2.t_cost);
+                assert_eq!(parsed.argon2.p_lanes, params.argon2.p_lanes);
+                assert_eq!(parsed.argon2.output_len, params.argon2.output_len);
+                assert_eq!(parsed.argon2_version, params.argon2_version);
+            }
+        }
+    }
+
+    #[test]
+    fn serialize_header_roundtrip_parses_same_header() {
+        let header = VaultHeader {
+            vault_id: VAULT_ID,
+            created_at: 1_725_000_000_000,
+            format_version: FORMAT_VERSION,
+            schema_profile: 1,
+            aead_profile: 1,
+            kdf_profile: KDF_ARGON2ID_V1,
+            kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
+            pqc_profile: 0,
+            header_nonce: [0x42; 24],
+        };
+        let serialized_header = serialize_header(&header);
+
+        assert!(serialized_header.is_ok());
+        if let Ok(header_bytes) = serialized_header {
+            let prefix = serialize_prefix(
+                FORMAT_VERSION,
+                usize_to_u32_for_test(header_bytes.len()),
+                4,
+                0,
+            );
+            assert!(prefix.is_ok());
+            if let Ok(mut vault_bytes) = prefix {
+                vault_bytes.extend_from_slice(&header_bytes);
+                vault_bytes.extend_from_slice(&0u32.to_le_bytes());
+
+                let parsed = parse_header(&vault_bytes);
+                assert!(parsed.is_ok());
+                if let Ok(parsed) = parsed {
+                    assert_eq!(parsed.vault_id, header.vault_id);
+                    assert_eq!(parsed.created_at, header.created_at);
+                    assert_eq!(parsed.format_version, header.format_version);
+                    assert_eq!(parsed.schema_profile, header.schema_profile);
+                    assert_eq!(parsed.aead_profile, header.aead_profile);
+                    assert_eq!(parsed.kdf_profile, header.kdf_profile);
+                    assert_eq!(parsed.pqc_profile, header.pqc_profile);
+                    assert_eq!(parsed.header_nonce, header.header_nonce);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn serialize_record_table_roundtrip_parses_same_entries() {
+        let entry = RecordTableEntry {
+            record_id: RECORD_ID,
+            record_kind: 0x0002,
+            frame_offset: 128,
+            frame_len: 96,
+        };
+        let serialized = serialize_record_table(&[entry]);
+
+        assert!(serialized.is_ok());
+        if let Ok(bytes) = serialized {
+            let parsed = parse_record_table(&bytes, 0, bytes.len());
+            assert!(parsed.is_ok());
+            if let Ok(parsed) = parsed {
+                assert_eq!(parsed.len(), 1);
+                assert_eq!(parsed[0].record_id, RECORD_ID);
+                assert_eq!(parsed[0].record_kind, 0x0002);
+                assert_eq!(parsed[0].frame_offset, 128);
+                assert_eq!(parsed[0].frame_len, 96);
+            }
+        }
+    }
+
+    #[test]
+    fn serialize_record_frame_roundtrip_parses_same_frame() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let ciphertext = vec![0x55; 32];
+        let frame = RecordFrame {
+            frame_version: 1,
+            record_id: RECORD_ID,
+            nonce: [0x33; 24],
+            ciphertext_len: usize_to_u32_for_test(ciphertext.len()),
+            ciphertext,
+        };
+        let serialized = serialize_record_frame(&frame, &aad);
+
+        assert!(serialized.is_ok());
+        if let Ok(bytes) = serialized {
+            let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()));
+            assert!(parsed.is_ok());
+            if let Ok(parsed) = parsed {
+                assert_eq!(parsed.frame_version, frame.frame_version);
+                assert_eq!(parsed.record_id, frame.record_id);
+                assert_eq!(parsed.nonce, frame.nonce);
+                assert_eq!(parsed.ciphertext_len, frame.ciphertext_len);
+                assert_eq!(parsed.ciphertext, frame.ciphertext);
+            }
+        }
+    }
+
+    #[test]
+    fn reserialize_then_corrupt_prefix_is_rejected() {
+        let prefix = serialize_prefix(FORMAT_VERSION, 0, 4, 0);
+
+        assert!(prefix.is_ok());
+        if let Ok(mut bytes) = prefix {
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes[0] ^= 0xff;
+            assert!(parse_header(&bytes).is_err());
+        }
     }
 }

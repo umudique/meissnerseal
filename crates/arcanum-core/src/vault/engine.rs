@@ -1,12 +1,15 @@
 //! Vault engine: create, unlock, and lock vault sessions.
 
+use std::io::Write;
+
 use arcanum_security::secret_lifecycle::SecretBytes;
 
 use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
 use crate::vault::format::{
-    build_aad, parse_header, parse_record_frame, parse_record_table, HeaderKdfParams,
-    HEADER_MIN_LEN,
+    build_aad, parse_header, parse_record_frame, parse_record_table, serialize_header,
+    serialize_record_frame, serialize_record_table, serialize_vault_file, HeaderKdfParams,
+    RecordFrame, RecordTableEntry, VaultHeader, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
 };
 
 // WrappedRootKey record_kind value from vault_format_v1.md §5.
@@ -65,8 +68,8 @@ pub struct UnlockParams {
 /// - On failure: `Err` is returned and no partial file remains on disk.
 ///
 /// ## Invariants
-/// - Write strategy (full serialization added in Phase 3): serialize →
-///   encrypt → temp file → fsync → rename → fsync parent (CONTRACT G-01).
+/// - Write strategy: serialize → encrypt → temp file → fsync → rename → fsync
+///   parent (CONTRACT G-01).
 /// - Never writes plaintext key material to disk.
 /// - Never returns partial output on cryptographic failure (CONTRACT G-06).
 pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
@@ -109,13 +112,170 @@ pub fn create(params: CreateVaultParams) -> Result<VaultSession> {
 
     // Derive key hierarchy and wrap the VaultRootKey.
     let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
-    let (keys, _wrk_ciphertext, _wrk_nonce) = params
+    let (keys, wrk_ciphertext, wrk_nonce) = params
         .password
         .with_secret(|pw| create_session_keys(pw, &vault_id, &header_nonce, &kdf_params, &aad))?;
 
-    // MVP-0: vault file serialization is deferred to Phase 3.
-    // The key hierarchy is fully derived; the session is returned.
+    persist_vault(
+        &params.path,
+        &vault_id,
+        &header_nonce,
+        &kdf_params,
+        &wrk_ciphertext,
+        &wrk_nonce,
+        &aad,
+    )?;
+
     Ok(VaultSession { keys })
+}
+
+/// Persist a newly-created vault with the crash-safe strategy from
+/// `vault_format_v1.md` §8.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `path` does not already exist; callers validated the create precondition.
+/// - `wrk_ciphertext` is the already-produced authenticated ciphertext for the
+///   WrappedRootKey frame returned by `create_session_keys`.
+/// - `wrk_nonce` is the already-produced AEAD nonce for that ciphertext.
+/// - `aad` is the exact canonical AAD used when `wrk_ciphertext` was created.
+///
+/// ## Postconditions
+/// - On success, `path` exists as a durable `.arcv` vault file and no sibling
+///   `.tmp` file remains.
+/// - On any serialization, write, fsync, rename, or parent fsync failure,
+///   returns `Err`, removes the temporary file if present, and leaves no
+///   partial vault at `path`.
+/// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
+///   and never writes plaintext key material.
+///
+/// ## Invariants
+/// - Crash-safe order is exactly:
+///   serialize → use encrypted WrappedRootKey frame → write `.arcv.tmp` →
+///   fsync temp → atomic rename to `.arcv` → fsync parent directory.
+/// - No plaintext password, VaultRootKey, or derived key bytes are written to
+///   disk, logs, or error messages.
+/// - Fail-closed: no security-relevant error path returns partial success.
+#[allow(clippy::too_many_arguments)]
+fn persist_vault(
+    path: &std::path::Path,
+    vault_id: &[u8; 16],
+    header_nonce: &[u8; 24],
+    kdf_params: &HeaderKdfParams,
+    wrk_ciphertext: &[u8],
+    wrk_nonce: &[u8; 24],
+    aad: &[u8; 74],
+) -> Result<()> {
+    let tmp_path = path.with_extension("arcv.tmp");
+    let result = persist_vault_inner(
+        path,
+        &tmp_path,
+        vault_id,
+        header_nonce,
+        kdf_params,
+        wrk_ciphertext,
+        wrk_nonce,
+        aad,
+    );
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+        let _ = std::fs::remove_file(path);
+    }
+
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_vault_inner(
+    path: &std::path::Path,
+    tmp_path: &std::path::Path,
+    vault_id: &[u8; 16],
+    header_nonce: &[u8; 24],
+    kdf_params: &HeaderKdfParams,
+    wrk_ciphertext: &[u8],
+    wrk_nonce: &[u8; 24],
+    aad: &[u8; 74],
+) -> Result<()> {
+    if path.exists() {
+        return Err(CoreError::InvalidState("vault already exists".into()));
+    }
+
+    let created_at = unix_time_millis()?;
+    let header = VaultHeader {
+        vault_id: *vault_id,
+        created_at,
+        format_version: FORMAT_VERSION,
+        schema_profile: 1,
+        aead_profile: 1,
+        kdf_profile: KDF_ARGON2ID_V1,
+        kdf_params: *kdf_params,
+        pqc_profile: 0,
+        header_nonce: *header_nonce,
+    };
+    let header_bytes = serialize_header(&header)?;
+    let frame = RecordFrame {
+        frame_version: FORMAT_VERSION,
+        record_id: [0u8; 16],
+        nonce: *wrk_nonce,
+        ciphertext_len: u32::try_from(wrk_ciphertext.len())
+            .map_err(|_| CoreError::Format("ciphertext length overflow".into()))?,
+        ciphertext: wrk_ciphertext.to_vec(),
+    };
+    let frame_bytes = serialize_record_frame(&frame, aad)?;
+    let record_table_len = 4usize
+        .checked_add(46)
+        .ok_or_else(|| CoreError::Format("record table length overflow".into()))?;
+    let frame_offset = HEADER_MIN_LEN
+        .checked_add(header_bytes.len())
+        .and_then(|offset| offset.checked_add(record_table_len))
+        .ok_or_else(|| CoreError::Format("frame offset overflow".into()))?;
+    let frame_len = u32::try_from(frame_bytes.len())
+        .map_err(|_| CoreError::Format("record frame length overflow".into()))?;
+    let entry = RecordTableEntry {
+        record_id: [0u8; 16],
+        record_kind: RECORD_KIND_WRAPPED_ROOT_KEY,
+        frame_offset: u64::try_from(frame_offset)
+            .map_err(|_| CoreError::Format("frame offset overflow".into()))?,
+        frame_len,
+    };
+    let record_table_bytes = serialize_record_table(&[entry])?;
+    let vault_bytes = serialize_vault_file(&header_bytes, &record_table_bytes, &frame_bytes)?;
+
+    let mut tmp_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp_path)?;
+    tmp_file.write_all(&vault_bytes)?;
+    tmp_file.sync_all()?;
+    drop(tmp_file);
+
+    if path.exists() {
+        return Err(CoreError::InvalidState("vault already exists".into()));
+    }
+
+    std::fs::rename(tmp_path, path)?;
+    fsync_parent(path)?;
+    Ok(())
+}
+
+fn unix_time_millis() -> Result<u64> {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| CoreError::InvalidState("system clock before unix epoch".into()))?;
+    u64::try_from(duration.as_millis())
+        .map_err(|_| CoreError::InvalidState("system clock overflow".into()))
+}
+
+fn fsync_parent(path: &std::path::Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let directory = std::fs::File::open(parent)?;
+    directory.sync_all()?;
+    Ok(())
 }
 
 /// Unlock an existing vault file and return a session with decrypted key material.
@@ -254,6 +414,23 @@ mod tests {
     use super::*;
     use arcanum_security::secret_lifecycle::SecretBytes;
 
+    fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        path.push(format!(
+            "arcanum-core-{label}-{}-{nanos}.arcv",
+            std::process::id()
+        ));
+        path
+    }
+
+    fn tmp_path_for(path: &std::path::Path) -> std::path::PathBuf {
+        path.with_extension("arcv.tmp")
+    }
+
     /// Compile-time invariant: `VaultSession` must not implement `Debug`.
     ///
     /// We cannot call `format!("{:?}", session)` because `Debug` is absent.
@@ -303,15 +480,134 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn test_create_and_lock() {
+        let path = unique_temp_vault_path("create-lock");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
         let params = CreateVaultParams {
-            // Use a path that is guaranteed not to exist on the test host.
-            path: std::path::PathBuf::from("/tmp/arcanum-test-nonexistent-vault.arcv"),
+            path: path.clone(),
             password: SecretBytes::new(b"test-password-never-real".to_vec()),
         };
-        // Ensure the path does not exist before the test.
-        let _ = std::fs::remove_file(&params.path);
-
         let session = create(params).expect("create must succeed");
         lock(session).expect("lock must succeed");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// `create()` persists a vault that can immediately be unlocked with the
+    /// same password, proving the serialized header/table/frame are mutually
+    /// consistent.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_then_unlock_roundtrip_returns_working_session() {
+        let path = unique_temp_vault_path("roundtrip");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let create_result = create(CreateVaultParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"roundtrip-password-never-real".to_vec()),
+        });
+        assert!(create_result.is_ok());
+        if let Ok(session) = create_result {
+            assert!(lock(session).is_ok());
+        }
+
+        let unlock_result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"roundtrip-password-never-real".to_vec()),
+        });
+        assert!(unlock_result.is_ok());
+        if let Ok(session) = unlock_result {
+            assert!(lock(session).is_ok());
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// A serialization/persistence failure must leave neither the target vault
+    /// nor a sibling temporary file behind.
+    #[test]
+    fn persist_failure_leaves_no_partial_output() {
+        let mut path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        path.push(format!(
+            "arcanum-core-missing-parent-{}-{nanos}",
+            std::process::id()
+        ));
+        path.push("failure-cleanup.arcv");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let result = persist_vault(
+            &path,
+            &[0x11; 16],
+            &[0x22; 24],
+            &HeaderKdfParams::canonical_argon2id_v1(),
+            &[0x33; 32],
+            &[0x44; 24],
+            &[0x55; 74],
+        );
+
+        assert!(result.is_err());
+        assert!(!path.exists());
+        assert!(!tmp_path.exists());
+    }
+
+    /// `create()` must never overwrite an existing vault path.
+    #[test]
+    fn create_rejects_existing_path_without_overwrite() {
+        let path = unique_temp_vault_path("existing");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        std::fs::write(&path, b"existing-vault-placeholder").expect("write fixture");
+
+        let result = create(CreateVaultParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"overwrite-password-never-real".to_vec()),
+        });
+
+        assert!(result.is_err());
+        let bytes = std::fs::read(&path).expect("read fixture");
+        assert_eq!(bytes, b"existing-vault-placeholder");
+        assert!(!tmp_path.exists());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// A successful create leaves a durable `.arcv` file at the requested path
+    /// and removes the sibling `.tmp`.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_success_leaves_vault_file_and_no_tmp() {
+        let path = unique_temp_vault_path("success-file");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let result = create(CreateVaultParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"success-password-never-real".to_vec()),
+        });
+
+        assert!(result.is_ok());
+        if let Ok(session) = result {
+            assert!(lock(session).is_ok());
+        }
+        assert!(path.exists());
+        assert!(!tmp_path.exists());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
     }
 }
