@@ -384,7 +384,7 @@ findings:
     cwe: CWE-367
     severity: high
     blocking: true
-    status: in_progress
+    status: resolved
     remediation: "Atomically claim the final path up-front (OpenOptions create_new on the target, replacing the racy exists() check); only remove the target on error if this call exclusively created it (never blind remove_file(path)). Keep crash-safe temp+fsync+rename+fsync-parent; portable across Linux/macOS/Windows (no renameat2 RENAME_NOREPLACE dependency). REOPENED ADDENDUM (GATE-CORE-REV2): temp cleanup must be ownership-aware too — never remove a temp file this call did not exclusively create; make tmp removal symmetric with the target_claimed gate, or make the temp path per-call unique so cross-writer collision is structurally impossible."
     verification: "CORE-6 (commit 7653d32) closed the TARGET-overwrite half: persist_vault claims the final path up-front via OpenOptions::create_new(true) — this O_EXCL claim is the sole no-overwrite gate (racy exists() checks removed). target_claimed flag gates target cleanup, so a pre-existing/foreign vault is never deleted; drop-before-rename keeps Windows rename-replace safe. PARTIAL — see reopen below."
     commit: "7653d32"
@@ -392,6 +392,8 @@ findings:
       date: 2026-06-09
       by: "GATE-CORE-REV2 (focused Security re-review) — needs_revision"
       residual: "crates/arcanum-core/src/vault/engine.rs:236-241 | CWE-367 | the error-path remove_file(&tmp_path) is UNCONDITIONAL, not gated by ownership like the target removal. With two concurrent create() calls on the same final path, the loser fails the create_new(true) target claim (AlreadyExists) and then deletes the WINNER's in-flight deterministic sibling temp (path.with_extension(\"arcv.tmp\")); the winner's subsequent rename then fails with ENOENT. Violates the documented 'remove only files this call exclusively created' invariant (persist_vault doc-comment §Postconditions) and denies successful persistence to the winning writer. The target half of F-12 is closed; the temp-cleanup half is not. Remediation tracked as CORE-7; re-verify at GATE-CORE-REV3."
+    residual_resolution: "CORE-7 (Phase-1 RED baseline 9dedac4 + Phase-2 fix 19bfd65), approach B (per-call-unique temp). persist_vault now derives the temp path via unique_tmp_path(path, record_id) = path.with_extension('{hex(record_id)}.arcv.tmp') — a same-parent sibling whose uniqueness comes from the existing CSPRNG record_id (no new RNG). The single tmp_path variable drives the temp create_new write, the rename, AND the error-path remove_file, so cleanup can only ever name THIS call's own temp; a losing concurrent writer (which never created its unique temp) cannot delete the winner's in-flight temp. create_new(target) claim, target_claimed-gated target cleanup, and crash-safe ordering all unchanged. record_id in the filename leaks nothing (it is cleartext non-secret metadata already on disk in the record table/frame). GATE-CORE-REV3 (orchestrator-verified, HUMAN-authorized 2026-06-09): re-read the committed code, confirmed cross-deletion structurally impossible, crash-safe order intact, no plaintext in filename/logs; the regression is pinned by test concurrent_loser_does_not_delete_winner_temp which exercised the real cleanup path, was genuinely RED before (31 passed/1 failed) and is GREEN after (32 passed/0 failed). Residual disk-hygiene only (orphan unique temps) tracked as F-15 (deferred)."
+    residual_commit: "19bfd65"
 
   - id: F-13
     kind: consistency
