@@ -446,3 +446,16 @@ findings:
     remediation: "Add an orphan-temp sweep at a QUIESCENT point (vault unlock, when no write is in flight): remove sibling vault.*.arcv.tmp files. The single-writer-per-mount architecture makes this sound only at a quiescent point — never inside a persist error path mid-flight (that would reintroduce the F-12 foreign-delete shape). Until implemented, orphaned temps are harmless scratch litter (no plaintext: the temp holds only the already-encrypted vault image); disk hygiene only, no integrity/availability impact on user data."
     verification: ""
     commit: ""
+
+  - id: F-17
+    kind: coverage_gap
+    source: "CORE-9 Phase 2 — orchestrator verification of the item-ops fail-closed coverage"
+    date: 2026-06-09
+    description: "The three CORE-9 Phase-1 item rejection tests (tampered_item_ciphertext_rejects_without_plaintext, tampered_wrapped_rek_rejects_without_plaintext, substituted_record_id_or_revision_rejects_by_aad_authentication) assert with_item() returns Err but contain NO tamper step — they add a valid item then immediately with_item it and expect rejection. Against the Phase-2 impl they go red because the impl correctly decrypts the untampered item and runs the (panicking) closure. In Phase 1 they were red for the WRONG reason (the add() stub returned Err, so .expect() panicked), which masked the vacuous assertion. Net effect: there is currently NO passing test proving item AEAD fail-closed rejection — a security-coverage gap on the most security-critical item property. Orchestrator process miss: Phase-1 reds were verified at grep level; a test that is red because a prerequisite stub errors can hide a vacuous/missing assertion in its own body — reject/tamper test BODIES must be read, not just confirmed red."
+    cwe: CWE-171
+    severity: medium
+    blocking: true
+    status: open
+    remediation: "Rewrite the three tests with a real on-disk tamper between add() and unlock/with_item: (a) flip a byte of the item frame's encrypted payload; (b) flip a byte of the wrapped REK; (c) substitute the frame's record_id or revision_id. Each must then assert with_item/unlock returns Err with NO partial plaintext (closure never runs). The corrected tests must PASS against the unchanged Phase-2 impl (8d468b8) — if any cannot, that is a real impl fail-closed gap to fix, not to weaken. Keep CORE-9 todo until the corrected three pass."
+    verification: ""
+    commit: ""
