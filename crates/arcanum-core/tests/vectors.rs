@@ -22,11 +22,10 @@ use arcanum_core::keys::hierarchy::{
     derive_master_unlock_key_with_header_params, derive_subkeys, UnlockedKeys,
 };
 use arcanum_core::vault::format::{
-    build_aad, parse_header, parse_kdf_profile_params, parse_record_frame, parse_record_table,
-    RecordFrame, ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_ARCANUM_RECORDS_V2,
+    build_aad, open_sealed_record_table_v2, parse_header, parse_kdf_profile_params,
+    ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_ARCANUM_RECORDS_V2,
 };
-use arcanum_crypto::aead::{decrypt, Ciphertext};
-use arcanum_crypto::types::{AeadKey, HkdfPrk, Key, XChaCha20Nonce};
+use arcanum_crypto::types::{AeadKey, HkdfPrk, Key};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -176,161 +175,110 @@ fn vault_format_v1_aad_vectors() {
     }
 }
 
-// ── vault_format_struct_v1.json — D1 prefix / D2 header / D3 table / D4 frame ─
+// ── vault_format_struct_v1.json — V2 fixed-WRK + MEK-sealed record table ──────
+
+/// Read a little-endian `u32` at `offset` from a vault blob, as a `usize`.
+fn read_u32_at(bytes: &[u8], offset: usize) -> usize {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize
+}
+
+/// Total byte length of the self-describing record frame starting at `offset`
+/// (§6: version || record_id || revision_id || aead_profile || nonce_len ||
+/// nonce || aad_len || aad || ciphertext_len || ciphertext). Used to skip the
+/// fixed-position WrappedRootKey frame and locate the sealed table section.
+fn record_frame_len_at(bytes: &[u8], offset: usize) -> usize {
+    let nonce_len = bytes[offset + 2 + 16 + 16 + 2] as usize;
+    let aad_len_offset = offset + 2 + 16 + 16 + 2 + 1 + nonce_len;
+    let aad_len = read_u32_at(bytes, aad_len_offset);
+    let ciphertext_len_offset = aad_len_offset + 4 + aad_len;
+    let ciphertext_len = read_u32_at(bytes, ciphertext_len_offset);
+    ciphertext_len_offset + 4 + ciphertext_len - offset
+}
 
 #[test]
 #[allow(clippy::cognitive_complexity)]
 fn vault_format_struct_v1_vectors() {
     let v = load("vault_format_struct_v1.json");
-    let d1 = find(&v, "d1-file-prefix");
-    let d2 = find(&v, "d2-header-tlv");
-    let d3 = find(&v, "d3-record-table");
-    let d4 = find(&v, "d4-record-frame");
+    for id in ["v2-empty-table-fixed-wrk", "v2-multi-entry-sealed-table"] {
+        let c = find(&v, id);
+        let blob = unhex(c["expected"]["vault_file_hex"].as_str().unwrap());
+        let mek = AeadKey::from_bytes(arr::<32>(
+            c["inputs"]["metadata_encryption_key"].as_str().unwrap(),
+        ));
 
-    let prefix = unhex(d1["expected"]["prefix_hex"].as_str().unwrap());
-    let header = unhex(d2["expected"]["header_hex"].as_str().unwrap());
-    let record_table = unhex(d3["expected"]["record_table_hex"].as_str().unwrap());
-    let frame = unhex(d4["expected"]["frame_hex"].as_str().unwrap());
-
-    // D1: structural fields of the 26-byte prefix.
-    assert_eq!(&prefix[0..8], b"ARCANUM\x01", "d1: magic");
-    let format_version = u16::from_le_bytes(prefix[8..10].try_into().unwrap());
-    let header_len = u32::from_le_bytes(prefix[10..14].try_into().unwrap()) as usize;
-    let record_table_len = u32::from_le_bytes(prefix[14..18].try_into().unwrap()) as usize;
-    assert_eq!(
-        format_version,
-        d1["inputs"]["format_version"].as_u64().unwrap() as u16,
-        "d1: format_version"
-    );
-    assert_eq!(
-        header_len,
-        d1["inputs"]["header_len"].as_u64().unwrap() as usize,
-        "d1: header_len"
-    );
-    assert_eq!(
-        record_table_len,
-        d1["inputs"]["record_table_len"].as_u64().unwrap() as usize,
-        "d1: record_table_len"
-    );
-
-    // Assemble a complete, internally consistent blob: prefix || header ||
-    // record_table || frame. The prefix's declared lengths match each section,
-    // so parse_header accepts it and yields the D2 header fields.
-    let mut blob = Vec::new();
-    blob.extend_from_slice(&prefix);
-    blob.extend_from_slice(&header);
-    blob.extend_from_slice(&record_table);
-    blob.extend_from_slice(&frame);
-
-    if d2["inputs"]["schema_profile"].as_u64().unwrap() as u16 != SCHEMA_ARCANUM_RECORDS_V2 {
-        assert!(
-            parse_header(&blob).is_err(),
-            "d2: pre-release V1 schema fixtures must be rejected until V2 vectors are regenerated"
+        // Header parses as V2 and round-trips the vault_id.
+        let header = parse_header(&blob).unwrap_or_else(|_| panic!("{id}: header must parse"));
+        assert_eq!(
+            header.schema_profile, SCHEMA_ARCANUM_RECORDS_V2,
+            "{id}: schema_profile must be V2"
         );
-        return;
+        assert_eq!(
+            header.vault_id,
+            arr::<16>(c["inputs"]["vault_id"].as_str().unwrap()),
+            "{id}: vault_id"
+        );
+
+        // The WrappedRootKey frame sits at the fixed V2 offset HEADER_MIN_LEN +
+        // header_len; the sealed table section follows it.
+        let header_len = read_u32_at(&blob, 10);
+        let wrk_frame_offset = HEADER_MIN_LEN + header_len;
+        assert_eq!(
+            wrk_frame_offset,
+            c["expected"]["wrk_frame_offset"].as_u64().unwrap() as usize,
+            "{id}: fixed WRK frame offset"
+        );
+        let section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
+        let section_len = read_u32_at(&blob, 14);
+
+        // Open + authenticate the MEK-sealed table under the case's MEK.
+        let entries = open_sealed_record_table_v2(
+            &blob,
+            section_offset,
+            section_len,
+            &mek,
+            &header.vault_id,
+            header.schema_profile,
+            wrk_frame_offset,
+            blob.len(),
+        )
+        .unwrap_or_else(|_| panic!("{id}: sealed record table must open"));
+
+        let records = c["expected"]["records"].as_array();
+        assert_eq!(
+            entries.len(),
+            records.map_or(0, Vec::len),
+            "{id}: record count"
+        );
+        if let Some(records) = records {
+            for (entry, rec) in entries.iter().zip(records.iter()) {
+                assert_eq!(
+                    entry.record_id,
+                    arr::<16>(rec["record_id"].as_str().unwrap()),
+                    "{id}: record_id"
+                );
+                assert_eq!(
+                    entry.record_kind,
+                    u16_from_hex_tag(rec["record_kind"].as_str().unwrap()),
+                    "{id}: record_kind"
+                );
+                assert_eq!(
+                    entry.revision_id,
+                    arr::<16>(rec["revision_id"].as_str().unwrap()),
+                    "{id}: revision_id"
+                );
+                assert_eq!(
+                    entry.frame_offset,
+                    rec["frame_offset"].as_u64().unwrap(),
+                    "{id}: frame_offset"
+                );
+                assert_eq!(
+                    entry.frame_len,
+                    rec["frame_len"].as_u64().unwrap() as u32,
+                    "{id}: frame_len"
+                );
+            }
+        }
     }
-
-    // D2: header TLV round-trip.
-    let parsed = parse_header(&blob).expect("d2: header must parse");
-    let i = &d2["inputs"];
-    assert_eq!(
-        parsed.vault_id,
-        arr::<16>(i["vault_id"].as_str().unwrap()),
-        "d2: vault_id"
-    );
-    assert_eq!(
-        parsed.created_at,
-        i["created_at_ms"].as_u64().unwrap(),
-        "d2: created_at"
-    );
-    assert_eq!(
-        parsed.kdf_profile,
-        i["kdf_profile"].as_u64().unwrap() as u16,
-        "d2: kdf_profile"
-    );
-    assert_eq!(
-        parsed.aead_profile,
-        i["aead_profile"].as_u64().unwrap() as u16,
-        "d2: aead_profile"
-    );
-    assert_eq!(
-        parsed.pqc_profile,
-        i["pqc_profile"].as_u64().unwrap() as u16,
-        "d2: pqc_profile"
-    );
-    assert_eq!(
-        parsed.schema_profile,
-        i["schema_profile"].as_u64().unwrap() as u16,
-        "d2: schema_profile"
-    );
-    assert_eq!(
-        parsed.header_nonce,
-        arr::<24>(i["header_nonce"].as_str().unwrap()),
-        "d2: header_nonce"
-    );
-
-    // D3: record table round-trip.
-    let entries = parse_record_table(&blob, HEADER_MIN_LEN + header_len, record_table_len)
-        .expect("d3: record table must parse");
-    let records = d3["expected"]["records"].as_array().unwrap();
-    assert_eq!(entries.len(), records.len(), "d3: record count");
-    for (entry, rec) in entries.iter().zip(records.iter()) {
-        assert_eq!(
-            entry.record_id,
-            arr::<16>(rec["record_id"].as_str().unwrap()),
-            "d3: record_id"
-        );
-        assert_eq!(
-            entry.record_kind,
-            u16_from_hex_tag(rec["record_kind"].as_str().unwrap()),
-            "d3: record_kind"
-        );
-        assert_eq!(
-            entry.revision_id,
-            arr::<16>(rec["revision_id"].as_str().unwrap()),
-            "d3: revision_id"
-        );
-        assert_eq!(
-            entry.frame_offset,
-            rec["frame_offset"].as_u64().unwrap(),
-            "d3: frame_offset"
-        );
-        assert_eq!(
-            entry.frame_len,
-            rec["frame_len"].as_u64().unwrap() as u32,
-            "d3: frame_len"
-        );
-    }
-
-    // D4: encrypted record frame round-trip.
-    let frame_len = d4["expected"]["frame_len"].as_u64().unwrap() as u32;
-    let rf = parse_record_frame(&frame, frame_len).expect("d4: frame must parse");
-    let i = &d4["inputs"];
-    assert_eq!(
-        rf.frame_version,
-        i["frame_version"].as_u64().unwrap() as u16,
-        "d4: frame_version"
-    );
-    assert_eq!(
-        rf.record_id,
-        arr::<16>(i["record_id"].as_str().unwrap()),
-        "d4: record_id"
-    );
-    assert_eq!(
-        rf.nonce,
-        arr::<24>(i["nonce"].as_str().unwrap()),
-        "d4: nonce"
-    );
-    assert_eq!(
-        rf.ciphertext_len as usize,
-        rf.ciphertext.len(),
-        "d4: ciphertext_len consistency"
-    );
-    assert_eq!(
-        rf.ciphertext.as_slice(),
-        unhex(d4["expected"]["ciphertext_with_tag_hex"].as_str().unwrap()).as_slice(),
-        "d4: ciphertext_with_tag"
-    );
 }
 
 // ── vault_kdf_param_tlv_v1.json — KDF parameter TLV block (§4) ────────────────
@@ -571,31 +519,20 @@ fn unlocked_keys_exposes_all_seven_registry_subkeys() {
     assert_eq!(require_all_fields(&keys).len(), 7);
 }
 
-// ── vault_format_negative_v1.json — §10 reject rules (fail closed) ───────────
-
-/// Drive a full blob through header -> record table -> first record frame.
-/// Returns `Some(frame)` only if every layer parses; otherwise `None`.
-fn drive_to_frame(blob: &[u8]) -> Option<RecordFrame> {
-    parse_header(blob).ok()?;
-    let header_len = u32::from_le_bytes(blob.get(10..14)?.try_into().ok()?) as usize;
-    let record_table_len = u32::from_le_bytes(blob.get(14..18)?.try_into().ok()?) as usize;
-    let entries = parse_record_table(blob, HEADER_MIN_LEN + header_len, record_table_len).ok()?;
-    let entry = entries.first()?;
-    let frame_offset = usize::try_from(entry.frame_offset).ok()?;
-    let frame_bytes = blob.get(frame_offset..)?;
-    parse_record_frame(frame_bytes, entry.frame_len).ok()
-}
+// ── vault_format_negative_v1.json — V2 §10 reject rules (fail closed) ─────────
 
 #[test]
 fn vault_format_negative_v1_vectors() {
     let v = load("vault_format_negative_v1.json");
 
-    // The AEAD-auth-failure fixture tampered the frame produced by the D4 struct
-    // vector; read its key + AAD from that vector rather than hardcoding.
+    // Every V2 negative table fixture was sealed under the shared fixed test MEK
+    // carried by the positive struct vector; read it rather than hardcoding.
     let sv = load("vault_format_struct_v1.json");
-    let d4 = find(&sv, "d4-record-frame");
-    let aead_key = AeadKey::from_bytes(arr::<32>(d4["inputs"]["key"].as_str().unwrap()));
-    let aead_aad = unhex(d4["inputs"]["aad"].as_str().unwrap());
+    let mek = AeadKey::from_bytes(arr::<32>(
+        find(&sv, "v2-empty-table-fixed-wrk")["inputs"]["metadata_encryption_key"]
+            .as_str()
+            .unwrap(),
+    ));
 
     for c in v["cases"].as_array().expect("cases") {
         let id = c["id"].as_str().expect("id");
@@ -607,41 +544,38 @@ fn vault_format_negative_v1_vectors() {
         );
         let blob = unhex(c["inputs"]["input_hex"].as_str().unwrap());
 
-        match reason {
-            // Rejected at the header parser.
-            "wrong_magic"
-            | "unsupported_format_version"
-            | "header_len_exceeds_file"
-            | "unknown_critical_tlv_tag" => {
-                assert!(
-                    parse_header(&blob).is_err(),
-                    "case {id}: parse_header must reject"
-                );
-            }
-            // Header is valid; rejected at the record-frame parser.
-            "nonce_len_aead_mismatch" | "ciphertext_len_exceeds_frame" => {
-                assert!(
-                    drive_to_frame(&blob).is_none(),
-                    "case {id}: frame parse must reject"
-                );
-            }
-            // Structurally valid frame; rejected by AEAD authentication.
-            "aead_auth_failure" => {
-                if let Some(frame) = drive_to_frame(&blob) {
-                    let nonce = XChaCha20Nonce::from_bytes(frame.nonce);
-                    let ciphertext = Ciphertext::from(frame.ciphertext);
-                    assert!(
-                        decrypt(&aead_key, &nonce, &ciphertext, &aead_aad).is_err(),
-                        "case {id}: AEAD must reject the tampered frame"
-                    );
-                } else {
-                    assert!(
-                        parse_header(&blob).is_err(),
-                        "case {id}: stale V1 auth-failure vector must reject before AEAD"
-                    );
-                }
-            }
-            other => panic!("unknown negative reason tag: {other}"),
+        if reason == "schema_profile_v1" {
+            // V2 readers never best-effort parse the pre-release V1 schema; the
+            // header parser rejects it outright.
+            assert!(
+                parse_header(&blob).is_err(),
+                "case {id}: parse_header must reject schema_profile V1"
+            );
+            continue;
         }
+
+        // Every other negative is a valid V2 header whose MEK-sealed table must
+        // be rejected: bad sealed_table_len, non-bucket length, non-zero padding,
+        // a WrappedRootKey entry, or AEAD authentication failure (§10). None may
+        // yield partial table output.
+        let header = parse_header(&blob).unwrap_or_else(|_| panic!("case {id}: header parses"));
+        let header_len = read_u32_at(&blob, 10);
+        let wrk_frame_offset = HEADER_MIN_LEN + header_len;
+        let section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
+        let section_len = read_u32_at(&blob, 14);
+        let opened = open_sealed_record_table_v2(
+            &blob,
+            section_offset,
+            section_len,
+            &mek,
+            &header.vault_id,
+            header.schema_profile,
+            wrk_frame_offset,
+            blob.len(),
+        );
+        assert!(
+            opened.is_err(),
+            "case {id}: sealed record table must reject ({reason})"
+        );
     }
 }
