@@ -1,6 +1,6 @@
 //! Vault engine: create, unlock, and lock vault sessions.
 
-use std::io::Write;
+use std::{fmt::Write as FmtWrite, io::Write};
 
 use arcanum_security::secret_lifecycle::SecretBytes;
 
@@ -186,10 +186,10 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///   temporary file, and the target only if this call won the create-new claim.
 ///   It must never blindly remove a pre-existing or concurrently-created target
 ///   file.
-/// - Phase 2 F-12 follow-up: the temporary file path is per-call unique,
-///   derived from already-available CSPRNG-backed vault identifiers rather than
-///   from the final path alone. This prevents a failed concurrent writer from
-///   deleting another writer's in-flight temp file.
+/// - The temporary file path is per-call unique, derived from the
+///   already-available CSPRNG-backed `record_id` rather than from the final path
+///   alone. This prevents a failed concurrent writer from deleting another
+///   writer's in-flight temp file.
 /// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
 ///   and never writes plaintext key material.
 /// - Persists the same WrappedRootKey `record_id` and `revision_id` in the
@@ -197,8 +197,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///
 /// ## Invariants
 /// - Crash-safe order is exactly:
-///   serialize → use encrypted WrappedRootKey frame → write `.arcv.tmp` →
-///   fsync temp → atomic rename to `.arcv` → fsync parent directory.
+///   serialize → use encrypted WrappedRootKey frame → write unique sibling temp
+///   → fsync temp → atomic rename to `.arcv` → fsync parent directory.
 /// - No plaintext password, VaultRootKey, or derived key bytes are written to
 ///   disk, logs, or error messages.
 /// - Fail-closed: no security-relevant error path returns partial success.
@@ -214,7 +214,7 @@ fn persist_vault(
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
 ) -> Result<()> {
-    let tmp_path = path.with_extension("arcv.tmp");
+    let tmp_path = unique_tmp_path(path, record_id);
     let mut target_claimed = false;
     let result = (|| -> Result<()> {
         let target_claim = std::fs::OpenOptions::new()
@@ -245,6 +245,18 @@ fn persist_vault(
     }
 
     result
+}
+
+fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::PathBuf {
+    path.with_extension(format!("{}.arcv.tmp", hex16(record_id)))
+}
+
+fn hex16(bytes: &[u8; 16]) -> String {
+    let mut out = String::with_capacity(32);
+    for byte in bytes {
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
