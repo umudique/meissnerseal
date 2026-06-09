@@ -32,11 +32,27 @@ const RECORD_TABLE_LEN_OFFSET: usize = 14;
 /// - Key material is zeroized on drop via `ZeroizeOnDrop` on [`UnlockedKeys`]
 ///   fields.
 pub struct VaultSession {
-    // REASON: the field is private (opaque handle) and is never read directly;
-    // its sole purpose is to carry ZeroizeOnDrop key material through the
-    // session lifetime so memory is cleared when lock() drops the session.
-    #[allow(dead_code)]
+    // ZeroizeOnDrop key material carried through the session lifetime so memory
+    // is cleared when lock() drops the session. Read only by item operations in
+    // the same crate via the pub(crate) `keys()` accessor.
     keys: UnlockedKeys,
+
+    // Filesystem path of the vault this session unlocked. Item operations read
+    // and rewrite this file through the V2 crash-safe mutation path; it carries
+    // no secret material.
+    path: std::path::PathBuf,
+}
+
+impl VaultSession {
+    /// Borrow the session's derived key hierarchy (crate-internal item ops only).
+    pub(crate) fn keys(&self) -> &UnlockedKeys {
+        &self.keys
+    }
+
+    /// Borrow the path of the unlocked vault file (crate-internal item ops only).
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 /// Non-secret handle for a created vault on disk.
@@ -287,8 +303,7 @@ fn persist_vault(
 /// - No plaintext key material or item plaintext is written to disk, logs, or
 ///   error values.
 /// - Fail-closed: no mutation error path returns partial success.
-#[allow(dead_code)]
-fn persist_vault_mutation_v2(
+pub(crate) fn persist_vault_mutation_v2(
     path: &std::path::Path,
     vault_bytes: &[u8],
     unique_seed: &[u8; 16],
@@ -400,7 +415,7 @@ fn fsync_parent(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
+pub(crate) fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
     const FRAME_FIXED_PREFIX: usize = 2 + 16 + 16 + 2 + 1;
     let fixed_end = offset
         .checked_add(FRAME_FIXED_PREFIX)
@@ -554,7 +569,10 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
         bytes.len(),
     )?;
 
-    Ok(VaultSession { keys })
+    Ok(VaultSession {
+        keys,
+        path: params.path,
+    })
 }
 
 /// Lock a vault session, consuming it and zeroizing all key material.

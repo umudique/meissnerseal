@@ -773,12 +773,35 @@ pub fn build_table_aad_v2(vault_id: &[u8; 16], schema_profile: u16) -> Result<[u
 /// - Performs deterministic byte serialization only; no encryption or
 ///   decryption happens here.
 /// - Never accepts or emits plaintext item payloads or plaintext REKs.
-pub fn serialize_item_record_frame_envelope(
-    _envelope: &ItemRecordFrameEnvelope,
-) -> Result<Vec<u8>> {
-    Err(format_error(
-        "item record frame envelope serialization not implemented",
-    ))
+pub fn serialize_item_record_frame_envelope(envelope: &ItemRecordFrameEnvelope) -> Result<Vec<u8>> {
+    if envelope.wrapped_rek.is_empty() {
+        return Err(format_error("empty wrapped REK"));
+    }
+    if envelope.encrypted_payload.is_empty() {
+        return Err(format_error("empty encrypted item payload"));
+    }
+    let wrapped_rek_len = len_to_u32(envelope.wrapped_rek.len(), "wrapped REK length overflow")?;
+    let payload_len = len_to_u32(
+        envelope.encrypted_payload.len(),
+        "encrypted payload length overflow",
+    )?;
+
+    let capacity = XCHACHA20_NONCE_LEN
+        .checked_add(4)
+        .and_then(|len| len.checked_add(envelope.wrapped_rek.len()))
+        .and_then(|len| len.checked_add(XCHACHA20_NONCE_LEN))
+        .and_then(|len| len.checked_add(4))
+        .and_then(|len| len.checked_add(envelope.encrypted_payload.len()))
+        .ok_or_else(|| format_error("item envelope length overflow"))?;
+
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(&envelope.rek_wrap_nonce);
+    bytes.extend_from_slice(&wrapped_rek_len.to_le_bytes());
+    bytes.extend_from_slice(&envelope.wrapped_rek);
+    bytes.extend_from_slice(&envelope.payload_nonce);
+    bytes.extend_from_slice(&payload_len.to_le_bytes());
+    bytes.extend_from_slice(&envelope.encrypted_payload);
+    Ok(bytes)
 }
 
 /// Parse a V2 item record envelope from `RecordFrame.ciphertext`.
@@ -800,10 +823,55 @@ pub fn serialize_item_record_frame_envelope(
 /// - Parsing exposes ciphertext and nonce bytes only.
 /// - Performs no cryptography and never logs, formats, or returns plaintext
 ///   item payload bytes.
-pub fn parse_item_record_frame_envelope(_bytes: &[u8]) -> Result<ItemRecordFrameEnvelope> {
-    Err(format_error(
-        "item record frame envelope parsing not implemented",
-    ))
+pub fn parse_item_record_frame_envelope(bytes: &[u8]) -> Result<ItemRecordFrameEnvelope> {
+    let mut cursor = 0usize;
+
+    let rek_wrap_nonce = read_array_at::<24>(bytes, cursor)?;
+    cursor += XCHACHA20_NONCE_LEN;
+
+    let wrapped_rek_len = usize::try_from(read_u32_le(bytes, cursor)?)
+        .map_err(|_| format_error("wrapped REK length overflow"))?;
+    cursor += 4;
+    if wrapped_rek_len == 0 {
+        return Err(format_error("empty wrapped REK"));
+    }
+    let wrapped_rek_end = cursor
+        .checked_add(wrapped_rek_len)
+        .ok_or_else(|| format_error("wrapped REK length overflow"))?;
+    let wrapped_rek = bytes
+        .get(cursor..wrapped_rek_end)
+        .ok_or_else(|| format_error("truncated wrapped REK"))?
+        .to_vec();
+    cursor = wrapped_rek_end;
+
+    let payload_nonce = read_array_at::<24>(bytes, cursor)?;
+    cursor += XCHACHA20_NONCE_LEN;
+
+    let payload_len = usize::try_from(read_u32_le(bytes, cursor)?)
+        .map_err(|_| format_error("encrypted payload length overflow"))?;
+    cursor += 4;
+    if payload_len == 0 {
+        return Err(format_error("empty encrypted item payload"));
+    }
+    let payload_end = cursor
+        .checked_add(payload_len)
+        .ok_or_else(|| format_error("encrypted payload length overflow"))?;
+    let encrypted_payload = bytes
+        .get(cursor..payload_end)
+        .ok_or_else(|| format_error("truncated encrypted item payload"))?
+        .to_vec();
+    cursor = payload_end;
+
+    if cursor != bytes.len() {
+        return Err(format_error("trailing item envelope garbage"));
+    }
+
+    Ok(ItemRecordFrameEnvelope {
+        rek_wrap_nonce,
+        wrapped_rek,
+        payload_nonce,
+        encrypted_payload,
+    })
 }
 
 /// Serialize an encrypted record frame from `vault_format_v1.md` §6.
