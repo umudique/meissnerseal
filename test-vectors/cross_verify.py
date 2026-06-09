@@ -439,7 +439,7 @@ def generate_aad_vectors() -> dict:
     aad = build_aad_v1(
         vault_id=vault_id,
         format_version=1,
-        schema_profile=1,
+        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=1,
         pqc_profile=0,
@@ -449,7 +449,7 @@ def generate_aad_vectors() -> dict:
     )
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V1_AAD",
+        "profile": "SCHEMA_ARCANUM_RECORDS_V2_AAD",
         "version": 1,
         "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
         "generated_by": "cross_verify.py",
@@ -460,7 +460,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": 1,
+                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0,
@@ -479,7 +479,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": 1,
+                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0x0001,
@@ -489,7 +489,7 @@ def generate_aad_vectors() -> dict:
                 },
                 "expected": {
                     "aad_hex": to_hex(build_aad_v1(
-                        vault_id=vault_id, format_version=1, schema_profile=1,
+                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0x0001, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0002)),
@@ -502,7 +502,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": 1,
+                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0,
@@ -512,7 +512,7 @@ def generate_aad_vectors() -> dict:
                 },
                 "expected": {
                     "aad_hex": to_hex(build_aad_v1(
-                        vault_id=vault_id, format_version=1, schema_profile=1,
+                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0005)),
@@ -536,7 +536,7 @@ def generate_aead_vectors() -> dict:
     aad   = bytes.fromhex(
         "617263616e756d2d6161642d7631"          # b"arcanum-aad-v1"  (14 bytes)
         "0102030405060708090a0b0c0d0e0f10"      # vault_id          (16 bytes)
-        "01000100010001000100"                   # 5 × u16le(1)      (10 bytes)
+        "01000200010001000100"                   # format=1, schema=2, aead=1, kdf=1, pqc=1
         "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"      # record_id         (16 bytes)
         "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"      # revision_id       (16 bytes)
         "0100"                                   # record_kind u16le  (2 bytes)
@@ -718,6 +718,7 @@ KIND_AUDITEVENT      = 0x0005
 # Profiles (vault_format_v1.md §3 enum assignments)
 KDF_ARGON2ID_V1           = 0x0001
 SCHEMA_ARCANUM_RECORDS_V1 = 0x0001
+SCHEMA_ARCANUM_RECORDS_V2 = 0x0002
 PQC_NONE                  = 0x0000
 PQC_MLKEM_768_V1          = 0x0001
 
@@ -754,7 +755,7 @@ def generate_wrap_vectors() -> dict:
     wrap_aad = build_aad_v1(
         vault_id=FIX_VAULT_ID,
         format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V1,
+        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=KDF_ARGON2ID_V1,
         pqc_profile=PQC_NONE,
@@ -792,7 +793,7 @@ def generate_wrap_vectors() -> dict:
     wrap_aad2 = build_aad_v1(
         vault_id=vault_id2,
         format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V1,
+        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=KDF_ARGON2ID_V1,
         pqc_profile=PQC_NONE,
@@ -923,10 +924,80 @@ def header_tlv(tag: int, value: bytes, critical: bool) -> bytes:
     return u16le(tag) + bytes([flags]) + u32le(len(value)) + value
 
 
-def generate_format_struct_vectors() -> dict:
-    created_at_ms = 1_700_000_000_000
+def table_aad_v2(vault_id: bytes, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> bytes:
+    """V2 sealed-table AAD: vault_id[16] || schema_profile:u16le (§5)."""
+    assert len(vault_id) == 16
+    assert schema_profile == SCHEMA_ARCANUM_RECORDS_V2
+    aad = vault_id + u16le(schema_profile)
+    assert len(aad) == 18
+    return aad
 
-    # ── D2: header TLV (all 7 required tags, §3) ──
+
+def sealed_table_bucket_capacity(entry_count: int) -> int:
+    """Smallest power-of-two bucket capacity >= entry_count, with 0 -> 1 (§5)."""
+    bucket = 1
+    while bucket < entry_count:
+        bucket *= 2
+    return bucket
+
+
+def record_table_entry_v2(record_id: bytes, kind: int, revision_id: bytes, offset: int, length: int) -> bytes:
+    """V2 table entry: record_id[16] || record_kind:u16le || revision_id[16] || frame_offset:u64le || frame_len:u32le."""
+    assert len(record_id) == 16
+    assert len(revision_id) == 16
+    return record_id + u16le(kind) + revision_id + u64le(offset) + u32le(length)
+
+
+def sealed_table_plaintext_v2(entries: list, pad_byte: int = 0) -> bytes:
+    """entry_count:u32le || entries || padding to power-of-two bucket (§5)."""
+    bucket = sealed_table_bucket_capacity(len(entries))
+    plaintext = u32le(len(entries)) + b"".join(entries)
+    target_len = 4 + bucket * 46
+    assert len(plaintext) <= target_len
+    return plaintext + bytes([pad_byte]) * (target_len - len(plaintext))
+
+
+def seal_record_table_v2(entries: list, mek: bytes, vault_id: bytes, nonce: bytes, pad_byte: int = 0) -> tuple:
+    """Return (section, plaintext, ciphertext_and_tag) for the V2 sealed table."""
+    plaintext = sealed_table_plaintext_v2(entries, pad_byte=pad_byte)
+    aad = table_aad_v2(vault_id)
+    ct_tag = xchacha_encrypt(mek, nonce, plaintext, aad)
+    sealed_table_len = len(nonce) + len(ct_tag)
+    section = u32le(sealed_table_len) + nonce + ct_tag
+    return section, plaintext, ct_tag
+
+
+def record_frame_v1(record_id: bytes, revision_id: bytes, kind: int, key: bytes, nonce: bytes, plaintext: bytes, schema_profile: int) -> tuple:
+    """Serialize one §6 encrypted record frame and return (frame, aad, ciphertext_and_tag)."""
+    aad = build_aad_v1(
+        vault_id=FIX_VAULT_ID,
+        format_version=1,
+        schema_profile=schema_profile,
+        aead_profile=AEAD_XCHACHA20_POLY1305_V1,
+        kdf_profile=KDF_ARGON2ID_V1,
+        pqc_profile=PQC_NONE,
+        record_id=record_id,
+        revision_id=revision_id,
+        record_kind=kind,
+    )
+    ct_tag = xchacha_encrypt(key, nonce, plaintext, aad)
+    frame = (
+        u16le(1)
+        + record_id
+        + revision_id
+        + u16le(AEAD_XCHACHA20_POLY1305_V1)
+        + bytes([len(nonce)])
+        + nonce
+        + u32le(len(aad))
+        + aad
+        + u32le(len(ct_tag))
+        + ct_tag
+    )
+    return frame, aad, ct_tag
+
+
+def header_v2(created_at_ms: int, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> tuple:
+    """Build the V2 header TLV section and parsed TLV metadata (§3)."""
     kdf_param_tlvs = (
         kdf_param_tlv(0x0101, u32le(65536))
         + kdf_param_tlv(0x0102, u32le(3))
@@ -935,151 +1006,162 @@ def generate_format_struct_vectors() -> dict:
         + kdf_param_tlv(0x0105, u32le(0x13))
     )
     kdf_value = u16le(KDF_ARGON2ID_V1) + u32le(len(kdf_param_tlvs)) + kdf_param_tlvs
-
     header_tags = [
-        ("vault_id",       0x0001, FIX_VAULT_ID,                          True),
-        ("created_at",     0x0002, u64le(created_at_ms),                  True),
+        ("vault_id",       0x0001, FIX_VAULT_ID,                         True),
+        ("created_at",     0x0002, u64le(created_at_ms),                 True),
         ("kdf_profile",    0x0003, kdf_value,                            True),
         ("aead_profile",   0x0004, u16le(AEAD_XCHACHA20_POLY1305_V1),    True),
-        ("pqc_profile",    0x0005, u16le(PQC_NONE),                      False),
-        ("schema_profile", 0x0006, u16le(SCHEMA_ARCANUM_RECORDS_V1),     True),
-        ("header_nonce",   0x0007, FIX_HEADER_NONCE,                      True),
+        ("pqc_profile",    0x0005, u16le(PQC_NONE),                     False),
+        ("schema_profile", 0x0006, u16le(schema_profile),               True),
+        ("header_nonce",   0x0007, FIX_HEADER_NONCE,                     True),
     ]
     header = b"".join(header_tlv(tag, val, crit) for _, tag, val, crit in header_tags)
-
-    header_parsed = [
-        {"tag": f"0x{tag:04x}", "name": name, "critical": crit,
-         "len": len(val), "value_hex": to_hex(val)}
+    parsed = [
+        {"tag": f"0x{tag:04x}", "name": name, "critical": crit, "len": len(val), "value_hex": to_hex(val)}
         for name, tag, val, crit in header_tags
     ]
+    return header, parsed
 
-    # ── D3: record table (§5) ──
-    frame_offset = 26 + len(header)  # prefix + header (illustrative offset)
-    record_table_records = [
-        (FIX_RECORD_ID,   KIND_WRAPPED_ROOTKEY, FIX_REVISION_ID,   frame_offset, 0),
-        (bytes.fromhex("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf"),
-         KIND_ITEM,
-         bytes.fromhex("d0d1d2d3d4d5d6d7d8d9dadbdcdddedf"),
-         frame_offset + 200, 0),
+
+def generate_format_struct_vectors() -> dict:
+    created_at_ms = 1_700_000_000_000
+    header, header_parsed = header_v2(created_at_ms)
+    mek = bytes.fromhex("202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f")
+    table_nonce_empty = bytes.fromhex("303132333435363738393a3b3c3d3e3f4041424344454647")
+    table_nonce_multi = bytes.fromhex("404142434445464748494a4b4c4d4e4f5051525354555657")
+
+    wrk_plaintext = FIX_VAULT_ROOT_KEY
+    wrk_frame, wrk_aad, wrk_ct_tag = record_frame_v1(
+        FIX_RECORD_ID,
+        FIX_REVISION_ID,
+        KIND_WRAPPED_ROOTKEY,
+        FIX_AEAD_KEY,
+        FIX_AEAD_NONCE,
+        wrk_plaintext,
+        SCHEMA_ARCANUM_RECORDS_V2,
+    )
+    wrk_frame_offset = 26 + len(header)
+
+    empty_table, empty_plaintext, empty_ct_tag = seal_record_table_v2(
+        [], mek, FIX_VAULT_ID, table_nonce_empty
+    )
+    body_empty = wrk_frame + empty_table
+    prefix_empty = MAGIC + u16le(1) + u32le(len(header)) + u32le(len(empty_table)) + u64le(len(body_empty))
+    vault_empty = prefix_empty + header + body_empty
+
+    item1_id = bytes.fromhex("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf")
+    item1_rev = bytes.fromhex("d0d1d2d3d4d5d6d7d8d9dadbdcdddedf")
+    item2_id = bytes.fromhex("e0e1e2e3e4e5e6e7e8e9eaebecedeeef")
+    item2_rev = bytes.fromhex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
+    item1_frame, item1_aad, item1_ct_tag = record_frame_v1(
+        item1_id, item1_rev, KIND_ITEM, FIX_AEAD_KEY, bytes.fromhex("1112131415161718191a1b1c1d1e1f202122232425262728"), b"item-one-payload", SCHEMA_ARCANUM_RECORDS_V2
+    )
+    item2_frame, item2_aad, item2_ct_tag = record_frame_v1(
+        item2_id, item2_rev, KIND_AUDITEVENT, FIX_AEAD_KEY, bytes.fromhex("2122232425262728292a2b2c2d2e2f303132333435363738"), b"item-two-payload-longer", SCHEMA_ARCANUM_RECORDS_V2
+    )
+    provisional_empty_table_len = len(empty_table)
+    item1_offset = wrk_frame_offset + len(wrk_frame) + provisional_empty_table_len
+    item2_offset = item1_offset + len(item1_frame)
+    entries = [
+        record_table_entry_v2(item1_id, KIND_ITEM, item1_rev, item1_offset, len(item1_frame)),
+        record_table_entry_v2(item2_id, KIND_AUDITEVENT, item2_rev, item2_offset, len(item2_frame)),
     ]
-    record_table = u32le(len(record_table_records))
-    rt_parsed = []
-    for rid, kind, rev, off, flen in record_table_records:
-        entry = rid + u16le(kind) + rev + u64le(off) + u32le(flen)
-        record_table += entry
-        rt_parsed.append({
-            "record_id": to_hex(rid),
-            "record_kind": f"0x{kind:04x}",
-            "revision_id": to_hex(rev),
-            "frame_offset": off,
-            "frame_len": flen,
-        })
+    multi_table, multi_plaintext, multi_ct_tag = seal_record_table_v2(
+        entries, mek, FIX_VAULT_ID, table_nonce_multi
+    )
+    item1_offset = wrk_frame_offset + len(wrk_frame) + len(multi_table)
+    item2_offset = item1_offset + len(item1_frame)
+    entries = [
+        record_table_entry_v2(item1_id, KIND_ITEM, item1_rev, item1_offset, len(item1_frame)),
+        record_table_entry_v2(item2_id, KIND_AUDITEVENT, item2_rev, item2_offset, len(item2_frame)),
+    ]
+    multi_table, multi_plaintext, multi_ct_tag = seal_record_table_v2(
+        entries, mek, FIX_VAULT_ID, table_nonce_multi
+    )
+    body_multi = wrk_frame + multi_table + item1_frame + item2_frame
+    prefix_multi = MAGIC + u16le(1) + u32le(len(header)) + u32le(len(multi_table)) + u64le(len(body_multi))
+    vault_multi = prefix_multi + header + body_multi
 
-    # ── D4: record frame (§6) — encrypt an Item record ──
-    record_aad = build_aad_v1(
-        vault_id=FIX_VAULT_ID,
-        format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V1,
-        aead_profile=AEAD_XCHACHA20_POLY1305_V1,
-        kdf_profile=KDF_ARGON2ID_V1,
-        pqc_profile=PQC_NONE,
-        record_id=FIX_RECORD_ID,
-        revision_id=FIX_REVISION_ID,
-        record_kind=KIND_ITEM,
-    )
-    plaintext = b"secret-payload-for-arcanum-test"
-    ct_tag = xchacha_encrypt(FIX_AEAD_KEY, FIX_AEAD_NONCE, plaintext, record_aad)
-    nonce_len = len(FIX_AEAD_NONCE)
-    frame = (
-        u16le(1)                  # frame_version
-        + FIX_RECORD_ID
-        + FIX_REVISION_ID
-        + u16le(AEAD_XCHACHA20_POLY1305_V1)
-        + bytes([nonce_len])
-        + FIX_AEAD_NONCE
-        + u32le(len(record_aad))
-        + record_aad
-        + u32le(len(ct_tag))
-        + ct_tag
-    )
-
-    # ── D1: 26-byte file prefix (§2) ──
-    prefix = (
-        MAGIC
-        + u16le(1)                 # format_version
-        + u32le(len(header))       # header_len
-        + u32le(len(record_table)) # record_table_len
-        + u64le(len(frame))        # body_len
-    )
-    assert len(prefix) == 26, f"prefix must be 26 bytes, got {len(prefix)}"
+    table_records = [
+        {
+            "record_id": to_hex(item1_id),
+            "record_kind": f"0x{KIND_ITEM:04x}",
+            "revision_id": to_hex(item1_rev),
+            "frame_offset": item1_offset,
+            "frame_len": len(item1_frame),
+        },
+        {
+            "record_id": to_hex(item2_id),
+            "record_kind": f"0x{KIND_AUDITEVENT:04x}",
+            "revision_id": to_hex(item2_rev),
+            "frame_offset": item2_offset,
+            "frame_len": len(item2_frame),
+        },
+    ]
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V1",
-        "version": 1,
-        "description": "Vault binary format structures: file prefix, header TLV, record table, record frame",
+        "profile": "SCHEMA_ARCANUM_RECORDS_V2",
+        "version": 2,
+        "description": "V2 vault format: fixed-position WrappedRootKey and MEK-sealed record table",
         "generated_by": "cross_verify.py (pynacl/libsodium)",
         "cases": [
             {
-                "id": "d1-file-prefix",
-                "description": "26-byte file prefix: magic || format_version || header_len || record_table_len || body_len (§2)",
-                "inputs": {
-                    "format_version": 1,
-                    "header_len": len(header),
-                    "record_table_len": len(record_table),
-                    "body_len": len(frame),
-                },
-                "expected": {
-                    "prefix_hex": to_hex(prefix),
-                    "prefix_length": len(prefix),
-                    "magic_hex": to_hex(MAGIC),
-                },
-            },
-            {
-                "id": "d2-header-tlv",
-                "description": "Header TLV with all 7 required MVP-0 tags (§3)",
+                "id": "v2-empty-table-fixed-wrk",
+                "description": "V2 layout with WRK at fixed offset and an empty MEK-sealed table (§5)",
                 "inputs": {
                     "vault_id": to_hex(FIX_VAULT_ID),
-                    "created_at_ms": created_at_ms,
-                    "kdf_profile": KDF_ARGON2ID_V1,
-                    "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
-                    "pqc_profile": PQC_NONE,
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V1,
-                    "header_nonce": to_hex(FIX_HEADER_NONCE),
+                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "metadata_encryption_key": to_hex(mek),
+                    "table_nonce": to_hex(table_nonce_empty),
+                    "wrapped_root_key_nonce": to_hex(FIX_AEAD_NONCE),
+                    "wrapped_root_key_plaintext": to_hex(wrk_plaintext),
                 },
                 "expected": {
+                    "prefix_hex": to_hex(prefix_empty),
                     "header_hex": to_hex(header),
                     "header_len": len(header),
-                    "tlvs": header_parsed,
+                    "header_tlvs": header_parsed,
+                    "wrk_frame_offset": wrk_frame_offset,
+                    "wrk_frame_hex": to_hex(wrk_frame),
+                    "wrk_frame_len": len(wrk_frame),
+                    "wrk_aad_hex": to_hex(wrk_aad),
+                    "wrapped_root_key_ciphertext_tag_hex": to_hex(wrk_ct_tag),
+                    "table_aad_hex": to_hex(table_aad_v2(FIX_VAULT_ID)),
+                    "sealed_table_plaintext_hex": to_hex(empty_plaintext),
+                    "sealed_table_plaintext_len": len(empty_plaintext),
+                    "sealed_table_len": len(table_nonce_empty) + len(empty_ct_tag),
+                    "sealed_table_section_hex": to_hex(empty_table),
+                    "sealed_table_ciphertext_tag_hex": to_hex(empty_ct_tag),
+                    "vault_file_hex": to_hex(vault_empty),
+                    "result": "Ok",
                 },
             },
             {
-                "id": "d3-record-table",
-                "description": "Record table: record_count + entries (record_id, record_kind, revision_id, frame_offset, frame_len) (§5)",
-                "inputs": {"record_count": len(record_table_records)},
-                "expected": {
-                    "record_table_hex": to_hex(record_table),
-                    "record_table_len": len(record_table),
-                    "records": rt_parsed,
-                },
-            },
-            {
-                "id": "d4-record-frame",
-                "description": "Encrypted record frame for an Item record (§6)",
+                "id": "v2-multi-entry-sealed-table",
+                "description": "V2 sealed table with two item-frame entries, power-of-two padding, and generalized frame offsets (§5/§6)",
                 "inputs": {
-                    "frame_version": 1,
-                    "record_id": to_hex(FIX_RECORD_ID),
-                    "revision_id": to_hex(FIX_REVISION_ID),
-                    "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
-                    "nonce": to_hex(FIX_AEAD_NONCE),
-                    "aad": to_hex(record_aad),
-                    "key": to_hex(FIX_AEAD_KEY),
-                    "plaintext": to_hex(plaintext),
+                    "vault_id": to_hex(FIX_VAULT_ID),
+                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "metadata_encryption_key": to_hex(mek),
+                    "table_nonce": to_hex(table_nonce_multi),
+                    "entry_count": 2,
+                    "bucket_capacity": 2,
                 },
                 "expected": {
-                    "frame_hex": to_hex(frame),
-                    "frame_len": len(frame),
-                    "nonce_len": nonce_len,
-                    "ciphertext_with_tag_hex": to_hex(ct_tag),
+                    "prefix_hex": to_hex(prefix_multi),
+                    "header_hex": to_hex(header),
+                    "wrk_frame_offset": wrk_frame_offset,
+                    "sealed_table_plaintext_hex": to_hex(multi_plaintext),
+                    "sealed_table_plaintext_len": len(multi_plaintext),
+                    "sealed_table_len": len(table_nonce_multi) + len(multi_ct_tag),
+                    "sealed_table_section_hex": to_hex(multi_table),
+                    "sealed_table_ciphertext_tag_hex": to_hex(multi_ct_tag),
+                    "records": table_records,
+                    "item_frames_hex": [to_hex(item1_frame), to_hex(item2_frame)],
+                    "item_aad_hex": [to_hex(item1_aad), to_hex(item2_aad)],
+                    "item_ciphertext_tag_hex": [to_hex(item1_ct_tag), to_hex(item2_ct_tag)],
+                    "vault_file_hex": to_hex(vault_multi),
+                    "result": "Ok",
                 },
             },
         ],
@@ -1090,111 +1172,34 @@ def generate_format_struct_vectors() -> dict:
 # D6 — Vault format negative fixtures  (vault_format_v1.md §10 reject rules)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_valid_vault(extra_header: bytes = b"") -> tuple:
-    """
-    Build one structurally valid vault blob from the shared TV-1 fixtures:
-
-        blob = prefix(26) || header || record_table || body(frame)
-
-    The blob contains a single Item record frame whose ciphertext is a real
-    XChaCha20-Poly1305 output over the canonical AAD, so the AEAD-failure case
-    can tamper a byte of an otherwise-valid frame. `extra_header` lets a caller
-    append one additional Header TLV (used by the unknown-critical-tag case)
-    while keeping every declared length field internally consistent.
-
-    Returns (blob, meta) where meta carries the byte offsets needed to mutate
-    exactly one field per negative case.
-    """
+def _build_valid_v2_vault(table_section: bytes = None, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> tuple:
+    """Build a V2 vault blob with fixed WRK and a caller-provided sealed table."""
     created_at_ms = 1_700_000_000_000
-
-    kdf_param_tlvs = (
-        kdf_param_tlv(0x0101, u32le(65536))
-        + kdf_param_tlv(0x0102, u32le(3))
-        + kdf_param_tlv(0x0103, u32le(4))
-        + kdf_param_tlv(0x0104, u16le(32))
-        + kdf_param_tlv(0x0105, u32le(0x13))
+    header, _ = header_v2(created_at_ms, schema_profile=schema_profile)
+    wrk_frame, _, _ = record_frame_v1(
+        FIX_RECORD_ID,
+        FIX_REVISION_ID,
+        KIND_WRAPPED_ROOTKEY,
+        FIX_AEAD_KEY,
+        FIX_AEAD_NONCE,
+        FIX_VAULT_ROOT_KEY,
+        schema_profile,
     )
-    kdf_value = u16le(KDF_ARGON2ID_V1) + u32le(len(kdf_param_tlvs)) + kdf_param_tlvs
-
-    header_tags = [
-        (0x0001, FIX_VAULT_ID, True),                       # vault_id
-        (0x0002, u64le(created_at_ms), True),               # created_at
-        (0x0003, kdf_value, True),                          # kdf_profile
-        (0x0004, u16le(AEAD_XCHACHA20_POLY1305_V1), True),  # aead_profile
-        (0x0005, u16le(PQC_NONE), False),                   # pqc_profile
-        (0x0006, u16le(SCHEMA_ARCANUM_RECORDS_V1), True),   # schema_profile
-        (0x0007, FIX_HEADER_NONCE, True),                   # header_nonce
-    ]
-    header = b"".join(header_tlv(tag, val, crit) for tag, val, crit in header_tags) + extra_header
-
-    # One Item record frame (§6), AEAD over canonical AAD (§7).
-    record_aad = build_aad_v1(
-        vault_id=FIX_VAULT_ID,
-        format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V1,
-        aead_profile=AEAD_XCHACHA20_POLY1305_V1,
-        kdf_profile=KDF_ARGON2ID_V1,
-        pqc_profile=PQC_NONE,
-        record_id=FIX_RECORD_ID,
-        revision_id=FIX_REVISION_ID,
-        record_kind=KIND_ITEM,
-    )
-    plaintext = b"secret-payload-for-arcanum-test"
-    ct_tag = xchacha_encrypt(FIX_AEAD_KEY, FIX_AEAD_NONCE, plaintext, record_aad)
-    nonce_len = len(FIX_AEAD_NONCE)  # 24 for XChaCha20
-    frame = (
-        u16le(1)                                  # frame_version
-        + FIX_RECORD_ID
-        + FIX_REVISION_ID
-        + u16le(AEAD_XCHACHA20_POLY1305_V1)
-        + bytes([nonce_len])
-        + FIX_AEAD_NONCE
-        + u32le(len(record_aad))
-        + record_aad
-        + u32le(len(ct_tag))
-        + ct_tag
-    )
-    body = frame
-
-    header_len = len(header)
-    record_count = 1
-    entry_size = 16 + 2 + 16 + 8 + 4  # record_id||kind||revision_id||frame_offset||frame_len = 46
-    record_table_len = 4 + record_count * entry_size  # record_count:u32le + entries
-    frame_offset = 26 + header_len + record_table_len
-    entry = (
-        FIX_RECORD_ID
-        + u16le(KIND_ITEM)
-        + FIX_REVISION_ID
-        + u64le(frame_offset)
-        + u32le(len(frame))
-    )
-    record_table = u32le(record_count) + entry
-    assert len(record_table) == record_table_len
-
-    prefix = (
-        MAGIC
-        + u16le(1)                  # format_version
-        + u32le(header_len)
-        + u32le(record_table_len)
-        + u64le(len(body))
-    )
-    assert len(prefix) == 26, f"prefix must be 26 bytes, got {len(prefix)}"
-
-    blob = prefix + header + record_table + body
-
-    # Frame-relative offsets (for mutating fields inside the frame).
-    nonce_len_off = 2 + 16 + 16 + 2                                   # = 36
-    ciphertext_len_off = nonce_len_off + 1 + nonce_len + 4 + len(record_aad)  # = 139
-    meta = {
-        "header_len": header_len,
-        "record_table_len": record_table_len,
-        "body_offset": 26 + header_len + record_table_len,
-        "frame_len": len(frame),
-        "nonce_len_off": nonce_len_off,
-        "ciphertext_len_off": ciphertext_len_off,
-        "ct_tag_len": len(ct_tag),
+    mek = bytes.fromhex("202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f")
+    table_nonce = bytes.fromhex("303132333435363738393a3b3c3d3e3f4041424344454647")
+    if table_section is None:
+        table_section, _, _ = seal_record_table_v2([], mek, FIX_VAULT_ID, table_nonce)
+    body = wrk_frame + table_section
+    prefix = MAGIC + u16le(1) + u32le(len(header)) + u32le(len(table_section)) + u64le(len(body))
+    blob = prefix + header + body
+    return blob, {
+        "header_len": len(header),
+        "wrk_frame_len": len(wrk_frame),
+        "table_offset": 26 + len(header) + len(wrk_frame),
+        "table_len": len(table_section),
+        "metadata_encryption_key": mek,
+        "table_nonce": table_nonce,
     }
-    return blob, meta
 
 
 def _neg_case(cid: str, desc: str, reason: str, blob: bytes, mutation: str) -> dict:
@@ -1214,103 +1219,77 @@ def _neg_case(cid: str, desc: str, reason: str, blob: bytes, mutation: str) -> d
 
 
 def generate_format_negative_vectors() -> dict:
-    """
-    D6: 7 reject fixtures, one per vault_format_v1.md §10 rejection rule.
-
-    Each fixture builds the valid vault blob first, then mutates exactly one
-    field to violate one rule. No acceptance cases — negatives only.
-    """
-    blob, meta = _build_valid_vault()
-    bo = meta["body_offset"]
+    """V2 reject fixtures for vault_format_v1.md §10 fail-closed rules."""
+    blob, meta = _build_valid_v2_vault()
     cases = []
 
-    # 1. Wrong magic (§2/§10): corrupt the first magic byte.
-    m = bytearray(blob)
-    m[0] ^= 0xFF
+    blob_v1, _ = _build_valid_v2_vault(schema_profile=SCHEMA_ARCANUM_RECORDS_V1)
     cases.append(_neg_case(
-        "neg-wrong-magic",
-        "§10 rule 'wrong magic bytes' (§2 file prefix): first magic byte flipped",
-        "wrong_magic",
-        bytes(m),
-        "prefix[0] ^= 0xFF",
+        "neg-schema-profile-v1-rejected",
+        "§10: pre-release schema_profile V1 is rejected; V2 readers never best-effort parse V1",
+        "schema_profile_v1",
+        blob_v1,
+        "header.schema_profile = 0x0001",
     ))
 
-    # 2. Unsupported format_version (§2/§3): set format_version to 0x0063 (99).
-    m = bytearray(blob)
-    m[8:10] = u16le(0x0063)
+    wrk_entry = record_table_entry_v2(FIX_RECORD_ID, KIND_WRAPPED_ROOTKEY, FIX_REVISION_ID, 26 + meta["header_len"], meta["wrk_frame_len"])
+    section, plaintext, ct_tag = seal_record_table_v2([wrk_entry], meta["metadata_encryption_key"], FIX_VAULT_ID, meta["table_nonce"])
+    blob_wrk, _ = _build_valid_v2_vault(table_section=section)
     cases.append(_neg_case(
-        "neg-unsupported-format-version",
-        "§10 rule 'unsupported format_version' (§2/§3): format_version set to 99, MVP-0 only supports 1",
-        "unsupported_format_version",
-        bytes(m),
-        "prefix.format_version = 0x0063",
+        "neg-wrk-entry-inside-sealed-table",
+        "§10: V2 sealed table must not contain record_kind=0x0002 WrappedRootKey",
+        "wrapped_root_key_entry_in_table",
+        blob_wrk,
+        "sealed_table_plaintext contains record_kind 0x0002",
     ))
 
-    # 3. Length exceeds file (§2/§5): header_len points beyond blob end.
-    m = bytearray(blob)
-    m[10:14] = u32le(len(blob) + 1000)
+    item_entry = record_table_entry_v2(bytes.fromhex("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf"), KIND_ITEM, bytes.fromhex("d0d1d2d3d4d5d6d7d8d9dadbdcdddedf"), 512, 96)
+    bad_pad_section, bad_pad_plaintext, bad_pad_ct = seal_record_table_v2([item_entry], meta["metadata_encryption_key"], FIX_VAULT_ID, meta["table_nonce"], pad_byte=0x7f)
+    blob_bad_pad, _ = _build_valid_v2_vault(table_section=bad_pad_section)
     cases.append(_neg_case(
-        "neg-header-len-exceeds-file",
-        "§10 rule 'header_len/record_table_len/body_len exceeding file size' (§2/§5): header_len declared past EOF",
-        "header_len_exceeds_file",
-        bytes(m),
-        "prefix.header_len = len(blob) + 1000",
+        "neg-non-zero-sealed-table-padding",
+        "§10: authenticated sealed-table plaintext padding must be all zero bytes",
+        "non_zero_padding",
+        blob_bad_pad,
+        "sealed_table_plaintext padding byte = 0x7f",
     ))
 
-    # 4. Unknown critical TLV tag (§3): inject a must-understand tag the parser
-    #    does not know. Rebuilt with consistent lengths so the ONLY violation is
-    #    the unknown critical tag.
-    unknown_tlv = header_tlv(0x7F00, bytes.fromhex("deadbeef"), critical=True)
-    blob4, _ = _build_valid_vault(extra_header=unknown_tlv)
+    non_bucket_plaintext = u32le(0) + (b"\x00" * 45)
+    non_bucket_ct = xchacha_encrypt(meta["metadata_encryption_key"], meta["table_nonce"], non_bucket_plaintext, table_aad_v2(FIX_VAULT_ID))
+    non_bucket_section = u32le(len(meta["table_nonce"]) + len(non_bucket_ct)) + meta["table_nonce"] + non_bucket_ct
+    blob_non_bucket, _ = _build_valid_v2_vault(table_section=non_bucket_section)
     cases.append(_neg_case(
-        "neg-unknown-critical-tlv-tag",
-        "§10 rule 'unknown critical TLV tags' (§3): critical Header TLV tag 0x7F00 injected; parser must reject, not ignore",
-        "unknown_critical_tlv_tag",
-        blob4,
-        "header += critical TLV tag=0x7F00",
+        "neg-non-bucket-sealed-table-plaintext-length",
+        "§10: sealed-table plaintext length after entry_count must be a power-of-two bucket of 46-byte entries",
+        "non_bucket_length",
+        blob_non_bucket,
+        "decrypted table payload length = 45, not bucket*46",
     ))
 
-    # 5. nonce_len / AEAD mismatch (§6): aead_profile stays XChaCha20 (needs 24)
-    #    but nonce_len is set to 12 (the AES-GCM length).
-    m = bytearray(blob)
-    m[bo + meta["nonce_len_off"]] = 12
+    too_short_section = u32le(39) + (b"\x00" * 39)
+    blob_short, _ = _build_valid_v2_vault(table_section=too_short_section)
     cases.append(_neg_case(
-        "neg-nonce-len-aead-mismatch",
-        "§10 rule 'nonce_len mismatching AEAD profile' (§6): nonce_len=12 with aead_profile=XChaCha20 (requires 24)",
-        "nonce_len_aead_mismatch",
-        bytes(m),
-        "frame.nonce_len = 12",
+        "neg-sealed-table-len-less-than-40",
+        "§10: sealed_table_len less than nonce[24] + tag[16] is rejected",
+        "sealed_table_len_too_short",
+        blob_short,
+        "sealed_table_len = 39",
     ))
 
-    # 6. ciphertext_len exceeds frame (§6): declared ciphertext_len larger than
-    #    the actual frame body.
-    m = bytearray(blob)
-    off = bo + meta["ciphertext_len_off"]
-    m[off:off + 4] = u32le(meta["ct_tag_len"] + 1000)
+    tampered = bytearray(blob)
+    tampered[meta["table_offset"] + meta["table_len"] - 1] ^= 0x01
     cases.append(_neg_case(
-        "neg-ciphertext-len-exceeds-frame",
-        "§10 rule 'ciphertext_len exceeding frame boundary' (§6): ciphertext_len overstated by 1000 bytes",
-        "ciphertext_len_exceeds_frame",
-        bytes(m),
-        "frame.ciphertext_len = actual + 1000",
-    ))
-
-    # 7. AEAD auth failure (§10): structurally valid frame, last ciphertext/tag
-    #    byte flipped so Poly1305 verification fails — no partial plaintext.
-    m = bytearray(blob)
-    m[bo + meta["frame_len"] - 1] ^= 0xFF
-    cases.append(_neg_case(
-        "neg-aead-auth-failure",
-        "§10 rule 'AEAD authentication failure — no partial plaintext output' (§10): final tag byte flipped on an otherwise-valid frame",
-        "aead_auth_failure",
-        bytes(m),
-        "frame.ciphertext[-1] ^= 0xFF",
+        "neg-table-aead-auth-failure",
+        "§10: MEK-sealed-table AEAD authentication failure rejects with no partial output",
+        "table_aead_auth_failure",
+        bytes(tampered),
+        "sealed_table_ciphertext_and_tag[-1] ^= 0x01",
     ))
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V1",
-        "version": 1,
-        "description": "D6: vault format negative fixtures — 7 reject cases, one per vault_format_v1.md §10 rule",
+        "profile": "SCHEMA_ARCANUM_RECORDS_V2",
+        "version": 2,
+        "description": "V2 vault format negative fixtures for MEK-sealed table and schema fail-closed rules",
         "generated_by": "cross_verify.py (pynacl/libsodium)",
         "cases": cases,
     }

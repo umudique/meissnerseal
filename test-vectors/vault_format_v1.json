@@ -1,5 +1,5 @@
 {
-  "profile": "SCHEMA_ARCANUM_RECORDS_V1_AAD",
+  "profile": "SCHEMA_ARCANUM_RECORDS_V2_AAD",
   "version": 1,
   "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
   "generated_by": "cross_verify.py",
@@ -10,7 +10,7 @@
       "inputs": {
         "vault_id": "0102030405060708090a0b0c0d0e0f10",
         "format_version": 1,
-        "schema_profile": 1,
+        "schema_profile": 2,
         "aead_profile": 1,
         "kdf_profile": 1,
         "pqc_profile": 0,
@@ -19,7 +19,7 @@
         "record_kind": 1
       },
       "expected": {
-        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100",
+        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100",
         "aad_length": 74
       }
     },
@@ -29,7 +29,7 @@
       "inputs": {
         "vault_id": "0102030405060708090a0b0c0d0e0f10",
         "format_version": 1,
-        "schema_profile": 1,
+        "schema_profile": 2,
         "aead_profile": 1,
         "kdf_profile": 1,
         "pqc_profile": 1,
@@ -38,7 +38,7 @@
         "record_kind": 2
       },
       "expected": {
-        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
+        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
         "aad_length": 74
       }
     },
@@ -48,7 +48,7 @@
       "inputs": {
         "vault_id": "0102030405060708090a0b0c0d0e0f10",
         "format_version": 1,
-        "schema_profile": 1,
+        "schema_profile": 2,
         "aead_profile": 1,
         "kdf_profile": 1,
         "pqc_profile": 0,
@@ -57,7 +57,7 @@
         "record_kind": 5
       },
       "expected": {
-        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0500",
+        "aad_hex": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0500",
         "aad_length": 74
       }
     }
