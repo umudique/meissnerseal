@@ -416,9 +416,22 @@ findings:
     cwe: CWE-345
     severity: low
     blocking: false
-    status: deferred
-    remediation: "BEFORE any consumer trusts table-level metadata (sync/transfer): design table/index authentication — e.g. a table digest bound into record-frame AAD, or a dedicated table MAC, under a new schema_profile. Until then, the table revision_id is advisory only and MUST NOT be trusted for security decisions; the frame revision remains authoritative."
+    status: in_progress
+    remediation: "BEFORE any consumer trusts table-level metadata (sync/transfer): design table/index authentication — e.g. a table digest bound into record-frame AAD, or a dedicated table MAC, under a new schema_profile. Until then, the table revision_id is advisory only and MUST NOT be trusted for security decisions; the frame revision remains authoritative. PULLED INTO MVP-0 2026-06-09 (HUMAN, Çatal-1 = option A): item operations (add/list/with_item/update/delete) make item enumeration/lookup the first real consumer of the record table, so the table must be authenticated before they ship rather than deferred. Approach to be fixed by an Architect ADR + a vault_format_v1 spec update (table-auth), then implemented alongside the item-record layer. Tracked in ops: ADR-TBLAUTH (decision/spec) -> CORE-ITEM (consumes authenticated table)."
     verification: ""
+    commit: ""
+
+  - id: F-16
+    kind: consistency
+    source: "Session consistency check (README §10) after CORE-STABLE — orchestrator, HUMAN-confirmed"
+    date: 2026-06-09
+    description: "arcanum-core was marked API Status: Stable (commit fc00bd9) while the crate is NOT MVP-0-complete and its published CONTRACT surface contradicts implementation. (1) Completeness: MVP-0 roadmap scopes item operations (add/list/get backing CLI) + .arcexp export/import into arcanum-core, but item/store.rs is an empty stub, no item ops exist, and there is no export path. (2) Published surface: CONTRACT publishes transfer::/device::/recovery:: APIs and guarantees G-03 (DeviceTrustState)/G-04 (receive_envelope) that are unimplemented; transfer/device are post-MVP-0 (sync excluded per roadmap), yet the binary crate-level Stable gate (workflow.md §5) would advertise them to Batch-4 dependents (ffi/cli/sync-server). Root cause: the CORE-STABLE milestone was scoped as 'remediate security findings F-01..F-13' (CORE-1..7), which covered only the vault lifecycle — necessary but NOT sufficient for Stable (= MVP-0 completeness)."
+    cwe: CWE-1059
+    severity: critical
+    blocking: true
+    status: resolved
+    remediation: "Revert the Stable flip (crate back to Unstable). Re-scope CORE-STABLE to depend on true MVP-0 completeness, not just findings: (a) multi-record persist (generalize the crash-safe path from the single WrappedRootKey record to N records + rewrite-on-mutation); (b) item operations add/list/with_item/update/delete with per-record AAD binding + tombstone delete; (c) .arcexp export/import (ADR-008); (d) recovery kit at creation per P-03 (pending ADR-010 reconciliation); (e) table authentication (F-14 pulled in, ADR-TBLAUTH); (f) align CONTRACT published surface to MVP-0 (move transfer::/device:: + G-03/G-04 to an explicit Planned section). Then a security+consistency milestone (GATE-CORE-MVP0) before Stable."
+    verification: "Stable flip reverted (CONTRACT.md API Status: Stable -> Unstable; ADR-025/026 ref refresh retained). CORE workstream reopened in ops with the CORE-MVP0 roadmap (multi-record persist, item ops, export, recovery, table-auth, contract-align, milestone gate) gating CORE-STABLE. F-14 reopened (pulled into MVP-0). ADR-010 vs P-03 contradiction and the table-auth ADR gap raised to HUMAN for architect decision."
     commit: ""
 
   - id: F-15

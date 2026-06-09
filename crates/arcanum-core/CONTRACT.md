@@ -1,7 +1,7 @@
 # Contract: arcanum-core
 
 **Version:** 0.1.0
-**API Status:** Stable  
+**API Status:** Unstable  
 **Spec authority:** specs/protocol/vault_format_v1.md, transfer_profile_v1.md,
                    sync_profile_v1.md, recovery_kit_v1.md  
 **ADRs:** ADR-001 through ADR-010, ADR-025 (implement-not-rescope), ADR-026 (create returns VaultHandle)
