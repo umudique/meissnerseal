@@ -72,6 +72,12 @@ pub const SCHEMA_ARCANUM_RECORDS_V2: u16 = 0x0002;
 /// WrappedRootKey record kind. V2 locates this frame by fixed offset, not table.
 pub const RECORD_KIND_WRAPPED_ROOT_KEY: u16 = 0x0002;
 
+/// Item record kind.
+pub const RECORD_KIND_ITEM: u16 = 0x0001;
+
+/// Tombstone record kind.
+pub const RECORD_KIND_TOMBSTONE: u16 = 0x0006;
+
 /// Supported Argon2 version for KDF_ARGON2ID_V1.
 pub const ARGON2_VERSION_0X13: u32 = 0x13;
 
@@ -181,6 +187,49 @@ pub struct RecordFrame {
 
     /// Ciphertext bytes including authentication tag.
     pub ciphertext: Vec<u8>,
+}
+
+/// Item record envelope stored inside `RecordFrame.ciphertext`.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Used only for V2 item frames with `record_kind = RECORD_KIND_ITEM`.
+/// - `wrapped_rek` is the AEAD output of wrapping the fresh per-revision REK
+///   under the Item Key Wrapping Key (IKWK), using the same canonical §7 AAD as
+///   the item payload encryption.
+/// - `encrypted_payload` is the AEAD output of encrypting the serialized
+///   `PlainItem` payload and encrypted metadata under the fresh REK, also using
+///   the same canonical §7 AAD.
+/// - `rek_wrap_nonce` and `payload_nonce` are fresh 24-byte OS-CSPRNG
+///   XChaCha20-Poly1305 nonces.
+///
+/// ## Postconditions
+/// - The byte encoding for `RecordFrame.ciphertext` is:
+///   `rek_wrap_nonce[24] || wrapped_rek_len:u32le || wrapped_rek ||
+///   payload_nonce[24] || encrypted_payload_len:u32le || encrypted_payload`.
+/// - Parsing returns `Err` on truncation, length mismatch, overflow, empty
+///   wrapped REK, or empty encrypted payload; no partial plaintext is exposed.
+///
+/// ## Invariants
+/// - This structure contains ciphertext and public nonce bytes only. It never
+///   stores plaintext item payloads, plaintext REKs, IKWK, or MEK.
+/// - The canonical record AAD binds both AEAD operations to the same
+///   `record_id`, `revision_id`, and `record_kind`; substituted identifiers must
+///   fail authentication in Phase 2.
+/// - Serialization/parsing is deterministic and performs no cryptography.
+pub struct ItemRecordFrameEnvelope {
+    /// Nonce used to wrap the REK under IKWK.
+    pub rek_wrap_nonce: [u8; 24],
+
+    /// Wrapped REK ciphertext with tag appended.
+    pub wrapped_rek: Vec<u8>,
+
+    /// Nonce used to encrypt the item payload under REK.
+    pub payload_nonce: [u8; 24],
+
+    /// Encrypted item payload ciphertext with tag appended.
+    pub encrypted_payload: Vec<u8>,
 }
 
 /// Parsed MEK-sealed record table envelope from `vault_format_v1.md` §5.
@@ -699,6 +748,62 @@ pub fn build_table_aad_v2(vault_id: &[u8; 16], schema_profile: u16) -> Result<[u
     aad[0..16].copy_from_slice(vault_id);
     aad[16..18].copy_from_slice(&schema_profile.to_le_bytes());
     Ok(aad)
+}
+
+/// Serialize a V2 item record envelope for storage in `RecordFrame.ciphertext`.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `envelope.wrapped_rek` is non-empty AEAD ciphertext+tag produced by
+///   `arcanum-crypto` under IKWK.
+/// - `envelope.encrypted_payload` is non-empty AEAD ciphertext+tag produced by
+///   `arcanum-crypto` under the fresh per-revision REK.
+/// - Both AEAD operations used the same canonical 74-byte record AAD built from
+///   the item record's `record_id`, `revision_id`, and `record_kind = 0x0001`.
+///
+/// ## Postconditions
+/// - On success, returns exactly:
+///   `rek_wrap_nonce[24] || wrapped_rek_len:u32le || wrapped_rek ||
+///   payload_nonce[24] || encrypted_payload_len:u32le || encrypted_payload`.
+/// - Returns `Err` without partial bytes if either length cannot be represented
+///   in `u32` or either ciphertext is empty.
+///
+/// ## Invariants
+/// - Performs deterministic byte serialization only; no encryption or
+///   decryption happens here.
+/// - Never accepts or emits plaintext item payloads or plaintext REKs.
+pub fn serialize_item_record_frame_envelope(
+    _envelope: &ItemRecordFrameEnvelope,
+) -> Result<Vec<u8>> {
+    Err(format_error(
+        "item record frame envelope serialization not implemented",
+    ))
+}
+
+/// Parse a V2 item record envelope from `RecordFrame.ciphertext`.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `bytes` is the complete `RecordFrame.ciphertext` byte string for an item
+///   frame.
+///
+/// ## Postconditions
+/// - On success, returns the two nonce/ciphertext pairs required for Phase 2 to
+///   unwrap the REK and decrypt the item payload.
+/// - Rejects truncation, trailing garbage, length overflow, empty wrapped REK,
+///   and empty encrypted payload.
+/// - Returns `Err` with no partial plaintext on every malformed input.
+///
+/// ## Invariants
+/// - Parsing exposes ciphertext and nonce bytes only.
+/// - Performs no cryptography and never logs, formats, or returns plaintext
+///   item payload bytes.
+pub fn parse_item_record_frame_envelope(_bytes: &[u8]) -> Result<ItemRecordFrameEnvelope> {
+    Err(format_error(
+        "item record frame envelope parsing not implemented",
+    ))
 }
 
 /// Serialize an encrypted record frame from `vault_format_v1.md` §6.
@@ -1845,6 +1950,26 @@ mod tests {
                 assert_eq!(parsed.ciphertext, frame.ciphertext);
             }
         }
+    }
+
+    #[test]
+    fn item_record_frame_envelope_roundtrip_preserves_wrapped_rek_and_payload() {
+        let envelope = ItemRecordFrameEnvelope {
+            rek_wrap_nonce: [0x11; 24],
+            wrapped_rek: vec![0x22; 48],
+            payload_nonce: [0x33; 24],
+            encrypted_payload: vec![0x44; 64],
+        };
+
+        let serialized = serialize_item_record_frame_envelope(&envelope)
+            .expect("Phase 2: item envelope serialization must encode wrapped REK and payload");
+        let parsed = parse_item_record_frame_envelope(&serialized)
+            .expect("Phase 2: item envelope parser must round-trip serialized bytes");
+
+        assert_eq!(parsed.rek_wrap_nonce, envelope.rek_wrap_nonce);
+        assert_eq!(parsed.wrapped_rek, envelope.wrapped_rek);
+        assert_eq!(parsed.payload_nonce, envelope.payload_nonce);
+        assert_eq!(parsed.encrypted_payload, envelope.encrypted_payload);
     }
 
     #[test]

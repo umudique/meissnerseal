@@ -63,6 +63,27 @@ impl ItemKind {
 
 /// Plain item with secret payload.
 ///
+/// # Contract
+///
+/// ## Preconditions
+/// - Constructed by callers with item plaintext that must be encrypted before
+///   persistence.
+/// - `secret` contains plaintext item bytes and must not be logged, formatted,
+///   or written to disk outside the encrypted item-record path.
+///
+/// ## Postconditions
+/// - Ownership of plaintext is transferred to item operations such as
+///   `item::add` and `item::update`; those operations must either encrypt and
+///   persist the item or return `Err` without partial output.
+///
+/// ## Invariants
+/// - This type intentionally does not implement `Clone`, `PartialEq`, or
+///   `Debug`.
+/// - Plaintext item payload is exposed only through `SecretBytes` scoped access.
+/// - Metadata (`label`, `tags`) must be encrypted into the item payload where
+///   possible; cleartext table metadata is limited to routing fields required by
+///   `vault_format_v1.md` §5.
+///
 /// This type intentionally does not implement `Clone`, `PartialEq`, or `Debug`.
 pub struct PlainItem {
     /// Item kind.
@@ -76,6 +97,42 @@ pub struct PlainItem {
 
     /// Non-secret display tags.
     pub tags: Vec<String>,
+}
+
+/// Closure-scoped plaintext item view.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Constructed only by `item::with_item` after successful item-frame
+///   authentication, REK unwrap under IKWK, and payload decrypt under the REK.
+/// - The referenced plaintext is live only for the duration of the
+///   `with_item` closure.
+///
+/// ## Postconditions
+/// - Provides read-only borrowed access to item kind, metadata, and secret
+///   payload.
+/// - The view cannot outlive the closure borrow; callers never receive an owned
+///   plaintext item from `with_item` (CONTRACT G-02).
+///
+/// ## Invariants
+/// - Does not implement `Clone`, `PartialEq`, `Debug`, `Display`, or
+///   serialization.
+/// - Secret bytes remain behind `SecretBytes::with_secret`; this view does not
+///   transfer ownership of plaintext bytes.
+/// - No plaintext is written to disk, logs, or error values.
+pub struct PlainItemView<'a> {
+    /// Item kind.
+    pub kind: &'a ItemKind,
+
+    /// Decrypted item label. Borrowed and closure-scoped.
+    pub label: &'a str,
+
+    /// Decrypted item tags. Borrowed and closure-scoped.
+    pub tags: &'a [String],
+
+    /// Decrypted item payload. Borrowed and closure-scoped.
+    pub secret: &'a arcanum_security::secret_lifecycle::SecretBytes,
 }
 
 /// Non-secret item summary.
