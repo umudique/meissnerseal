@@ -43,9 +43,22 @@ X25519 ciphertext and recipient public key suffices.
 
 ## Decision
 
-**Adopt X-Wing as the combiner for the hybrid KEM in the transfer / pairing /
-sync key-wrapping profiles, replacing the bespoke HKDF combiner. Implemented at
-MVP-2.**
+**Adopt X-Wing as the hybrid KEM for the transfer / pairing / sync key-wrapping
+profiles, replacing the bespoke HKDF combiner. Planned construction; finalized at
+MVP-2 against the conditions in point 5.**
+
+**Why X-Wing and not the TLS `X25519MLKEM768` named group.** Arcanum is not
+designing a TLS named group; it is designing an *application-level* hybrid KEM for
+transfer envelopes, device pairing and sync key wrapping. `X25519MLKEM768`
+(draft-ietf-tls-ecdhe-mlkem) defines its combiner *inside the TLS 1.3 key
+schedule* — outside TLS it is not a self-contained KEM, so reusing it would mean
+re-specifying the KDF/transcript binding ourselves, i.e. back to a bespoke
+construction. X-Wing (draft-connolly-cfrg-xwing-kem) is a standalone,
+self-contained KEM purpose-built for exactly X25519 + ML-KEM-768, with a published
+IND-CCA security bound, which is the right abstraction for our layer. The TLS named
+group's stronger maturity signal (broad interop, Cloudflare/Chrome production
+deployment) is real but is a *TLS-context* signal; it does not imply Arcanum should
+copy a TLS-internal combiner into its envelope format.
 
 1. The bespoke combiner in crypto_design.md §7 and transfer_profile_v1.md §3 is
    superseded by X-Wing's construction.
@@ -63,6 +76,15 @@ MVP-2.**
    (consistent with ADR-023 "consume verified artifacts"); otherwise compose
    X-Wing over libcrux-ml-kem + a RustCrypto X25519 per ADR-011, validated by
    our own KAT vectors + Kani harnesses.
+5. **Finalize-at-MVP-2, not a blind lock.** X-Wing is a CFRG *draft*, not a
+   ratified RFC. The choice is committed in principle now (zero migration cost —
+   the layer is empty) but the construction is frozen only at MVP-2 implementation,
+   gated on: (a) X-Wing's RFC/CFRG progress, and (b) a verified libcrux X-Wing
+   implementation. **Fallback:** if X-Wing stalls or its security analysis is
+   weakened, use a generic "hash-everything" combiner (binding both ciphertexts and
+   both shared secrets, not relying on ML-KEM-768's binding) per the
+   Bindel-Brendel-Fischlin-Stebila hybrid-KEM analysis. Either way the bespoke
+   transcript-as-salt combiner is retired.
 
 ---
 
@@ -74,6 +96,18 @@ incomplete KEM binding; against *no custom crypto*.
 **Hand-patch §4 to add the recipient ML-KEM public key to the transcript.**
 Rejected: still a bespoke combiner; X-Wing subsumes the binding question with a
 proof, so patching is strictly inferior.
+
+**Reuse the TLS `X25519MLKEM768` named group.** Rejected for the envelope layer:
+its combiner is defined inside the TLS key schedule and is not a standalone KEM;
+lifting it out means re-specifying the KDF binding ourselves (bespoke again). Its
+production maturity is a TLS-context signal, not a reason to copy a TLS-internal
+construct into an application envelope format.
+
+**Generic hash-everything combiner now.** Not chosen as the primary, but retained
+as the explicit fallback (Decision point 5): theoretically the most conservative
+(no reliance on ML-KEM binding), but lacks a deployed *verified standalone*
+implementation, so choosing it today means rolling our own — the very thing this
+ADR removes.
 
 **Defer the decision to MVP-2 implementation time.** Rejected: deciding now costs
 nothing (layer empty) and prevents the design debt from being silently
