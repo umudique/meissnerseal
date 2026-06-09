@@ -172,8 +172,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///   from the CSPRNG `record_id` and `revision_id`.
 ///
 /// ## Postconditions
-/// - On success, `path` exists as a durable `.arcv` vault file and no sibling
-///   `.tmp` file remains.
+/// - On success, `path` exists as a durable `.arcv` vault file and no
+///   temporary file created by this call remains.
 /// - On any serialization, write, fsync, rename, or parent fsync failure,
 ///   returns `Err`, removes the temporary file if present, and leaves no
 ///   partial vault at `path`.
@@ -186,6 +186,10 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///   temporary file, and the target only if this call won the create-new claim.
 ///   It must never blindly remove a pre-existing or concurrently-created target
 ///   file.
+/// - Phase 2 F-12 follow-up: the temporary file path is per-call unique,
+///   derived from already-available CSPRNG-backed vault identifiers rather than
+///   from the final path alone. This prevents a failed concurrent writer from
+///   deleting another writer's in-flight temp file.
 /// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
 ///   and never writes plaintext key material.
 /// - Persists the same WrappedRootKey `record_id` and `revision_id` in the
@@ -734,6 +738,76 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// A failed concurrent writer must not delete another writer's in-flight
+    /// temp file. This deterministically models the race:
+    ///
+    /// 1. winner has already claimed `path` and written valid vault bytes to its
+    ///    temp file;
+    /// 2. loser calls the real `persist_vault`, fails the target claim, and runs
+    ///    its error cleanup;
+    /// 3. winner must still be able to rename its temp into place and unlock.
+    ///
+    /// Phase 1 is intentionally red because the current cleanup removes the
+    /// deterministic `path.with_extension("arcv.tmp")` at `persist_vault`.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn concurrent_loser_does_not_delete_winner_temp() {
+        let path = unique_temp_vault_path("concurrent-temp-owner");
+        let tmp_path = tmp_path_for(&path);
+        let source_path = unique_temp_vault_path("concurrent-temp-source");
+        let source_tmp_path = tmp_path_for(&source_path);
+        let password = b"concurrent-temp-password-never-real";
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        let _ = std::fs::remove_file(&source_path);
+        let _ = std::fs::remove_file(&source_tmp_path);
+
+        create_test_vault(&source_path, password);
+        let source_bytes = std::fs::read(&source_path).expect("read source vault fixture");
+        std::fs::write(&tmp_path, source_bytes).expect("write winner temp fixture");
+        let target_claim = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("winner target claim fixture");
+
+        let loser_result = persist_vault(
+            &path,
+            &[0x11; 16],
+            &[0x22; 24],
+            &HeaderKdfParams::canonical_argon2id_v1(),
+            &[0x66; 16],
+            &[0x77; 16],
+            &[0x33; 32],
+            &[0x44; 24],
+            &[0x55; 74],
+        );
+        assert!(loser_result.is_err());
+        assert!(
+            tmp_path.exists(),
+            "loser cleanup must not delete winner-owned temp"
+        );
+
+        drop(target_claim);
+        std::fs::rename(&tmp_path, &path).expect("winner rename must still succeed");
+        assert!(path.exists());
+        assert!(!tmp_path.exists());
+
+        let unlock_result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(password.to_vec()),
+        });
+        assert!(unlock_result.is_ok());
+        if let Ok(session) = unlock_result {
+            assert!(lock(session).is_ok());
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        let _ = std::fs::remove_file(&source_path);
+        let _ = std::fs::remove_file(&source_tmp_path);
     }
 
     /// `create()` must never overwrite an existing vault path.
