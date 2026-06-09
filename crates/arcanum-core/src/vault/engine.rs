@@ -89,14 +89,20 @@ pub struct UnlockParams {
 /// - On success: key hierarchy is derived only long enough to wrap and persist
 ///   the VaultRootKey, then dropped/zeroized before this function returns.
 /// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
-///   for the WrappedRootKey frame before AAD construction; those same IDs are
-///   persisted in the record-table/frame metadata.
+///   for the fixed-position WrappedRootKey frame before AAD construction; those
+///   same IDs are persisted in the §6 frame metadata.
+/// - On success: header `schema_profile` is `SCHEMA_ARCANUM_RECORDS_V2`, the WRK
+///   frame starts at `HEADER_MIN_LEN + header_len`, and the MEK-sealed table
+///   contains no WrappedRootKey entry.
 /// - On success: returns a [`VaultHandle`], never a live [`VaultSession`].
 /// - On failure: `Err` is returned and no partial file remains on disk.
 ///
 /// ## Invariants
 /// - Write strategy: serialize → encrypt → temp file → fsync → rename → fsync
 ///   parent (CONTRACT G-01).
+/// - The MEK-sealed table is sealed with `arcanum-crypto` AEAD under the
+///   `metadata_key` produced by the key hierarchy; arcanum-core never implements
+///   cryptography directly.
 /// - Never writes plaintext key material to disk.
 /// - Never returns partial output on cryptographic failure (CONTRACT G-06).
 /// - A live [`VaultSession`] is obtainable only through [`unlock`] (CONTRACT
@@ -192,13 +198,17 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///   writer's in-flight temp file.
 /// - Uses the supplied `wrk_ciphertext` and `wrk_nonce`; it never re-encrypts
 ///   and never writes plaintext key material.
-/// - Persists the same WrappedRootKey `record_id` and `revision_id` in the
-///   record-table entry and encrypted record frame that were used to build AAD.
+/// - Persists the supplied WrappedRootKey at fixed offset
+///   `HEADER_MIN_LEN + header_len`; the sealed table must not include a
+///   WrappedRootKey entry.
+/// - The record table is MEK-sealed and uses a fresh table nonce for every
+///   create-time seal.
 ///
 /// ## Invariants
 /// - Crash-safe order is exactly:
-///   serialize → use encrypted WrappedRootKey frame → write unique sibling temp
-///   → fsync temp → atomic rename to `.arcv` → fsync parent directory.
+///   serialize header + fixed WRK frame + MEK-sealed table + item frames → write
+///   unique sibling temp → fsync temp → atomic rename to `.arcv` → fsync parent
+///   directory.
 /// - No plaintext password, VaultRootKey, or derived key bytes are written to
 ///   disk, logs, or error messages.
 /// - Fail-closed: no security-relevant error path returns partial success.
@@ -245,6 +255,44 @@ fn persist_vault(
     }
 
     result
+}
+
+/// Rewrite an existing V2 vault through the mutation crash-safe path.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `path` already names the vault being rewritten; unlike [`create`], mutation
+///   must not use a final-path create-new claim.
+/// - `vault_bytes` is a complete V2 serialization containing the fixed-position
+///   WrappedRootKey frame, a freshly re-sealed MEK table, and all encrypted item
+///   frames.
+/// - `unique_seed` is CSPRNG-backed per call and is used only to derive this
+///   call's unique sibling temp path.
+///
+/// ## Postconditions
+/// - On success, atomically replaces `path` with `vault_bytes`, fsyncs the temp
+///   and parent directory, and leaves no temp created by this call.
+/// - On failure, returns `Err`; it removes only this call's unique temp and never
+///   removes a foreign temp or the existing final vault file.
+/// - The record table is re-sealed under MEK on every mutation; item plaintext is
+///   not touched merely to update table metadata.
+///
+/// ## Invariants
+/// - Crash-safe order is: serialize → unique sibling temp → fsync temp → atomic
+///   rename over existing vault → fsync parent.
+/// - No plaintext key material or item plaintext is written to disk, logs, or
+///   error values.
+/// - Fail-closed: no mutation error path returns partial success.
+#[allow(dead_code)]
+fn persist_vault_mutation_v2(
+    _path: &std::path::Path,
+    _vault_bytes: &[u8],
+    _unique_seed: &[u8; 16],
+) -> Result<()> {
+    Err(CoreError::Format(
+        "V2 mutation persistence not implemented".into(),
+    ))
 }
 
 fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::PathBuf {
@@ -476,6 +524,7 @@ pub fn lock(session: VaultSession) -> Result<()> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::vault::format::SCHEMA_ARCANUM_RECORDS_V2;
     use arcanum_security::secret_lifecycle::SecretBytes;
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
@@ -547,6 +596,23 @@ mod tests {
         let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
         let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
         (entry, frame)
+    }
+
+    fn parsed_header_for_test(path: &std::path::Path) -> VaultHeader {
+        let bytes = std::fs::read(path).expect("read vault fixture");
+        parse_header(&bytes).expect("parse header fixture")
+    }
+
+    fn record_table_entries_for_test(path: &std::path::Path) -> Vec<RecordTableEntry> {
+        let bytes = std::fs::read(path).expect("read vault fixture");
+        let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
+            .expect("header length fixture");
+        let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
+            .expect("record table length fixture");
+        let record_table_offset = HEADER_MIN_LEN
+            .checked_add(header_len)
+            .expect("record table offset fixture");
+        parse_record_table(&bytes, record_table_offset, record_table_len).expect("record table")
     }
 
     fn frame_record_id_offset(path: &std::path::Path) -> (Vec<u8>, usize) {
@@ -939,6 +1005,89 @@ mod tests {
         assert_ne!(entry.revision_id, [0u8; 16]);
         assert_eq!(entry.record_id, frame.record_id);
         assert_eq!(entry.revision_id, frame.revision_id);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// V2 create writes schema_profile = 0x0002; V1 is pre-release and must not
+    /// be emitted by MVP-0 writers.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_writes_schema_profile_v2_header() {
+        let path = unique_temp_vault_path("schema-v2");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"schema-v2-password-never-real");
+
+        let header = parsed_header_for_test(&path);
+        assert_eq!(header.schema_profile, SCHEMA_ARCANUM_RECORDS_V2);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// V2 locates the WrappedRootKey frame by fixed offset: 26 + header_len. It
+    /// must not be located through a cleartext table entry.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_places_wrk_frame_at_fixed_position_after_header() {
+        let path = unique_temp_vault_path("fixed-wrk");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"fixed-wrk-password-never-real");
+
+        let bytes = std::fs::read(&path).expect("read vault fixture");
+        let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
+            .expect("header length fixture");
+        let (entry, _frame) = wrapped_root_entry_and_frame_for_test(&path);
+        let fixed_offset = HEADER_MIN_LEN
+            .checked_add(header_len)
+            .expect("fixed WRK offset fixture");
+        assert_eq!(
+            usize::try_from(entry.frame_offset).expect("frame offset fixture"),
+            fixed_offset
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// V2 sealed tables must not contain `record_kind = 0x0002`; WRK metadata is
+    /// not a table entry because the WRK frame is fixed-position.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_v2_table_contains_no_wrapped_root_key_entry() {
+        let path = unique_temp_vault_path("no-wrk-entry");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"no-wrk-entry-password-never-real");
+
+        let entries = record_table_entries_for_test(&path);
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.record_kind != RECORD_KIND_WRAPPED_ROOT_KEY),
+            "V2 sealed table must not contain a WrappedRootKey entry"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Existing-vault mutation rewrites through the V2 crash-safe path and must
+    /// not use create-new final-path claiming. It re-seals the table and leaves
+    /// no sibling temp.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn mutation_rewrite_uses_v2_crash_safe_path_and_leaves_no_tmp() {
+        let path = unique_temp_vault_path("mutation-v2");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"mutation-v2-password-never-real");
+        let bytes = std::fs::read(&path).expect("read vault fixture");
+
+        let result = persist_vault_mutation_v2(&path, &bytes, &[0x91; 16]);
+
+        assert!(result.is_ok());
+        assert!(path.exists());
+        assert!(!tmp_path.exists());
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
