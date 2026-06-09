@@ -6,14 +6,14 @@ use arcanum_security::secret_lifecycle::SecretBytes;
 
 use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
+#[cfg(test)]
+use crate::vault::format::RecordTableEntry;
 use crate::vault::format::{
-    build_aad, parse_header, parse_record_frame, parse_record_table, serialize_header,
-    serialize_record_frame, serialize_record_table, serialize_vault_file, HeaderKdfParams,
-    RecordFrame, RecordTableEntry, VaultHeader, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
+    build_aad, open_sealed_record_table_v2, parse_header, parse_record_frame, serialize_header,
+    serialize_record_frame, serialize_sealed_record_table_v2, serialize_vault_file,
+    HeaderKdfParams, RecordFrame, VaultHeader, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
+    RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_ARCANUM_RECORDS_V2,
 };
-
-// WrappedRootKey record_kind value from vault_format_v1.md §5.
-const RECORD_KIND_WRAPPED_ROOT_KEY: u16 = 0x0002;
 
 // Byte offsets within the 26-byte vault file prefix (vault_format_v1.md §2).
 const HEADER_LEN_OFFSET: usize = 10;
@@ -131,8 +131,8 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 
     let aad = build_aad(
         &vault_id,
-        1,
-        1,
+        FORMAT_VERSION,
+        SCHEMA_ARCANUM_RECORDS_V2,
         1,
         1,
         0,
@@ -157,6 +157,7 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
         &wrk_ciphertext,
         &wrk_nonce,
         &aad,
+        &keys.metadata_key,
     )?;
 
     drop(keys);
@@ -223,6 +224,7 @@ fn persist_vault(
     wrk_ciphertext: &[u8],
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
+    metadata_key: &arcanum_crypto::types::AeadKey,
 ) -> Result<()> {
     let tmp_path = unique_tmp_path(path, record_id);
     let mut target_claimed = false;
@@ -244,6 +246,7 @@ fn persist_vault(
             wrk_ciphertext,
             wrk_nonce,
             aad,
+            metadata_key,
         )
     })();
 
@@ -286,13 +289,29 @@ fn persist_vault(
 /// - Fail-closed: no mutation error path returns partial success.
 #[allow(dead_code)]
 fn persist_vault_mutation_v2(
-    _path: &std::path::Path,
-    _vault_bytes: &[u8],
-    _unique_seed: &[u8; 16],
+    path: &std::path::Path,
+    vault_bytes: &[u8],
+    unique_seed: &[u8; 16],
 ) -> Result<()> {
-    Err(CoreError::Format(
-        "V2 mutation persistence not implemented".into(),
-    ))
+    let tmp_path = unique_tmp_path(path, unique_seed);
+    let result = (|| -> Result<()> {
+        let mut tmp_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)?;
+        tmp_file.write_all(vault_bytes)?;
+        tmp_file.sync_all()?;
+        drop(tmp_file);
+        std::fs::rename(&tmp_path, path)?;
+        fsync_parent(path)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    result
 }
 
 fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::PathBuf {
@@ -320,13 +339,14 @@ fn persist_vault_inner(
     wrk_ciphertext: &[u8],
     wrk_nonce: &[u8; 24],
     aad: &[u8; 74],
+    metadata_key: &arcanum_crypto::types::AeadKey,
 ) -> Result<()> {
     let created_at = unix_time_millis()?;
     let header = VaultHeader {
         vault_id: *vault_id,
         created_at,
         format_version: FORMAT_VERSION,
-        schema_profile: 1,
+        schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
         aead_profile: 1,
         kdf_profile: KDF_ARGON2ID_V1,
         kdf_params: *kdf_params,
@@ -344,24 +364,8 @@ fn persist_vault_inner(
         ciphertext: wrk_ciphertext.to_vec(),
     };
     let frame_bytes = serialize_record_frame(&frame, aad)?;
-    let record_table_len = 4usize
-        .checked_add(46)
-        .ok_or_else(|| CoreError::Format("record table length overflow".into()))?;
-    let frame_offset = HEADER_MIN_LEN
-        .checked_add(header_bytes.len())
-        .and_then(|offset| offset.checked_add(record_table_len))
-        .ok_or_else(|| CoreError::Format("frame offset overflow".into()))?;
-    let frame_len = u32::try_from(frame_bytes.len())
-        .map_err(|_| CoreError::Format("record frame length overflow".into()))?;
-    let entry = RecordTableEntry {
-        record_id: *record_id,
-        record_kind: RECORD_KIND_WRAPPED_ROOT_KEY,
-        revision_id: *revision_id,
-        frame_offset: u64::try_from(frame_offset)
-            .map_err(|_| CoreError::Format("frame offset overflow".into()))?,
-        frame_len,
-    };
-    let record_table_bytes = serialize_record_table(&[entry])?;
+    let record_table_bytes =
+        serialize_sealed_record_table_v2(&[], metadata_key, vault_id, SCHEMA_ARCANUM_RECORDS_V2)?;
     let vault_bytes = serialize_vault_file(&header_bytes, &record_table_bytes, &frame_bytes)?;
 
     let mut tmp_file = std::fs::OpenOptions::new()
@@ -394,6 +398,53 @@ fn fsync_parent(path: &std::path::Path) -> Result<()> {
     let directory = std::fs::File::open(parent)?;
     directory.sync_all()?;
     Ok(())
+}
+
+fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
+    const FRAME_FIXED_PREFIX: usize = 2 + 16 + 16 + 2 + 1;
+    let fixed_end = offset
+        .checked_add(FRAME_FIXED_PREFIX)
+        .ok_or_else(|| CoreError::Format("record frame prefix overflow".into()))?;
+    if fixed_end > bytes.len() {
+        return Err(CoreError::Format("truncated record frame".into()));
+    }
+
+    let nonce_len = usize::from(
+        *bytes
+            .get(
+                offset
+                    .checked_add(2 + 16 + 16 + 2)
+                    .ok_or_else(|| CoreError::Format("nonce length offset overflow".into()))?,
+            )
+            .ok_or_else(|| CoreError::Format("truncated record frame".into()))?,
+    );
+    let aad_len_offset = fixed_end
+        .checked_add(nonce_len)
+        .ok_or_else(|| CoreError::Format("AAD length offset overflow".into()))?;
+    let aad_len = read_u32_at(bytes, aad_len_offset)?;
+    let ciphertext_len_offset = aad_len_offset
+        .checked_add(4)
+        .and_then(|value| value.checked_add(usize::try_from(aad_len).ok()?))
+        .ok_or_else(|| CoreError::Format("ciphertext length offset overflow".into()))?;
+    let ciphertext_len = read_u32_at(bytes, ciphertext_len_offset)?;
+    let frame_len = ciphertext_len_offset
+        .checked_add(4)
+        .and_then(|value| value.checked_add(usize::try_from(ciphertext_len).ok()?))
+        .and_then(|end| end.checked_sub(offset))
+        .ok_or_else(|| CoreError::Format("record frame length overflow".into()))?;
+    u32::try_from(frame_len).map_err(|_| CoreError::Format("record frame length overflow".into()))
+}
+
+fn read_u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| CoreError::Format("u32 read overflow".into()))?;
+    let array: [u8; 4] = bytes
+        .get(offset..end)
+        .ok_or_else(|| CoreError::Format("truncated u32 field".into()))?
+        .try_into()
+        .map_err(|_| CoreError::Format("u32 read error".into()))?;
+    Ok(u32::from_le_bytes(array))
 }
 
 /// Unlock an existing vault file and return a session with decrypted key material.
@@ -451,24 +502,16 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
             .map_err(|_| CoreError::Format("record_table_len read error".into()))?,
     ) as usize;
 
-    let record_table_offset = HEADER_MIN_LEN
+    let wrk_frame_offset = HEADER_MIN_LEN
         .checked_add(header_len)
-        .ok_or_else(|| CoreError::Format("record table offset overflow".into()))?;
-
-    // Parse record table and locate the WrappedRootKey record.
-    let entries = parse_record_table(&bytes, record_table_offset, record_table_len)?;
-    let wrk_entry = entries
-        .iter()
-        .find(|e| e.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY)
-        .ok_or_else(|| CoreError::Format("no WrappedRootKey record".into()))?;
+        .ok_or_else(|| CoreError::Format("WRK frame offset overflow".into()))?;
+    let wrk_frame_len = record_frame_len_at(&bytes, wrk_frame_offset)?;
 
     // Parse the encrypted frame.
-    let frame_offset = usize::try_from(wrk_entry.frame_offset)
-        .map_err(|_| CoreError::Format("frame offset overflow".into()))?;
     let frame_slice = bytes
-        .get(frame_offset..)
+        .get(wrk_frame_offset..)
         .ok_or_else(|| CoreError::Format("frame offset out of bounds".into()))?;
-    let frame = parse_record_frame(frame_slice, wrk_entry.frame_len)?;
+    let frame = parse_record_frame(frame_slice, wrk_frame_len)?;
 
     let aad = build_aad(
         &header.vault_id,
@@ -494,6 +537,22 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
             &aad,
         )
     })?;
+
+    let wrk_frame_len_usize = usize::try_from(wrk_frame_len)
+        .map_err(|_| CoreError::Format("WRK frame length overflow".into()))?;
+    let record_table_offset = wrk_frame_offset
+        .checked_add(wrk_frame_len_usize)
+        .ok_or_else(|| CoreError::Format("record table offset overflow".into()))?;
+    open_sealed_record_table_v2(
+        &bytes,
+        record_table_offset,
+        record_table_len,
+        &keys.metadata_key,
+        &header.vault_id,
+        header.schema_profile,
+        wrk_frame_offset,
+        bytes.len(),
+    )?;
 
     Ok(VaultSession { keys })
 }
@@ -525,6 +584,7 @@ pub fn lock(session: VaultSession) -> Result<()> {
 mod tests {
     use super::*;
     use crate::vault::format::SCHEMA_ARCANUM_RECORDS_V2;
+    use arcanum_crypto::types::AeadKey;
     use arcanum_security::secret_lifecycle::SecretBytes;
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
@@ -558,44 +618,14 @@ mod tests {
         let bytes = std::fs::read(path).expect("read vault fixture");
         let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
             .expect("header length fixture");
-        let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
-            .expect("record table length fixture");
-        let record_table_offset = HEADER_MIN_LEN
+        let frame_offset = HEADER_MIN_LEN
             .checked_add(header_len)
-            .expect("record table offset fixture");
-        let entries = parse_record_table(&bytes, record_table_offset, record_table_len)
-            .expect("record table");
-        let entry = entries
-            .iter()
-            .find(|entry| entry.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY)
-            .expect("wrapped root key entry");
-        let frame_offset = usize::try_from(entry.frame_offset).expect("frame offset fixture");
+            .expect("fixed WRK frame offset fixture");
+        let frame_len =
+            record_frame_len_at(&bytes, frame_offset).expect("WRK frame length fixture");
         let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
-        let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
-        (bytes, frame, frame_offset, entry.frame_len)
-    }
-
-    fn wrapped_root_entry_and_frame_for_test(
-        path: &std::path::Path,
-    ) -> (RecordTableEntry, RecordFrame) {
-        let bytes = std::fs::read(path).expect("read vault fixture");
-        let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
-            .expect("header length fixture");
-        let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
-            .expect("record table length fixture");
-        let record_table_offset = HEADER_MIN_LEN
-            .checked_add(header_len)
-            .expect("record table offset fixture");
-        let entries = parse_record_table(&bytes, record_table_offset, record_table_len)
-            .expect("record table");
-        let entry = entries
-            .into_iter()
-            .find(|entry| entry.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY)
-            .expect("wrapped root key entry");
-        let frame_offset = usize::try_from(entry.frame_offset).expect("frame offset fixture");
-        let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
-        let frame = parse_record_frame(frame_bytes, entry.frame_len).expect("frame");
-        (entry, frame)
+        let frame = parse_record_frame(frame_bytes, frame_len).expect("frame");
+        (bytes, frame, frame_offset, frame_len)
     }
 
     fn parsed_header_for_test(path: &std::path::Path) -> VaultHeader {
@@ -603,16 +633,42 @@ mod tests {
         parse_header(&bytes).expect("parse header fixture")
     }
 
-    fn record_table_entries_for_test(path: &std::path::Path) -> Vec<RecordTableEntry> {
+    fn record_table_entries_for_test(
+        path: &std::path::Path,
+        password: &[u8],
+    ) -> Vec<RecordTableEntry> {
         let bytes = std::fs::read(path).expect("read vault fixture");
+        let header = parse_header(&bytes).expect("parse header fixture");
         let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
             .expect("header length fixture");
         let record_table_len = usize::try_from(read_u32_for_test(&bytes, RECORD_TABLE_LEN_OFFSET))
             .expect("record table length fixture");
-        let record_table_offset = HEADER_MIN_LEN
+        let wrk_frame_offset = HEADER_MIN_LEN
             .checked_add(header_len)
+            .expect("fixed WRK frame offset fixture");
+        let wrk_frame_len =
+            record_frame_len_at(&bytes, wrk_frame_offset).expect("WRK frame length fixture");
+        let record_table_offset = wrk_frame_offset
+            .checked_add(usize::try_from(wrk_frame_len).expect("WRK frame length usize"))
             .expect("record table offset fixture");
-        parse_record_table(&bytes, record_table_offset, record_table_len).expect("record table")
+        let session = unlock(UnlockParams {
+            path: path.to_path_buf(),
+            password: SecretBytes::new(password.to_vec()),
+        })
+        .expect("unlock fixture");
+        let entries = open_sealed_record_table_v2(
+            &bytes,
+            record_table_offset,
+            record_table_len,
+            &session.keys.metadata_key,
+            &header.vault_id,
+            header.schema_profile,
+            wrk_frame_offset,
+            bytes.len(),
+        )
+        .expect("sealed record table");
+        lock(session).expect("lock fixture");
+        entries
     }
 
     fn frame_record_id_offset(path: &std::path::Path) -> (Vec<u8>, usize) {
@@ -767,6 +823,7 @@ mod tests {
         let tmp_path = tmp_path_for(&path);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
+        let metadata_key = AeadKey::from_bytes([0x99; 32]);
 
         let result = persist_vault(
             &path,
@@ -778,6 +835,7 @@ mod tests {
             &[0x33; 32],
             &[0x44; 24],
             &[0x55; 74],
+            &metadata_key,
         );
 
         assert!(result.is_err());
@@ -796,6 +854,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
         std::fs::write(&path, original).expect("write fixture");
+        let metadata_key = AeadKey::from_bytes([0x99; 32]);
 
         let result = persist_vault(
             &path,
@@ -807,6 +866,7 @@ mod tests {
             &[0x33; 32],
             &[0x44; 24],
             &[0x55; 74],
+            &metadata_key,
         );
 
         assert!(result.is_err());
@@ -850,6 +910,7 @@ mod tests {
             .create_new(true)
             .open(&path)
             .expect("winner target claim fixture");
+        let metadata_key = AeadKey::from_bytes([0x99; 32]);
 
         let loser_result = persist_vault(
             &path,
@@ -861,6 +922,7 @@ mod tests {
             &[0x33; 32],
             &[0x44; 24],
             &[0x55; 74],
+            &metadata_key,
         );
         assert!(loser_result.is_err());
         assert!(
@@ -992,19 +1054,26 @@ mod tests {
         let _ = std::fs::remove_file(&tmp_path);
     }
 
-    /// F-13: the §5 record-table revision_id must carry the same WRK revision
-    /// stored in the authoritative §6 frame.
+    /// V2 keeps WrappedRootKey metadata out of the sealed table because the WRK
+    /// frame is fixed-position and authenticated by its §6 frame metadata.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn create_persists_table_revision_id_matching_frame_revision_id() {
+    fn create_persists_wrk_frame_ids_without_wrk_table_entry() {
         let path = unique_temp_vault_path("table-frame-revision");
         let tmp_path = tmp_path_for(&path);
-        create_test_vault(&path, b"table-frame-revision-password-never-real");
+        let password = b"table-frame-revision-password-never-real";
+        create_test_vault(&path, password);
 
-        let (entry, frame) = wrapped_root_entry_and_frame_for_test(&path);
-        assert_ne!(entry.revision_id, [0u8; 16]);
-        assert_eq!(entry.record_id, frame.record_id);
-        assert_eq!(entry.revision_id, frame.revision_id);
+        let (_bytes, frame, _frame_offset, _frame_len) = wrapped_root_frame_for_test(&path);
+        assert_ne!(frame.record_id, [0u8; 16]);
+        assert_ne!(frame.revision_id, [0u8; 16]);
+        let entries = record_table_entries_for_test(&path, password);
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.record_kind != RECORD_KIND_WRAPPED_ROOT_KEY),
+            "V2 sealed table must not contain a WrappedRootKey entry"
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
@@ -1038,14 +1107,11 @@ mod tests {
         let bytes = std::fs::read(&path).expect("read vault fixture");
         let header_len = usize::try_from(read_u32_for_test(&bytes, HEADER_LEN_OFFSET))
             .expect("header length fixture");
-        let (entry, _frame) = wrapped_root_entry_and_frame_for_test(&path);
+        let (_bytes, _frame, frame_offset, _frame_len) = wrapped_root_frame_for_test(&path);
         let fixed_offset = HEADER_MIN_LEN
             .checked_add(header_len)
             .expect("fixed WRK offset fixture");
-        assert_eq!(
-            usize::try_from(entry.frame_offset).expect("frame offset fixture"),
-            fixed_offset
-        );
+        assert_eq!(frame_offset, fixed_offset);
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
@@ -1058,9 +1124,10 @@ mod tests {
     fn create_v2_table_contains_no_wrapped_root_key_entry() {
         let path = unique_temp_vault_path("no-wrk-entry");
         let tmp_path = tmp_path_for(&path);
-        create_test_vault(&path, b"no-wrk-entry-password-never-real");
+        let password = b"no-wrk-entry-password-never-real";
+        create_test_vault(&path, password);
 
-        let entries = record_table_entries_for_test(&path);
+        let entries = record_table_entries_for_test(&path, password);
         assert!(
             entries
                 .iter()

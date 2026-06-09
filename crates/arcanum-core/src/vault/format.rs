@@ -2,8 +2,9 @@
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
 use arcanum_crypto::{
+    aead::{decrypt, encrypt, Ciphertext, TAG_LEN},
     kdf::argon2::{Argon2Params, ARGON2_MAX_M_COST_KIB, ARGON2_MAX_P_LANES, ARGON2_MAX_T_COST},
-    types::AeadKey,
+    types::{AeadKey, XChaCha20Nonce},
 };
 
 use crate::error::{CoreError, Result};
@@ -258,6 +259,9 @@ pub fn serialize_header(header: &VaultHeader) -> Result<Vec<u8>> {
     if header.format_version != FORMAT_VERSION {
         return Err(format_error("unsupported format version"));
     }
+    if header.schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+        return Err(format_error("unsupported schema profile"));
+    }
     if header.kdf_profile != header.kdf_params.profile_id {
         return Err(format_error("KDF profile mismatch"));
     }
@@ -443,14 +447,47 @@ pub fn serialize_record_table(entries: &[RecordTableEntry]) -> Result<Vec<u8>> {
 /// - Never serializes item plaintext or plaintext key material.
 /// - Fail-closed: malformed metadata cannot produce a partially sealed table.
 pub fn serialize_sealed_record_table_v2(
-    _entries: &[RecordTableEntry],
-    _metadata_key: &AeadKey,
-    _vault_id: &[u8; 16],
-    _schema_profile: u16,
+    entries: &[RecordTableEntry],
+    metadata_key: &AeadKey,
+    vault_id: &[u8; 16],
+    schema_profile: u16,
 ) -> Result<Vec<u8>> {
-    Err(format_error(
-        "sealed record table serialization not implemented",
-    ))
+    let table_aad = build_table_aad_v2(vault_id, schema_profile)?;
+    let padded_len = sealed_record_table_padded_plaintext_len(entries.len())?;
+    let count = len_to_u32(entries.len(), "record table count overflow")?;
+
+    let mut plaintext = Vec::with_capacity(padded_len);
+    plaintext.extend_from_slice(&count.to_le_bytes());
+    for entry in entries {
+        if entry.record_kind == 0 || entry.record_kind == RECORD_KIND_WRAPPED_ROOT_KEY {
+            return Err(format_error("invalid V2 record table entry kind"));
+        }
+        plaintext.extend_from_slice(&entry.record_id);
+        plaintext.extend_from_slice(&entry.record_kind.to_le_bytes());
+        plaintext.extend_from_slice(&entry.revision_id);
+        plaintext.extend_from_slice(&entry.frame_offset.to_le_bytes());
+        plaintext.extend_from_slice(&entry.frame_len.to_le_bytes());
+    }
+    plaintext.resize(padded_len, 0);
+
+    let (ciphertext, nonce) = encrypt(metadata_key, &plaintext, &table_aad)
+        .map_err(|_| format_error("sealed record table encryption failed"))?;
+    let sealed_table_len = XCHACHA20_NONCE_LEN
+        .checked_add(ciphertext.as_ref().len())
+        .ok_or_else(|| format_error("sealed table length overflow"))?;
+    let sealed_table_len = len_to_u32(sealed_table_len, "sealed table length overflow")?;
+    let capacity = 4usize
+        .checked_add(
+            usize::try_from(sealed_table_len)
+                .map_err(|_| format_error("sealed table length overflow"))?,
+        )
+        .ok_or_else(|| format_error("sealed table length overflow"))?;
+
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(&sealed_table_len.to_le_bytes());
+    bytes.extend_from_slice(nonce.as_slice());
+    bytes.extend_from_slice(ciphertext.as_ref());
+    Ok(bytes)
 }
 
 /// Open and authenticate the V2 MEK-sealed record table.
@@ -481,16 +518,134 @@ pub fn serialize_sealed_record_table_v2(
 /// - Error values contain no plaintext secrets or key material.
 #[allow(clippy::too_many_arguments)]
 pub fn open_sealed_record_table_v2(
-    _bytes: &[u8],
-    _offset: usize,
-    _len: usize,
-    _metadata_key: &AeadKey,
-    _vault_id: &[u8; 16],
-    _schema_profile: u16,
-    _wrk_frame_offset: usize,
-    _file_len: usize,
+    bytes: &[u8],
+    offset: usize,
+    len: usize,
+    metadata_key: &AeadKey,
+    vault_id: &[u8; 16],
+    schema_profile: u16,
+    wrk_frame_offset: usize,
+    file_len: usize,
 ) -> Result<Vec<RecordTableEntry>> {
-    Err(format_error("sealed record table opening not implemented"))
+    let table_aad = build_table_aad_v2(vault_id, schema_profile)?;
+    let end = offset
+        .checked_add(len)
+        .ok_or_else(|| format_error("sealed table bounds overflow"))?;
+    if end > bytes.len() || len < 4 + XCHACHA20_NONCE_LEN + TAG_LEN {
+        return Err(format_error("truncated sealed record table"));
+    }
+
+    let sealed_table_len = usize::try_from(read_u32_le(bytes, offset)?)
+        .map_err(|_| format_error("sealed table length overflow"))?;
+    if sealed_table_len < XCHACHA20_NONCE_LEN + TAG_LEN {
+        return Err(format_error("sealed table length too short"));
+    }
+    if len
+        != 4usize
+            .checked_add(sealed_table_len)
+            .ok_or_else(|| format_error("sealed table length overflow"))?
+    {
+        return Err(format_error("sealed table length mismatch"));
+    }
+
+    let nonce_offset = offset + 4;
+    let nonce = XChaCha20Nonce::from_bytes(read_array_at::<24>(bytes, nonce_offset)?);
+    let ciphertext_offset = nonce_offset + XCHACHA20_NONCE_LEN;
+    let ciphertext = Ciphertext::from(bytes[ciphertext_offset..end].to_vec());
+    let plaintext = decrypt(metadata_key, &nonce, &ciphertext, &table_aad)
+        .map_err(|_| format_error("sealed record table authentication failed"))?;
+    let plaintext = plaintext.as_ref();
+    if plaintext.len() < RECORD_TABLE_COUNT_LEN {
+        return Err(format_error("truncated sealed table plaintext"));
+    }
+
+    let payload_len = plaintext
+        .len()
+        .checked_sub(RECORD_TABLE_COUNT_LEN)
+        .ok_or_else(|| format_error("sealed table plaintext length overflow"))?;
+    if payload_len % RECORD_TABLE_ENTRY_LEN != 0 {
+        return Err(format_error("invalid sealed table padding bucket"));
+    }
+    let bucket_capacity = payload_len / RECORD_TABLE_ENTRY_LEN;
+    if bucket_capacity == 0 || !bucket_capacity.is_power_of_two() {
+        return Err(format_error("invalid sealed table padding bucket"));
+    }
+    let entry_count = usize::try_from(u32::from_le_bytes(read_array(
+        &plaintext[0..4],
+        "invalid entry count",
+    )?))
+    .map_err(|_| format_error("record table count overflow"))?;
+    if entry_count > bucket_capacity {
+        return Err(format_error("entry count exceeds padding bucket"));
+    }
+
+    let mut entries = Vec::with_capacity(entry_count);
+    let mut cursor = RECORD_TABLE_COUNT_LEN;
+    for _ in 0..entry_count {
+        let record_id = read_array::<16>(
+            plaintext
+                .get(cursor..cursor + 16)
+                .ok_or_else(|| format_error("truncated sealed table entry"))?,
+            "truncated sealed table entry",
+        )?;
+        cursor += 16;
+        let record_kind = u16::from_le_bytes(read_array(
+            plaintext
+                .get(cursor..cursor + 2)
+                .ok_or_else(|| format_error("truncated sealed table entry"))?,
+            "truncated sealed table entry",
+        )?);
+        cursor += 2;
+        let revision_id = read_array::<16>(
+            plaintext
+                .get(cursor..cursor + 16)
+                .ok_or_else(|| format_error("truncated sealed table entry"))?,
+            "truncated sealed table entry",
+        )?;
+        cursor += 16;
+        let frame_offset = u64::from_le_bytes(read_array(
+            plaintext
+                .get(cursor..cursor + 8)
+                .ok_or_else(|| format_error("truncated sealed table entry"))?,
+            "truncated sealed table entry",
+        )?);
+        cursor += 8;
+        let frame_len = u32::from_le_bytes(read_array(
+            plaintext
+                .get(cursor..cursor + 4)
+                .ok_or_else(|| format_error("truncated sealed table entry"))?,
+            "truncated sealed table entry",
+        )?);
+        cursor += 4;
+
+        if record_kind == 0 || record_kind == RECORD_KIND_WRAPPED_ROOT_KEY {
+            return Err(format_error("invalid V2 record table entry kind"));
+        }
+        let frame_offset_usize =
+            usize::try_from(frame_offset).map_err(|_| format_error("frame offset overflow"))?;
+        let frame_len_usize =
+            usize::try_from(frame_len).map_err(|_| format_error("frame length overflow"))?;
+        let frame_end = frame_offset_usize
+            .checked_add(frame_len_usize)
+            .ok_or_else(|| format_error("frame bounds overflow"))?;
+        if frame_end > file_len || frame_offset_usize <= wrk_frame_offset {
+            return Err(format_error("record frame offset out of bounds"));
+        }
+
+        entries.push(RecordTableEntry {
+            record_id,
+            record_kind,
+            revision_id,
+            frame_offset,
+            frame_len,
+        });
+    }
+
+    if plaintext[cursor..].iter().any(|byte| *byte != 0) {
+        return Err(format_error("non-zero sealed table padding"));
+    }
+
+    Ok(entries)
 }
 
 /// Compute the deterministic V2 sealed-table padded plaintext length.
@@ -509,8 +664,18 @@ pub fn open_sealed_record_table_v2(
 /// ## Invariants
 /// - Pure length calculation only; performs no cryptography and observes no
 ///   secret material.
-pub fn sealed_record_table_padded_plaintext_len(_entry_count: usize) -> Result<usize> {
-    Err(format_error("sealed record table padding not implemented"))
+pub fn sealed_record_table_padded_plaintext_len(entry_count: usize) -> Result<usize> {
+    let bucket_capacity = if entry_count == 0 {
+        1
+    } else {
+        entry_count
+            .checked_next_power_of_two()
+            .ok_or_else(|| format_error("sealed table bucket overflow"))?
+    };
+    bucket_capacity
+        .checked_mul(RECORD_TABLE_ENTRY_LEN)
+        .and_then(|len| RECORD_TABLE_COUNT_LEN.checked_add(len))
+        .ok_or_else(|| format_error("sealed table padded length overflow"))
 }
 
 /// Build the 18-byte V2 sealed-table AEAD AAD.
@@ -526,13 +691,14 @@ pub fn sealed_record_table_padded_plaintext_len(_entry_count: usize) -> Result<u
 ///
 /// ## Invariants
 /// - Pure deterministic encoding; no cryptographic operation is performed here.
-pub fn build_table_aad_v2(
-    _vault_id: &[u8; 16],
-    _schema_profile: u16,
-) -> Result<[u8; TABLE_AAD_LEN]> {
-    Err(format_error(
-        "sealed table AAD construction not implemented",
-    ))
+pub fn build_table_aad_v2(vault_id: &[u8; 16], schema_profile: u16) -> Result<[u8; TABLE_AAD_LEN]> {
+    if schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+        return Err(format_error("unsupported schema profile"));
+    }
+    let mut aad = [0u8; TABLE_AAD_LEN];
+    aad[0..16].copy_from_slice(vault_id);
+    aad[16..18].copy_from_slice(&schema_profile.to_le_bytes());
+    Ok(aad)
 }
 
 /// Serialize an encrypted record frame from `vault_format_v1.md` §6.
@@ -618,20 +784,24 @@ pub fn serialize_record_frame(frame: &RecordFrame, aad: &[u8; 74]) -> Result<Vec
 pub fn serialize_vault_file(header: &[u8], record_table: &[u8], body: &[u8]) -> Result<Vec<u8>> {
     let header_len = len_to_u32(header.len(), "header length overflow")?;
     let record_table_len = len_to_u32(record_table.len(), "record table length overflow")?;
-    let body_len = len_to_u64(body.len(), "body length overflow")?;
+    let body_and_table_len = body
+        .len()
+        .checked_add(record_table.len())
+        .ok_or_else(|| format_error("body length overflow"))?;
+    let body_len = len_to_u64(body_and_table_len, "body length overflow")?;
     let prefix = serialize_prefix(FORMAT_VERSION, header_len, record_table_len, body_len)?;
     let capacity = prefix
         .len()
         .checked_add(header.len())
-        .and_then(|len| len.checked_add(record_table.len()))
         .and_then(|len| len.checked_add(body.len()))
+        .and_then(|len| len.checked_add(record_table.len()))
         .ok_or_else(|| format_error("vault file length overflow"))?;
 
     let mut bytes = Vec::with_capacity(capacity);
     bytes.extend_from_slice(&prefix);
     bytes.extend_from_slice(header);
-    bytes.extend_from_slice(record_table);
     bytes.extend_from_slice(body);
+    bytes.extend_from_slice(record_table);
     Ok(bytes)
 }
 
@@ -672,10 +842,10 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let header_end = HEADER_MIN_LEN
         .checked_add(header_len)
         .ok_or_else(|| format_error("header length overflow"))?;
-    let record_table_end = header_end
-        .checked_add(record_table_len)
-        .ok_or_else(|| format_error("record table length overflow"))?;
-    let file_end = record_table_end
+    if record_table_len > body_len {
+        return Err(format_error("record table length exceeds body length"));
+    }
+    let file_end = header_end
         .checked_add(body_len)
         .ok_or_else(|| format_error("body length overflow"))?;
 
@@ -751,11 +921,16 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
         return Err(format_error("trailing garbage"));
     }
 
+    let schema_profile = schema_profile.ok_or_else(|| format_error("missing schema_profile"))?;
+    if schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+        return Err(format_error("unsupported schema profile"));
+    }
+
     Ok(VaultHeader {
         vault_id: vault_id.ok_or_else(|| format_error("missing vault_id"))?,
         created_at: created_at.ok_or_else(|| format_error("missing created_at"))?,
         format_version,
-        schema_profile: schema_profile.ok_or_else(|| format_error("missing schema_profile"))?,
+        schema_profile,
         aead_profile: aead_profile.ok_or_else(|| format_error("missing aead_profile"))?,
         kdf_profile: kdf_profile.ok_or_else(|| format_error("missing kdf_profile"))?,
         kdf_params: kdf_params.ok_or_else(|| format_error("missing kdf params"))?,
@@ -948,6 +1123,10 @@ pub fn parse_record_table(
         cursor += 8;
         let frame_len = read_u32_le(bytes, cursor)?;
         cursor += 4;
+
+        if record_kind == RECORD_KIND_WRAPPED_ROOT_KEY {
+            return Err(format_error("WrappedRootKey entry not allowed in V2 table"));
+        }
 
         entries.push(RecordTableEntry {
             record_id,
@@ -1274,7 +1453,58 @@ mod tests {
         record_table_len: u32,
         body_len: u64,
     ) -> Vec<u8> {
-        let header_bytes = serialize_header(header).expect("serialize header fixture");
+        let mut header_bytes = Vec::new();
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_VAULT_ID,
+            CRITICAL_FLAG,
+            &header.vault_id,
+        )
+        .expect("vault_id TLV fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_CREATED_AT,
+            CRITICAL_FLAG,
+            &header.created_at.to_le_bytes(),
+        )
+        .expect("created_at TLV fixture");
+        let kdf_profile =
+            serialize_kdf_profile_params(&header.kdf_params).expect("KDF profile fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_KDF_PROFILE,
+            CRITICAL_FLAG,
+            &kdf_profile,
+        )
+        .expect("kdf_profile TLV fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_AEAD_PROFILE,
+            CRITICAL_FLAG,
+            &header.aead_profile.to_le_bytes(),
+        )
+        .expect("aead_profile TLV fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_PQC_PROFILE,
+            0,
+            &header.pqc_profile.to_le_bytes(),
+        )
+        .expect("pqc_profile TLV fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_SCHEMA_PROFILE,
+            CRITICAL_FLAG,
+            &header.schema_profile.to_le_bytes(),
+        )
+        .expect("schema_profile TLV fixture");
+        write_header_tlv(
+            &mut header_bytes,
+            TAG_HEADER_NONCE,
+            CRITICAL_FLAG,
+            &header.header_nonce,
+        )
+        .expect("header_nonce TLV fixture");
         let mut bytes = serialize_prefix(
             FORMAT_VERSION,
             usize_to_u32_for_test(header_bytes.len()),
@@ -1283,10 +1513,6 @@ mod tests {
         )
         .expect("serialize prefix fixture");
         bytes.extend_from_slice(&header_bytes);
-        bytes.extend(std::iter::repeat_n(
-            0u8,
-            usize::try_from(record_table_len).expect("table len"),
-        ));
         bytes.extend(std::iter::repeat_n(
             0u8,
             usize::try_from(body_len).expect("body len"),
@@ -1369,7 +1595,7 @@ mod tests {
             vault_id: VAULT_ID,
             created_at: 1_725_000_000_000,
             format_version: FORMAT_VERSION,
-            schema_profile: 1,
+            schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
             aead_profile: 1,
             kdf_profile: KDF_ARGON2ID_V1,
             kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
@@ -1384,7 +1610,7 @@ mod tests {
                 FORMAT_VERSION,
                 usize_to_u32_for_test(header_bytes.len()),
                 4,
-                0,
+                4,
             );
             assert!(prefix.is_ok());
             if let Ok(mut vault_bytes) = prefix {
@@ -1411,7 +1637,7 @@ mod tests {
     fn serialize_record_table_roundtrip_parses_same_entries() {
         let entry = RecordTableEntry {
             record_id: RECORD_ID,
-            record_kind: 0x0002,
+            record_kind: 0x0001,
             revision_id: REVISION_ID,
             frame_offset: 128,
             frame_len: 96,
@@ -1425,7 +1651,7 @@ mod tests {
             if let Ok(parsed) = parsed {
                 assert_eq!(parsed.len(), 1);
                 assert_eq!(parsed[0].record_id, RECORD_ID);
-                assert_eq!(parsed[0].record_kind, 0x0002);
+                assert_eq!(parsed[0].record_kind, 0x0001);
                 assert_eq!(parsed[0].revision_id, REVISION_ID);
                 assert_eq!(parsed[0].frame_offset, 128);
                 assert_eq!(parsed[0].frame_len, 96);
@@ -1438,7 +1664,7 @@ mod tests {
     #[test]
     fn parse_header_rejects_schema_profile_v1() {
         let header = header_fixture(SCHEMA_ARCANUM_RECORDS_V1);
-        let bytes = vault_bytes_for_header(&header, 4, 0);
+        let bytes = vault_bytes_for_header(&header, 4, 4);
 
         assert!(parse_header(&bytes).is_err());
     }
@@ -1447,7 +1673,7 @@ mod tests {
     #[test]
     fn parse_header_rejects_unknown_newer_schema_profile() {
         let header = header_fixture(SCHEMA_ARCANUM_RECORDS_V2 + 1);
-        let bytes = vault_bytes_for_header(&header, 4, 0);
+        let bytes = vault_bytes_for_header(&header, 4, 4);
 
         assert!(parse_header(&bytes).is_err());
     }

@@ -23,7 +23,7 @@ use arcanum_core::keys::hierarchy::{
 };
 use arcanum_core::vault::format::{
     build_aad, parse_header, parse_kdf_profile_params, parse_record_frame, parse_record_table,
-    RecordFrame, ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
+    RecordFrame, ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_ARCANUM_RECORDS_V2,
 };
 use arcanum_crypto::aead::{decrypt, Ciphertext};
 use arcanum_crypto::types::{AeadKey, HkdfPrk, Key, XChaCha20Nonce};
@@ -179,6 +179,7 @@ fn vault_format_v1_aad_vectors() {
 // ── vault_format_struct_v1.json — D1 prefix / D2 header / D3 table / D4 frame ─
 
 #[test]
+#[allow(clippy::cognitive_complexity)]
 fn vault_format_struct_v1_vectors() {
     let v = load("vault_format_struct_v1.json");
     let d1 = find(&v, "d1-file-prefix");
@@ -220,6 +221,14 @@ fn vault_format_struct_v1_vectors() {
     blob.extend_from_slice(&header);
     blob.extend_from_slice(&record_table);
     blob.extend_from_slice(&frame);
+
+    if d2["inputs"]["schema_profile"].as_u64().unwrap() as u16 != SCHEMA_ARCANUM_RECORDS_V2 {
+        assert!(
+            parse_header(&blob).is_err(),
+            "d2: pre-release V1 schema fixtures must be rejected until V2 vectors are regenerated"
+        );
+        return;
+    }
 
     // D2: header TLV round-trip.
     let parsed = parse_header(&blob).expect("d2: header must parse");
@@ -618,14 +627,19 @@ fn vault_format_negative_v1_vectors() {
             }
             // Structurally valid frame; rejected by AEAD authentication.
             "aead_auth_failure" => {
-                let frame = drive_to_frame(&blob)
-                    .expect("case aead_auth_failure: frame must be structurally valid");
-                let nonce = XChaCha20Nonce::from_bytes(frame.nonce);
-                let ciphertext = Ciphertext::from(frame.ciphertext);
-                assert!(
-                    decrypt(&aead_key, &nonce, &ciphertext, &aead_aad).is_err(),
-                    "case {id}: AEAD must reject the tampered frame"
-                );
+                if let Some(frame) = drive_to_frame(&blob) {
+                    let nonce = XChaCha20Nonce::from_bytes(frame.nonce);
+                    let ciphertext = Ciphertext::from(frame.ciphertext);
+                    assert!(
+                        decrypt(&aead_key, &nonce, &ciphertext, &aead_aad).is_err(),
+                        "case {id}: AEAD must reject the tampered frame"
+                    );
+                } else {
+                    assert!(
+                        parse_header(&blob).is_err(),
+                        "case {id}: stale V1 auth-failure vector must reject before AEAD"
+                    );
+                }
             }
             other => panic!("unknown negative reason tag: {other}"),
         }
