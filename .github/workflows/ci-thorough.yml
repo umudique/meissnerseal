@@ -231,6 +231,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: semver-checks
+      - name: Fetch main for baseline
+        run: git fetch origin main:main
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked
       - name: semver-checks — arcanum-core
