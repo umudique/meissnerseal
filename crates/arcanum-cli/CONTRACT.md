@@ -7,7 +7,7 @@
 
 ---
 
-## Public API Surface (CLI commands)
+## Public API Surface (CLI commands — MVP-0)
 
 ```
 arcanum init <PATH>              — create new vault
@@ -20,15 +20,24 @@ arcanum export --output PATH --vault PATH
                                  — export encrypted .arcexp bundle
 arcanum import --input PATH --vault PATH
                                  — import encrypted .arcexp bundle
-arcanum import --unsafe-plaintext <PATH>
-                                 — import plaintext JSON/CSV (dev/test only) [post-MVP-0, not wired]
 arcanum lock                     — lock vault session
-arcanum transfer create          — create transfer envelope
-arcanum transfer receive <PATH>  — receive transfer envelope
-arcanum device pair              — pair with another device
-arcanum device list              — list approved devices
-arcanum device revoke <device-id>
 ```
+
+---
+
+## Planned (post-MVP-0)
+
+```
+arcanum import --unsafe-plaintext <PATH>
+                                 — import plaintext JSON/CSV (dev/test only)
+arcanum transfer create          — create transfer envelope  [MVP-2]
+arcanum transfer receive <PATH>  — receive transfer envelope [MVP-2]
+arcanum device pair              — pair with another device  [post-MVP-0]
+arcanum device list              — list approved devices     [post-MVP-0]
+arcanum device revoke <device-id>                            [post-MVP-0]
+```
+
+These commands parse correctly but return an error at runtime until wired.
 
 ---
 
