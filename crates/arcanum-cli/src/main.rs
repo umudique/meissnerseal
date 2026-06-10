@@ -599,6 +599,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("arcanum-{label}-{}-{now}.arcv", std::process::id()))
+        std::env::temp_dir() // nosemgrep: rust.lang.security.temp-dir.temp-dir
+            .join(format!("arcanum-{label}-{}-{now}.arcv", std::process::id()))
     }
 }
