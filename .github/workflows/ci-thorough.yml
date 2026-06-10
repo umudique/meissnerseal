@@ -217,6 +217,25 @@ jobs:
           path: lcov.info
           retention-days: 30
 
+  # ─── Semver checks ────────────────────────────────────────────────────────
+  # Detects breaking API changes in crates with API Status: Stable.
+  # Gate: arcanum-core promoted to Stable (2026-06-10). ADR-017, mvp_roadmap §7.
+  semver-checks:
+    name: Semver Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: semver-checks
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+      - name: semver-checks — arcanum-core
+        run: cargo semver-checks --package arcanum-core
+
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review.
   # Will warn until vet audits are configured.
