@@ -750,7 +750,7 @@ mod tests {
     const PASSWORD: &[u8] = b"core-9-item-password-never-real";
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
-        let mut path = std::env::temp_dir();
+        let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
