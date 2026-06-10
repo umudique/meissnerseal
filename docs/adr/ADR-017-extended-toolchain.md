@@ -106,6 +106,13 @@ Evaluation criteria applied to each candidate:
 - Why deferred: Requires a full implementation to mutate. Pre-MVP-0, the
   codebase is mostly stubs. Add at MVP-0 completion.
 - Milestone: MVP-0 complete → run cargo-mutants on arcanum-crypto
+- **MVP-0 gate completed 2026-06-11** (commit 32a37dc). Blocking mutants caught.
+  Accepted equivalent mutants (2): `kdf/argon2.rs:61/62` — `||→&&` on t_cost/p_lanes
+  zero guards. These guards are redundant: `argon2::Params::new` independently
+  rejects zero values, so no black-box test can distinguish guard-present from
+  guard-absent. Defense-in-depth, not a test gap.
+- **Toolchain note:** positive boundary tests (value == MAX must succeed) are
+  required to kill `>→>=` comparison mutants; reject-only tests are insufficient.
 
 **cargo-semver-checks** — semver compatibility verification
 - Rationale: Detects breaking API changes that are not reflected in version
