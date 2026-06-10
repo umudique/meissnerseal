@@ -480,6 +480,17 @@ SECURITY
 
 A commit that fails any of the above must be amended before pushing.
 
+MERGE TO MAIN
+  [ ] Merges to main must be locally signed (SSH/GPG key).
+  [ ] Do NOT use `gh pr merge --rebase` — GitHub performs a server-side rebase
+      that strips personal signatures and creates unsigned commits on main.
+  [ ] Correct procedure:
+        git checkout main
+        git merge --ff-only <branch>   # fast-forward only; reject non-linear history
+        git push origin main           # pushes locally-signed commits
+      Branch protection enforce_admins must be false (admin-bypass) for direct push.
+  [ ] Verify with: git log --show-signature main | head -20
+
 ---
 
 ## 15. Tool Failure Protocol
