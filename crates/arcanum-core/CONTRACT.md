@@ -24,6 +24,10 @@ item::
   delete(session, item_id) -> Result<()>
   list(session) -> Result<Vec<ItemSummary>>
 
+export::
+  export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>>
+  import(session: &VaultSession, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
+
 transfer::
   create_envelope(session, params) -> Result<TransferEnvelope>
   receive_envelope<F, R>(session, envelope, f: F) -> Result<R>
@@ -102,6 +106,10 @@ recovery::
        specs/crypto/crypto_design.md §5:
        item-wrap, metadata, audit, sync-envelope, device-enroll,
        recovery-wrap, export-bundle.
+
+[P-05] export:: export/import passphrase must be non-empty user-supplied
+       secret material for the .arcexp bundle. It is independent from vault
+       master passwords and vault-internal HKDF subkeys.
 ```
 
 ---
