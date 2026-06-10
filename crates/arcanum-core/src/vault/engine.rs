@@ -606,7 +606,7 @@ mod tests {
     use arcanum_security::secret_lifecycle::SecretBytes;
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
-        let mut path = std::env::temp_dir();
+        let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
@@ -828,7 +828,7 @@ mod tests {
     /// nor a sibling temporary file behind.
     #[test]
     fn persist_failure_leaves_no_partial_output() {
-        let mut path = std::env::temp_dir();
+        let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())

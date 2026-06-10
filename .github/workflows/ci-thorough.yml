@@ -43,7 +43,13 @@ jobs:
           key: miri-${{ matrix.crate }}
       - name: miri test — ${{ matrix.crate }}
         env:
-          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+          # arcanum-crypto tests read JSON test-vector files from disk; disable
+          # Miri's filesystem isolation for that crate only. All other crates
+          # run with full isolation (no flag override needed).
+          MIRIFLAGS: >-
+            -Zmiri-strict-provenance
+            -Zmiri-symbolic-alignment-check
+            ${{ matrix.crate == 'arcanum-crypto' && '-Zmiri-disable-isolation' || '' }}
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
   # ─── Fuzz: Build and smoke run ─────────────────────────────────────────────
