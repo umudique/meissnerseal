@@ -40,3 +40,50 @@ mod proofs {
         kani::assert(24_usize == 24, "random_nonce output type is [u8; 24]");
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    // These tests kill the "function returns a fixed value" mutants: a constant
+    // return cannot satisfy both the not-all-zeros bound and the calls-differ
+    // property simultaneously. The calls-differ checks are the general catcher.
+
+    #[test]
+    fn random_key_is_not_all_zeros() {
+        assert_ne!(random_key(), [0u8; 32]);
+    }
+
+    #[test]
+    fn random_key_is_not_all_ones() {
+        assert_ne!(random_key(), [0xffu8; 32]);
+    }
+
+    #[test]
+    fn random_key_calls_differ() {
+        assert_ne!(random_key(), random_key());
+    }
+
+    #[test]
+    fn random_nonce_is_not_all_zeros() {
+        assert_ne!(random_nonce_xchacha20(), [0u8; 24]);
+    }
+
+    #[test]
+    fn random_nonce_calls_differ() {
+        assert_ne!(random_nonce_xchacha20(), random_nonce_xchacha20());
+    }
+
+    #[test]
+    fn random_bytes_length() {
+        for n in [0usize, 1, 16, 32, 64] {
+            assert_eq!(random_bytes(n).len(), n);
+        }
+    }
+
+    #[test]
+    fn random_bytes_not_all_zeros() {
+        assert_ne!(random_bytes(32), vec![0u8; 32]);
+    }
+}

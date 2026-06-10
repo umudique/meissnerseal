@@ -330,4 +330,43 @@ mod tests {
 
         assert_eq!(ciphertext.as_ref().len(), TAG_LEN);
     }
+
+    #[test]
+    fn decrypt_rejects_empty_ciphertext() {
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
+        let ciphertext = Ciphertext::from(Vec::new());
+
+        assert!(decrypt(&key, &nonce, &ciphertext, &AAD).is_err());
+    }
+
+    #[test]
+    fn decrypt_rejects_zero_filled_ciphertext_of_exact_tag_len() {
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
+        let ciphertext = Ciphertext::from(vec![0u8; TAG_LEN]);
+
+        // TAG_LEN bytes of zeros is a syntactically-allowed length but an invalid
+        // tag: the length guard passes, the AEAD tag check fails closed.
+        assert!(decrypt(&key, &nonce, &ciphertext, &AAD).is_err());
+    }
+
+    #[test]
+    fn decrypt_accepts_valid_ciphertext_of_exact_tag_len() {
+        // Mutant-killer for `len < TAG_LEN` -> `== TAG_LEN` / `<= TAG_LEN`.
+        // A valid empty-plaintext ciphertext is exactly TAG_LEN bytes and MUST
+        // decrypt; the `==`/`<=` mutants reject it (len == TAG_LEN), so this
+        // positive boundary case fails under the mutant and passes on real code.
+        // The reject-only tests cannot catch these mutants because the AEAD
+        // backend independently rejects sub-TAG_LEN input.
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
+        let ciphertext =
+            encrypt_with_nonce(&key, &nonce, &[], &AAD).expect("encrypt empty plaintext");
+        assert_eq!(ciphertext.as_ref().len(), TAG_LEN);
+
+        let plaintext =
+            decrypt(&key, &nonce, &ciphertext, &AAD).expect("valid exact-tag-len ciphertext");
+        assert!(plaintext.as_ref().is_empty());
+    }
 }

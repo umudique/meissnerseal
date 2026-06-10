@@ -203,4 +203,137 @@ mod tests {
 
         assert!(bool::from(vault_key_encryption_key.ct_eq(&expected)));
     }
+
+    // Each guard condition is tested in isolation (exactly one invalid field,
+    // every other field valid). This is the pattern that catches the `||`->`&&`
+    // mutations in the validation chain: under `&&`, a single true condition no
+    // longer short-circuits to Err. `m_cost_kib` is 256 (not 64) so the argon2
+    // backend accepts `p_lanes = MAX+1` (which requires m >= 8*p); otherwise
+    // Params::new would reject it and mask the guard mutation.
+    fn valid_params() -> Argon2Params {
+        Argon2Params {
+            m_cost_kib: 256,
+            t_cost: 1,
+            p_lanes: 1,
+            output_len: MasterUnlockKey::LEN,
+        }
+    }
+
+    #[test]
+    fn derive_rejects_m_cost_zero() {
+        let params = Argon2Params {
+            m_cost_kib: 0,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_t_cost_zero() {
+        let params = Argon2Params {
+            t_cost: 0,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_p_lanes_zero() {
+        let params = Argon2Params {
+            p_lanes: 0,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_m_cost_above_max() {
+        let params = Argon2Params {
+            m_cost_kib: ARGON2_MAX_M_COST_KIB + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_t_cost_above_max() {
+        let params = Argon2Params {
+            t_cost: ARGON2_MAX_T_COST + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_p_lanes_above_max() {
+        let params = Argon2Params {
+            p_lanes: ARGON2_MAX_P_LANES + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_wrong_output_len() {
+        let params = Argon2Params {
+            output_len: MasterUnlockKey::LEN + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    // Positive boundary tests: params at *exactly* the max must be ACCEPTED.
+    // These kill the `>`->`>=` mutants on the max checks, which the `MAX + 1`
+    // rejection tests cannot — both real and mutant reject `MAX + 1`, so only a
+    // value of exactly MAX distinguishes `> MAX` (accept) from `>= MAX` (reject).
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id KDF is too slow under Miri")]
+    fn derive_accepts_t_cost_at_max() {
+        let params = Argon2Params {
+            t_cost: ARGON2_MAX_T_COST,
+            ..valid_params()
+        };
+        assert!(derive(PASSWORD, &VAULT_ID, &params).is_ok());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id KDF is too slow under Miri")]
+    fn derive_accepts_p_lanes_at_max() {
+        let params = Argon2Params {
+            p_lanes: ARGON2_MAX_P_LANES,
+            ..valid_params()
+        };
+        assert!(derive(PASSWORD, &VAULT_ID, &params).is_ok());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 256 MiB KDF is too slow under Miri")]
+    fn derive_accepts_m_cost_at_max() {
+        let params = Argon2Params {
+            m_cost_kib: ARGON2_MAX_M_COST_KIB,
+            ..valid_params()
+        };
+        assert!(derive(PASSWORD, &VAULT_ID, &params).is_ok());
+    }
 }
