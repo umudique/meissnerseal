@@ -880,14 +880,31 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn tampered_item_ciphertext_rejects_without_plaintext() {
         let (path, session) = unlocked_session("tamper-payload");
-
         let item_id = add(&session, plain_item("tamper", b"payload"))
             .expect("Phase 2: add must persist encrypted item");
-        let result: Result<()> = with_item(&session, item_id, |_view| {
-            panic!("Phase 2: tampered ciphertext must not call closure")
-        });
 
-        assert!(result.is_err());
+        // Flip a byte in encrypted_payload: frame header(143) + envelope
+        // rek_wrap_nonce(24) + wrapped_rek_len(4) + wrapped_rek(48) +
+        // payload_nonce(24) + payload_len(4) = 247 bytes into the frame.
+        let loaded = load_vault(&session).expect("load for tamper");
+        let entry = loaded
+            .entries
+            .iter()
+            .find(|e| e.record_id == item_id)
+            .expect("item entry must exist");
+        let tamper_off =
+            usize::try_from(entry.frame_offset).expect("frame_offset fits usize") + 247;
+        let mut bytes = loaded.bytes;
+        *bytes.get_mut(tamper_off).expect("tamper offset in bounds") ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write tampered vault");
+
+        let result: Result<()> = with_item(&session, item_id, |_view| {
+            panic!("tampered ciphertext must not call closure")
+        });
+        assert!(
+            result.is_err(),
+            "expected Err for tampered payload ciphertext"
+        );
         cleanup(&path, session);
     }
 
@@ -895,14 +912,27 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn tampered_wrapped_rek_rejects_without_plaintext() {
         let (path, session) = unlocked_session("tamper-rek");
-
         let item_id = add(&session, plain_item("tamper", b"rek"))
             .expect("Phase 2: add must persist encrypted item");
-        let result: Result<()> = with_item(&session, item_id, |_view| {
-            panic!("Phase 2: tampered wrapped REK must not call closure")
-        });
 
-        assert!(result.is_err());
+        // Flip a byte in wrapped_rek: frame header(143) + rek_wrap_nonce(24) +
+        // wrapped_rek_len(4) = 171 bytes into the frame.
+        let loaded = load_vault(&session).expect("load for tamper");
+        let entry = loaded
+            .entries
+            .iter()
+            .find(|e| e.record_id == item_id)
+            .expect("item entry must exist");
+        let tamper_off =
+            usize::try_from(entry.frame_offset).expect("frame_offset fits usize") + 171;
+        let mut bytes = loaded.bytes;
+        *bytes.get_mut(tamper_off).expect("tamper offset in bounds") ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write tampered vault");
+
+        let result: Result<()> = with_item(&session, item_id, |_view| {
+            panic!("tampered wrapped REK must not call closure")
+        });
+        assert!(result.is_err(), "expected Err for tampered wrapped REK");
         cleanup(&path, session);
     }
 
@@ -910,14 +940,31 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn substituted_record_id_or_revision_rejects_by_aad_authentication() {
         let (path, session) = unlocked_session("substitution");
-
         let item_id = add(&session, plain_item("substitution", b"aad-bound"))
             .expect("Phase 2: add must persist encrypted item");
-        let result: Result<()> = with_item(&session, item_id, |_view| {
-            panic!("Phase 2: substituted record metadata must not call closure")
-        });
 
-        assert!(result.is_err());
+        // Flip a byte in the frame's record_id field (bytes 2..18 from frame
+        // start). The MEK-sealed table still holds the original ID; the
+        // explicit substitution check (frame.record_id != entry.record_id)
+        // will catch the mismatch and return Err(Auth).
+        let loaded = load_vault(&session).expect("load for tamper");
+        let entry = loaded
+            .entries
+            .iter()
+            .find(|e| e.record_id == item_id)
+            .expect("item entry must exist");
+        let tamper_off = usize::try_from(entry.frame_offset).expect("frame_offset fits usize") + 2;
+        let mut bytes = loaded.bytes;
+        *bytes.get_mut(tamper_off).expect("tamper offset in bounds") ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write tampered vault");
+
+        let result: Result<()> = with_item(&session, item_id, |_view| {
+            panic!("substituted record metadata must not call closure")
+        });
+        assert!(
+            result.is_err(),
+            "expected Err for substituted record_id in frame"
+        );
         cleanup(&path, session);
     }
 }
