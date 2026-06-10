@@ -26,6 +26,11 @@ pub enum CoreError {
     /// I/O error.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Import failed mid-way and rollback could not remove all partial items.
+    /// The vault is in an inconsistent state; caller must treat it as corrupted.
+    #[error("partial import: rollback failed, vault may be inconsistent")]
+    PartialImport,
 }
 
 /// Core crate result type.

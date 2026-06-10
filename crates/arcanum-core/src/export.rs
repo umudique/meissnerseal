@@ -165,11 +165,15 @@ pub fn import(session: &VaultSession, bundle: &[u8], passphrase: &[u8]) -> Resul
     for item in items {
         match add(session, item) {
             Ok(id) => imported_ids.push(id),
-            Err(error) => {
-                for imported_id in imported_ids {
-                    let _ = delete(session, imported_id);
+            Err(_) => {
+                let rollback_ok = imported_ids.iter().all(|&id| delete(session, id).is_ok());
+                if rollback_ok {
+                    return Err(CoreError::InvalidState(
+                        "import add failed; rollback succeeded".into(),
+                    ));
+                } else {
+                    return Err(CoreError::PartialImport);
                 }
-                return Err(error);
             }
         }
     }
