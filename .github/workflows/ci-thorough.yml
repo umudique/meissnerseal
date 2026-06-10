@@ -234,7 +234,8 @@ jobs:
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked
       - name: semver-checks — arcanum-core
-        run: cargo semver-checks --package arcanum-core
+        # arcanum-core is not published to crates.io; compare against main branch.
+        run: cargo semver-checks --package arcanum-core --baseline-rev main
 
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review.
