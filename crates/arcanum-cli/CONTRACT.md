@@ -10,14 +10,18 @@
 ## Public API Surface (CLI commands)
 
 ```
-arcanum init                     — create new vault
-arcanum add                      — add item (secret via prompt or --stdin)
-arcanum list                     — list item IDs and types (no secret values)
-arcanum get <item-id>            — retrieve item (output via prompt, not stdout)
-arcanum export [--output PATH]   — export encrypted .arcexp bundle
-arcanum import <PATH>            — import encrypted .arcexp bundle
+arcanum init <PATH>              — create new vault
+arcanum add --label L --kind K --vault PATH
+                                 — add item (secret value via hidden prompt)
+arcanum list <PATH>              — list item IDs and types (no secret values)
+arcanum get <item-id> --vault PATH
+                                 — retrieve item (secret to stdout after NOTE line)
+arcanum export --output PATH --vault PATH
+                                 — export encrypted .arcexp bundle
+arcanum import --input PATH --vault PATH
+                                 — import encrypted .arcexp bundle
 arcanum import --unsafe-plaintext <PATH>
-                                 — import plaintext JSON/CSV (dev/test only)
+                                 — import plaintext JSON/CSV (dev/test only) [post-MVP-0, not wired]
 arcanum lock                     — lock vault session
 arcanum transfer create          — create transfer envelope
 arcanum transfer receive <PATH>  — receive transfer envelope
