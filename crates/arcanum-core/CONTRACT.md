@@ -28,20 +28,51 @@ export::
   export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>>
   import(session: &VaultSession, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
-transfer::
+```
+
+---
+
+## Planned (post-MVP-0)
+
+These APIs are not part of the MVP-0 Stable contract. They will be locked
+in future milestones as noted.
+
+```
+transfer::  [MVP-2 — PQC-dependent, arcanum-pqc not Stable]
   create_envelope(session, params) -> Result<TransferEnvelope>
   receive_envelope<F, R>(session, envelope, f: F) -> Result<R>
     // F: FnOnce(&PlainItemBundleView<'_>) -> Result<R>
 
-device::
+device::  [post-MVP-0 — pairing/sync roadmap-excluded]
   pair(session, pairing_payload) -> Result<DeviceIdentity>
   approve(session, device_id) -> Result<()>
   revoke(session, device_id) -> Result<()>
   list(session) -> Result<Vec<DeviceIdentity>>
 
-recovery::
+recovery::  [MVP-1 — ADR-010]
   generate_kit(session, params) -> Result<RecoveryKit>
   restore(vault_path, recovery_secret, new_password) -> Result<()>
+```
+
+### Planned Guarantees
+
+```
+[G-03] DeviceTrustState transitions are validated.  [post-MVP-0 — device::]
+       Approved devices always have a signing_public_key.
+       Transition to Approved with None signing key returns Err.
+
+[G-04] transfer::receive_envelope rejects:  [MVP-2 — transfer::]
+       — expired envelopes (expires_at in the past)
+       — replayed envelope_ids
+       — transcript hash mismatches
+       — unknown or mismatched algorithm IDs
+```
+
+### Planned Preconditions
+
+```
+[P-03] RecoveryKit must be generated at vault creation or first unlock.  [MVP-1 — recovery::]
+       Delayed generation is not supported in MVP.
 ```
 
 ---
@@ -54,16 +85,6 @@ recovery::
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
-
-[G-03] DeviceTrustState transitions are validated.
-       Approved devices always have a signing_public_key.
-       Transition to Approved with None signing key returns Err.
-
-[G-04] transfer::receive_envelope rejects:
-       — expired envelopes (expires_at in the past)
-       — replayed envelope_ids
-       — transcript hash mismatches
-       — unknown or mismatched algorithm IDs
 
 [G-05] Vault parser rejects:
        — wrong magic bytes
@@ -98,9 +119,6 @@ recovery::
 
 [P-02] AAD passed to internal encryption calls must use the canonical
        construction from specs/protocol/vault_format_v1.md §7.
-
-[P-03] RecoveryKit must be generated at vault creation or first unlock.
-       Delayed generation is not supported in MVP.
 
 [P-04] UnlockedKeys contains all seven HKDF subkeys from
        specs/crypto/crypto_design.md §5:
