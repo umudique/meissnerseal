@@ -12,7 +12,7 @@ Arcanum is pre-release software. No version is suitable for storing real secrets
 
 Please do not open a public GitHub issue for security vulnerabilities.
 
-**Contact:** [security contact to be added before public release]
+Use **[GitHub Private Security Advisory](https://github.com/umudique/arcanum/security/advisories/new)** to report vulnerabilities confidentially.
 
 We aim to:
 - Acknowledge receipt within 48 hours
