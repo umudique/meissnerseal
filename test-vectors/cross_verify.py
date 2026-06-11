@@ -61,10 +61,10 @@ def u64le(n: int) -> bytes:
 def argon2id_v1_salt(vault_id: bytes) -> bytes:
     """
     Compute Argon2id salt for KDF_ARGON2ID_V1.
-    salt = b"arcanum-argon2id-salt-v1" || vault_id
+    salt = b"meissnerseal-argon2id-salt-v1" || vault_id
     """
-    domain = b"arcanum-argon2id-salt-v1"
-    assert len(domain) == 24, f"domain length must be 24, got {len(domain)}"
+    domain = b"meissnerseal-argon2id-salt-v1"
+    assert len(domain) == 29, f"domain length must be 29, got {len(domain)}"
     assert len(vault_id) == 16, f"vault_id must be 16 bytes, got {len(vault_id)}"
     return domain + vault_id
 
@@ -134,17 +134,17 @@ def derive_vkek(master_unlock_key: bytes, vault_id: bytes) -> bytes:
     """
     Derive Vault Key Encryption Key from Master Unlock Key.
 
-    vkek_salt = b"arcanum-vkek-salt-v1" || vault_id
+    vkek_salt = b"meissnerseal-vkek-salt-v1" || vault_id
     vkek_prk  = HKDF-SHA256-Extract(vkek_salt, master_unlock_key)
-    vkek      = HKDF-SHA256-Expand(vkek_prk, b"arcanum:vault-kek:v1", 32)
+    vkek      = HKDF-SHA256-Expand(vkek_prk, b"meissnerseal:vault-kek:v1", 32)
     """
-    domain = b"arcanum-vkek-salt-v1"
-    assert len(domain) == 20
+    domain = b"meissnerseal-vkek-salt-v1"
+    assert len(domain) == 25
     assert len(vault_id) == 16
 
     vkek_salt = domain + vault_id
     vkek_prk = hkdf_extract_sha256(vkek_salt, master_unlock_key)
-    vkek = hkdf_expand_sha256(vkek_prk, b"arcanum:vault-kek:v1", 32)
+    vkek = hkdf_expand_sha256(vkek_prk, b"meissnerseal:vault-kek:v1", 32)
     return vkek
 
 
@@ -163,16 +163,16 @@ def hkdf_info_string(purpose: str, vault_id: bytes, aead_id: Optional[int] = Non
     """
     Construct canonical HKDF info string.
 
-    Format: arcanum:{purpose}:v1:vault:{vault_id_hex}[:aead:{aead_id_decimal}]
+    Format: meissnerseal:{purpose}:v1:vault:{vault_id_hex}[:aead:{aead_id_decimal}]
 
     vault_id is lowercase hex (32 chars).
     aead_id is decimal string (e.g. "1" for XChaCha20-Poly1305).
     """
     vid_hex = vault_id_hex(vault_id)
     if aead_id is not None:
-        info = f"arcanum:{purpose}:v1:vault:{vid_hex}:aead:{aead_id_decimal(aead_id)}"
+        info = f"meissnerseal:{purpose}:v1:vault:{vid_hex}:aead:{aead_id_decimal(aead_id)}"
     else:
-        info = f"arcanum:{purpose}:v1:vault:{vid_hex}"
+        info = f"meissnerseal:{purpose}:v1:vault:{vid_hex}"
     return info.encode("ascii")
 
 
@@ -180,11 +180,11 @@ def derive_root_prk(vault_root_key: bytes, vault_id: bytes, header_nonce: bytes)
     """
     Derive root PRK from Vault Root Key.
 
-    root_salt = SHA256(b"arcanum-root-salt-v1" || vault_id || header_nonce)
+    root_salt = SHA256(b"meissnerseal-root-salt-v1" || vault_id || header_nonce)
     root_prk  = HKDF-SHA256-Extract(root_salt, vault_root_key)
     """
-    domain = b"arcanum-root-salt-v1"
-    assert len(domain) == 20
+    domain = b"meissnerseal-root-salt-v1"
+    assert len(domain) == 25
     assert len(vault_id) == 16
     assert len(header_nonce) == 24
 
@@ -302,20 +302,20 @@ def build_aad_v1(
     """
     Canonical AAD construction for vault_format_v1.
 
-    AAD = b"arcanum-aad-v1"   (14 bytes)
-       || vault_id             (16 bytes)
-       || format_version:u16le ( 2 bytes)
-       || schema_profile:u16le ( 2 bytes)
-       || aead_profile:u16le   ( 2 bytes)
-       || kdf_profile:u16le    ( 2 bytes)
-       || pqc_profile:u16le    ( 2 bytes)
-       || record_id            (16 bytes)
-       || revision_id          (16 bytes)
-       || record_kind:u16le    ( 2 bytes)
-                               = 74 bytes total
+    AAD = b"meissnerseal-aad-v1" (19 bytes)
+       || vault_id               (16 bytes)
+       || format_version:u16le   ( 2 bytes)
+       || schema_profile:u16le   ( 2 bytes)
+       || aead_profile:u16le     ( 2 bytes)
+       || kdf_profile:u16le      ( 2 bytes)
+       || pqc_profile:u16le      ( 2 bytes)
+       || record_id              (16 bytes)
+       || revision_id            (16 bytes)
+       || record_kind:u16le      ( 2 bytes)
+                                 = 79 bytes total
     """
-    domain = b"arcanum-aad-v1"
-    assert len(domain) == 14
+    domain = b"meissnerseal-aad-v1"
+    assert len(domain) == 19
     assert len(vault_id) == 16
     assert len(record_id) == 16
     assert len(revision_id) == 16
@@ -332,7 +332,7 @@ def build_aad_v1(
         + revision_id
         + u16le(record_kind)
     )
-    assert len(aad) == 74, f"AAD v1 must be 74 bytes, got {len(aad)}"
+    assert len(aad) == 79, f"AAD v1 must be 79 bytes, got {len(aad)}"
     return aad
 
 
@@ -542,7 +542,7 @@ def generate_aead_vectors() -> dict:
         "0100"                                   # record_kind u16le  (2 bytes)
     )
     assert len(aad) == 74, f"AAD must be 74 bytes, got {len(aad)}"
-    plaintext = b"secret-payload-for-arcanum-test"
+    plaintext = b"secret-payload-for-meissnerseal-test"
 
     # libsodium XChaCha20-Poly1305 IETF: returns ciphertext || 16-byte tag
     ciphertext_with_tag = nacl.bindings.crypto_aead_xchacha20poly1305_ietf_encrypt(
@@ -1324,7 +1324,7 @@ def run(target: Optional[str] = None) -> None:
             vectors = generator()
             path = os.path.join(vectors_dir, filename)
             with open(path, "w") as f:
-                json.dump(vectors, f, indent=2)
+                json.dump(vectors, f, indent=2, ensure_ascii=False)
                 f.write("\n")
             case_count = len(vectors.get("cases", []))
             print(f"  ✓ {filename} — {case_count} case(s)")
