@@ -546,3 +546,17 @@ If the output contains an "unmaintained" warning:
   and a fix is confirmed by running the fuzz target again without crash.
 → Report to human immediately.
 ```
+
+---
+
+## 16. CI Policy
+
+GitHub Actions is a **secondary signal only.** The primary gate is the local
+pre-commit hook (secrets → fmt → check → clippy → deny → audit). A passing
+pre-commit is sufficient to commit and push.
+
+Reason: GitHub free-tier minute limits would block development mid-milestone
+if remote CI were the primary gate.
+
+**Agent rule:** do not wait for or depend on remote CI status. If the pre-commit
+hook passes and tests pass locally, the commit is clean.
