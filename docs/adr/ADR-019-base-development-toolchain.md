@@ -62,7 +62,7 @@ pre-commit hook to produce faster error messages on compilation failures.
 ### License and dependency policy — `cargo-deny`
 
 **Adopted.** Enforces:
-- License allow-list (AGPL-3.0-or-later, MIT, Apache-2.0, etc.)
+- License allow-list (MIT, Apache-2.0, ISC, BSD-2/3-Clause, etc. — see deny.toml)
 - Advisory database checks (yanked crates, known CVEs)
 - Unmaintained and unsound crate detection
 
