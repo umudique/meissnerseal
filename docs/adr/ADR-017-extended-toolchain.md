@@ -122,6 +122,18 @@ Evaluation criteria applied to each candidate:
   unstable API is undefined. Add when first crate reaches Stable.
 - Milestone: First `API Status: Stable` promotion → add cargo-semver-checks
 
+**CryptoVerif** — computational security proof for transfer protocol
+- Rationale: ProVerif (planned for MVP-2) proves protocol security in the
+  symbolic (Dolev-Yao) model. CryptoVerif proves security in the computational
+  model — reduction-based, under standard assumptions (DDH, ML-KEM IND-CCA2,
+  PRF). Stronger guarantee; the gap between symbolic and computational is
+  meaningful for a protocol claiming post-quantum security.
+- Why deferred: Requires (a) the transfer protocol to be fully implemented,
+  (b) the ProVerif symbolic proof to be complete, and (c) team familiarity
+  with CryptoVerif's proof language. Significant learning curve.
+- Milestone: MVP-2 ProVerif proof complete → evaluate CryptoVerif upgrade.
+  Tracked in backlog as TOOL-3.
+
 ### Excluded
 
 | Tool | Reason |

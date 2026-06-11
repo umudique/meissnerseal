@@ -2,7 +2,7 @@
 # ADR-011: RustCrypto Ecosystem as Primary Cryptographic Dependency
 
 **Date:** 2025-06
-**Status:** Accepted
+**Status:** Accepted — ML-KEM section superseded by ADR-023 (libcrux-ml-kem replaces RustCrypto ml-kem for the PQC layer; classical primitives remain on RustCrypto)
 
 ## Context
 
