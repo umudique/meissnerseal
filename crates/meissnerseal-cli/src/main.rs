@@ -282,8 +282,19 @@ fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<VaultSession
     })
 }
 
+#[cfg(not(test))]
 fn prompt_password(prompt: &str) -> std::io::Result<String> {
     rpassword::prompt_password_stdout(prompt)
+}
+
+#[cfg(test)]
+fn prompt_password(prompt: &str) -> std::io::Result<String> {
+    use std::io::BufRead;
+
+    let _ = prompt;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim_end_matches('\n').to_string())
 }
 
 fn parse_item_kind(kind: &str) -> Result<ItemKind> {
