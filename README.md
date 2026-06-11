@@ -1,102 +1,86 @@
 # Arcanum
 
-**Local-first critical secrets vault with hybrid post-quantum-ready transfer.**
+A local-first secrets vault designed for the post-quantum transition.
 
-> **Alpha software. Do not store real secrets yet.**
+Arcanum encrypts secrets on disk with a layered key hierarchy — Argon2id passphrase hardening, HKDF-derived session subkeys, and XChaCha20-Poly1305 authenticated encryption. The vault format and key hierarchy are designed from the start to accommodate hybrid KEM envelopes (X-Wing: X25519 + ML-KEM-768) when sync and transfer land in the next milestone. No cloud, no sync in MVP-0 — just a sealed vault on your filesystem.
 
-Arcanum stores and transfers high-value secrets — seed phrases, SSH keys, API tokens, recovery codes, encrypted file bundles — using conservative local-first encryption and hybrid post-quantum-ready sharing protocols.
-
----
-
-## What Arcanum Is
-
-- A local-first vault for critical secrets
-- A hybrid post-quantum-ready secure transfer system
-- A developer-friendly CLI and desktop tool
-- A self-hostable encrypted sync platform
-- A security transparency project with public threat models and protocol specs
-
-## What Arcanum Is Not
-
-- A general browser autofill password manager
-- A cloud-first SaaS vault
-- A product claiming resistance to all physical side-channel attacks
-- A "quantum magic" encryption product
+> **Alpha software.** Do not store real secrets. The vault format is not stable before v1.0 and no external security audit has been completed.
 
 ---
 
-## Documentation Index
+## Why
 
-### Architecture
-| Document | Description |
-|---|---|
-| [docs/architecture/overview.md](docs/architecture/overview.md) | System overview, C4 diagrams, component map |
-| [docs/architecture/mvp_roadmap.md](docs/architecture/mvp_roadmap.md) | MVP definitions, priority, and security roadmap |
+Most secrets managers treat post-quantum as a future retrofit. Arcanum treats it as an architecture constraint: the key hierarchy, vault format, and planned envelope layer are all specified before implementation — not patched in later. The tradeoffs and rejections are in the ADR log.
 
-### Protocol Specifications
-| Document | Description |
-|---|---|
-| [specs/protocol/vault_format_v1.md](specs/protocol/vault_format_v1.md) | Binary wire format, TLV tags, record framing, AAD |
-| [specs/protocol/transfer_profile_v1.md](specs/protocol/transfer_profile_v1.md) | Hybrid X25519+ML-KEM transfer, relay trust boundary |
-| [specs/protocol/sync_profile_v1.md](specs/protocol/sync_profile_v1.md) | Sync conflict model, version vectors, device auth |
-| [specs/protocol/recovery_kit_v1.md](specs/protocol/recovery_kit_v1.md) | Recovery secret encoding, emergency kit, flow |
-| [specs/protocol/native_messaging_v1.md](specs/protocol/native_messaging_v1.md) | Browser native messaging protocol |
+---
 
-### Cryptographic Design
-| Document | Description |
-|---|---|
-| [specs/crypto/crypto_design.md](specs/crypto/crypto_design.md) | Primitives, key hierarchy, HKDF registry, nonce policy |
+## Cryptography
 
-### Security
-| Document | Description |
-|---|---|
-| [specs/security/threat_model.md](specs/security/threat_model.md) | Assets, adversaries, scope |
-| [specs/security/security_assurance.md](specs/security/security_assurance.md) | Control matrix, claims matrix, release gates |
-| [docs/security/security_engineering_protocol.md](docs/security/security_engineering_protocol.md) | Tool inventory, agent algorithm, contract discipline |
-| [docs/security/supply_chain.md](docs/security/supply_chain.md) | Dependency graph, trust tiers, supply chain controls |
-| [SECURITY.md](SECURITY.md) | Vulnerability disclosure policy |
+```
+Passphrase + vault_id
+  →  Argon2id (m=64 MiB, t=3, p=1)
+  →  MUK  →  HKDF  →  VKEK
+  →  AEAD-unwrap  →  VaultRootKey (stored encrypted in vault header)
+  →  HKDF-Expand × 7  →  session subkeys
+     (item-wrap, metadata, audit, export, sync, device, recovery)
 
-### Development Process
-| Document | Description |
-|---|---|
-| [AGENTS.md](AGENTS.md) | Master agent reference — read first |
-| [docs/agents/AGENT_PROMPT_TEMPLATE.md](docs/agents/AGENT_PROMPT_TEMPLATE.md) | 13 role-specific agent prompts |
-| [docs/development/workflow.md](docs/development/workflow.md) | Human + agent task lifecycle, checkpoints |
-| [docs/development/mathematical_verification.md](docs/development/mathematical_verification.md) | Const generics, Kani, Prusti, Creusot guide |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Security-sensitive contribution rules |
+Item encryption:  XChaCha20-Poly1305 under item_wrap_key-derived REK
+```
 
-### Architecture Decisions
-| Document | Decision |
-|---|---|
-| [docs/adr/ADR-001-xchacha20-default.md](docs/adr/ADR-001-xchacha20-default.md) | XChaCha20-Poly1305 as default AEAD |
-| [docs/adr/ADR-002-version-vectors.md](docs/adr/ADR-002-version-vectors.md) | Version vectors over monotonic revision IDs |
-| [docs/adr/ADR-003-bech32m-recovery.md](docs/adr/ADR-003-bech32m-recovery.md) | Bech32m encoding for recovery secrets |
-| [docs/adr/ADR-004-handle-lease-ffi.md](docs/adr/ADR-004-handle-lease-ffi.md) | Handle-and-lease model for FFI/Dart plaintext |
-| [docs/adr/ADR-005-formal-methods.md](docs/adr/ADR-005-formal-methods.md) | ProVerif MVP-2, TLA+ MVP-3, staged formal methods |
-| [docs/adr/ADR-006-argon2id-params.md](docs/adr/ADR-006-argon2id-params.md) | KDF_ARGON2ID_V1 parameter set |
-| [docs/adr/ADR-007-sha256-transcript.md](docs/adr/ADR-007-sha256-transcript.md) | SHA-256 transcript hash for MVP transfer profile |
-| [docs/adr/ADR-008-arcexp-export.md](docs/adr/ADR-008-arcexp-export.md) | Encrypted .arcexp as default export format |
-| [docs/adr/ADR-009-user-mediated-conflicts.md](docs/adr/ADR-009-user-mediated-conflicts.md) | No auto-merge for critical secrets |
-| [docs/adr/ADR-010-unrecoverable-by-default.md](docs/adr/ADR-010-unrecoverable-by-default.md) | Vault unrecoverable without recovery kit |
-| [docs/adr/ADR-011-rustcrypto-ecosystem.md](docs/adr/ADR-011-rustcrypto-ecosystem.md) | RustCrypto as primary cryptographic dependency |
-| [docs/adr/ADR-012-mlkem-risk.md](docs/adr/ADR-012-mlkem-risk.md) | ML-KEM risk acknowledgment and mitigation |
-| [docs/adr/ADR-013-os-csprng-only.md](docs/adr/ADR-013-os-csprng-only.md) | OS CSPRNG as the sole randomness source |
-| [docs/adr/ADR-014-noise-tertiary.md](docs/adr/ADR-014-noise-tertiary.md) | Continuous noise floor as tertiary defense |
-| [docs/adr/ADR-015-mathematical-verification.md](docs/adr/ADR-015-mathematical-verification.md) | Four-level mathematical verification strategy |
+Post-MVP-0 sync and transfer envelopes will use X-Wing hybrid KEM (X25519 + ML-KEM-768; IETF draft, ML-KEM standardized in FIPS 203). See ADR-027.
 
-### Formal Specifications
-| Document | Tool | MVP Phase |
-|---|---|---|
-| [specs/formal/transfer_protocol.pv](specs/formal/transfer_protocol.pv) | ProVerif | MVP-2 |
-| [specs/formal/sync_state_machine.tla](specs/formal/sync_state_machine.tla) | TLA+ | MVP-3 |
-| [specs/formal/device_pairing.spthy](specs/formal/device_pairing.spthy) | Tamarin | Beta |
+---
 
-### Operations
-| Document | Description |
-|---|---|
-| [docs/ops/release_checklist.md](docs/ops/release_checklist.md) | Release security gates and checklist |
-| [docs/ops/incident_response.md](docs/ops/incident_response.md) | Vulnerability incident response runbook |
-| [docs/ops/dependency_risk_register.md](docs/ops/dependency_risk_register.md) | Cryptographic dependency risk register |
+## What works in MVP-0
+
+Local vault operations only:
+
+```
+arcanum init              # create a new vault
+arcanum add <label>       # store a secret
+arcanum get <id>          # retrieve a secret
+arcanum list              # list items (no secrets printed)
+arcanum lock              # explicit lock
+arcanum export <file>     # encrypted portable bundle
+arcanum import <file>     # restore from bundle
+```
+
+---
+
+## Build
+
+Requires Rust stable (1.78+).
+
+```bash
+git clone https://github.com/umudique/arcanum
+cd arcanum
+cargo build --release -p arcanum-cli
+./target/release/arcanum init
+```
+
+No binary releases yet.
+
+---
+
+## Roadmap
+
+| Milestone | Scope |
+|-----------|-------|
+| MVP-0 *(now)* | Local vault, CLI, HKDF key hierarchy, export/import |
+| MVP-1 | Device pairing, encrypted sync, X-Wing envelope, recovery |
+| Beta | External security audit, stable vault format, binary releases |
+| v1.0 | Pure PQC transition, formal verification gates complete |
+
+---
+
+## Design
+
+Decision-log driven. Every non-obvious choice has an ADR:
+
+- Cryptographic primitives — ADR-001, ADR-015, ADR-027
+- Vault format — `specs/`
+- Threat model — `docs/security_engineering_protocol.md`
+- Formal verification — ADR-005, ADR-015
 
 ---
 
@@ -104,19 +88,29 @@ Arcanum stores and transfers high-value secrets — seed phrases, SSH keys, API 
 
 ```
 crates/
-  arcanum-core/         vault engine, item store, transfer/sync protocols
+  arcanum-core/         vault engine, item store, export/import
   arcanum-crypto/       AEAD, KDF, HKDF, RNG primitives
   arcanum-pqc/          ML-KEM, ML-DSA, hybrid key derivation
   arcanum-security/     secret lifecycle, redaction, hardware adapter
-  arcanum-ffi/          Flutter/native host FFI boundary
-  arcanum-cli/          developer CLI  (binary: arcanum)
-  arcanum-sync-server/  encrypted blob sync server
+  arcanum-ffi/          FFI boundary
+  arcanum-cli/          CLI (binary: arcanum)
+  arcanum-sync-server/  encrypted blob sync server (post-MVP-0)
 fuzz/                   cargo-fuzz targets
-specs/                  protocol and formal specifications
-docs/                   architecture decisions and operations
+specs/                  protocol and cryptographic specifications
+docs/                   architecture decisions, ADR log, operations
 test-vectors/           deterministic cryptographic test vectors
 ```
 
+---
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for scope and reporting.
+
+---
+
 ## License
 
-AGPL-3.0-or-later
+Source code: [Apache-2.0](LICENSE)  
+Documentation: [CC BY 4.0](docs/LICENSE-docs)  
+Contributions: DCO (`Signed-off-by` in commit message)
