@@ -64,12 +64,18 @@ No binary releases yet.
 
 ## Roadmap
 
-| Milestone | Scope |
-|-----------|-------|
-| MVP-0 *(now)* | Local vault, CLI, HKDF key hierarchy, export/import |
-| MVP-1 | Device pairing, encrypted sync, X-Wing envelope, recovery |
-| Beta | External security audit, stable vault format, binary releases |
-| v1.0 | Pure PQC transition, formal verification gates complete |
+| Version | Milestone | Scope |
+|---------|-----------|-------|
+| `0.1.0-alpha` *(now)* | MVP-0 | Local vault, CLI, HKDF key hierarchy, export/import |
+| `0.2.0-alpha` | MVP-2 | X-Wing transfer, device identity, hybrid KEM envelope |
+| `0.3.0-alpha` | MVP-1 | Desktop app, clipboard timeout, auto-lock, FFI |
+| `0.4.0-beta` | MVP-3 | Encrypted sync, device approval, TLA+ model |
+| `0.5.0-beta` | MVP-4 | Browser extension, native messaging |
+| `0.6.0` | MVP-5 | Managed sync, signed releases, external review |
+| `0.7.0` | MVP-6 | Teams, enterprise, SSO |
+| `1.0.0` | — | Vault format frozen, formal gates complete, pure PQC |
+
+MVP-2 precedes MVP-1: transfer proves the core security thesis (hybrid PQ key agreement between devices, no server decryption). Desktop UI follows once the protocol is demonstrated.
 
 ---
 
