@@ -18,7 +18,7 @@ meissnerseal-security.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 zeroize.workspace = true
-rpassword = "2"
+rpassword = "7"
 
 [dev-dependencies]
 tempfile = "3"
