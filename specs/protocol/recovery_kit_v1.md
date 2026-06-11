@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Recovery Kit v1
 
 **Profile:** `QVRK_RECOVERY_SECRET_V1`

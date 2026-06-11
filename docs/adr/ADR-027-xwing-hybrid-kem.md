@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-027: Adopt X-Wing as the Hybrid KEM Combiner
 
 **Status:** Accepted

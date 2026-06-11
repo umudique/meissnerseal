@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Item store API contracts.
 
 use arcanum_crypto::aead::{decrypt, encrypt, Ciphertext};

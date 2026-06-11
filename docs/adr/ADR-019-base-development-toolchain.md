@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-019: Base Development Toolchain
 
 **Status:** Accepted  

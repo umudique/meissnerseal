@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-022: Execution State in a Separate Local-Only Repository
 
 **Status:** Accepted  

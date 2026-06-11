@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use arcanum_core::{
     error::{CoreError, Result},
     item::{self, ItemKind, ItemSummary, PlainItem},

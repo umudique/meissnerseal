@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-012: ML-KEM Risk Acknowledgment and Mitigation Plan
 
 **Date:** 2025-06

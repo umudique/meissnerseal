@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Agent Prompt Templates
 
 Prompts are **deduplicated**: one shared `common` block plus a per-role delta in

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-016: Standards Conformance Strategy
 
 **Status:** Accepted

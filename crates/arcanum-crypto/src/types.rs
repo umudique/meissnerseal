@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A fixed-length cryptographic key, nonce, or identifier.

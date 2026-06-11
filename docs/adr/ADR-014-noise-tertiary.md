@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-014: Continuous Noise Floor as Tertiary Defense Layer
 
 **Date:** 2025-06

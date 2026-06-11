@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Argon2id key derivation contracts.
 
 use crate::kdf::{KdfError, Result};

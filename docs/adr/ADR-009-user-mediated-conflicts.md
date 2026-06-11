@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-009: User-Mediated Conflict Resolution for Critical Secrets
 
 **Date:** 2025-06

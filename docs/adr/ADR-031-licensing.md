@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-031 — Project Licensing
 
 **Status:** Accepted  

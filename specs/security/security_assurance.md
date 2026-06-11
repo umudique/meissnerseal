@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Security Assurance Architecture
 
 **Status:** Architecture reference — v4.0

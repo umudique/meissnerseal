@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Sync Profile v1
 
 **Status:** Specification — MVP-3

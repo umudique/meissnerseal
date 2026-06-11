@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Security Engineering Protocol
 
 **Status:** Authoritative reference — all agents and contributors must follow  

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-007: SHA-256 Transcript Hash for MVP Transfer Profile
 
 **Date:** 2025-06

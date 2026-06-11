@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-004: Handle-and-Lease Model for FFI/Dart Plaintext
 
 **Date:** 2025-06

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Transfer Profile v1
 
 **Profile ID:** `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`

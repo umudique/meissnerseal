@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-028: Signature Crypto-Agility and Post-Quantum Signature Posture
 
 **Status:** Accepted

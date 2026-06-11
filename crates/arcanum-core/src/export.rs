@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Encrypted `.arcexp` export/import surface.
 
 use arcanum_crypto::{

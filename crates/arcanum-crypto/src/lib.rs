@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /// Fixed-length cryptographic types with compile-time length enforcement.
 /// All secret material must use these types. See ADR-015.
 pub mod types;

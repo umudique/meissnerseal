@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Vault binary format contracts.
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 

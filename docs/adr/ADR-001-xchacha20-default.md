@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-001: XChaCha20-Poly1305 as Default AEAD
 
 **Date:** 2025-06

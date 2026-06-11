@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-005: Staged Formal Methods Roadmap
 
 **Date:** 2025-06

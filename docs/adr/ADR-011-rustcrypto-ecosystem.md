@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-011: RustCrypto Ecosystem as Primary Cryptographic Dependency
 
 **Date:** 2025-06

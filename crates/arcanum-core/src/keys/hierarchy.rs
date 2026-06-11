@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Key hierarchy derivation for Arcanum vault sessions.
 //!
 //! Implements the key derivation chain specified in

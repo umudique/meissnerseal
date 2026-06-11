@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration known-answer tests for arcanum-core vault parsing (finding A1).
 //!
 //! Deserializes `test-vectors/*.json` and drives the real public

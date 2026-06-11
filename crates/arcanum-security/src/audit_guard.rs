@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Audit event contracts.
 //!
 /// Non-secret audit event kind.

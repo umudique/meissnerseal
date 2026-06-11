@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Browser Native Messaging Protocol v1
 
 **Status:** Specification — MVP-4

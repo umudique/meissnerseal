@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! HKDF-SHA256 derivation contracts.
 
 use crate::kdf::{KdfError, Result};

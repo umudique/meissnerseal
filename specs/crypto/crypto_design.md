@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum — Cryptographic Design
 
 **Document status:** Specification  

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Vault engine: create, unlock, and lock vault sessions.
 
 use std::{fmt::Write as FmtWrite, io::Write};

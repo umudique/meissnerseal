@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-013: OS CSPRNG as the Sole Source of Randomness
 
 **Date:** 2025-06

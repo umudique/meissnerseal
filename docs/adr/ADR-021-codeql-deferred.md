@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-021: CodeQL Deferred — Private Repository Constraint
 
 **Status:** Accepted  

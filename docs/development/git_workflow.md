@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Git Workflow
 
 **Status:** Authoritative reference — all agents and contributors must follow

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-003: Bech32m Encoding for Recovery Secrets
 
 **Date:** 2025-06

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Known-answer test-vector consumption for arcanum-crypto (finding A1).
 //!
 //! Each `#[test]` deserializes a `test-vectors/*.json` file and asserts the

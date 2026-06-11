@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Supply Chain
 
 **Status:** Living document — update on every dependency change  

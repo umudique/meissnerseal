@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-030: Vault Format Versioning and Migration Policy (schema_profile)
 
 **Status:** Accepted

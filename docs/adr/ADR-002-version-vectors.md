@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-002: Version Vectors for Sync Conflict Detection
 
 **Date:** 2025-06

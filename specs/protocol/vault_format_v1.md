@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Vault Binary Wire Format v1
 
 **Profile:** `SCHEMA_ARCANUM_RECORDS_V2 = 0x0002`

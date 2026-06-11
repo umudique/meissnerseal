@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Constant-time comparison re-exports.
 //!
 //! Callers must never use `==` on secret values.

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-023: Verified ML-KEM Backend (libcrux) for the PQC Layer
 
 **Status:** Accepted

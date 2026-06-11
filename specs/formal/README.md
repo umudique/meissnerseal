@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Formal Specifications
 
 This directory contains formal verification models for Arcanum's security protocols.

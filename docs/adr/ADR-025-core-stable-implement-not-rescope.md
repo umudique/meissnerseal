@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-025: arcanum-core Reaches Stable by Implementation, Not Re-Scoping
 
 **Status:** Accepted  

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! OS CSPRNG helpers.
 
 use rand::{rngs::OsRng, RngCore};

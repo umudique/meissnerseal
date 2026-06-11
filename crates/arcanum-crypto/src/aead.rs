@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! AEAD_XCHACHA20_POLY1305_V1 contracts.
 //!
 use crate::types::{AeadKey, XChaCha20Nonce};

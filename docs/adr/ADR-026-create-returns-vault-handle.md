@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-026: create Returns VaultHandle, Sessions Only via unlock
 
 **Status:** Accepted  

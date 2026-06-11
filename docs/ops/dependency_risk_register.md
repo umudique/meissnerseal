@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Dependency Risk Register
 
 **Update policy:** Review cryptographic dependencies on every version bump.

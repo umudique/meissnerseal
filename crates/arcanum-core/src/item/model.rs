@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Item model contracts.
 
 use crate::error::{CoreError, Result};

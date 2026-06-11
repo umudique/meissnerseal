@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-006: KDF_ARGON2ID_V1 Parameter Set
 
 **Date:** 2025-06

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Redaction helpers.
 
 /// Generate a redacted `Debug` implementation for a type.

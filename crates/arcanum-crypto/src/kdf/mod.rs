@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Key derivation functions for Arcanum vault cryptography.
 //!
 //! Phase 1 contains API contracts, compile-time test vector references, and

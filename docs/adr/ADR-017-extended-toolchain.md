@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-017: Extended Toolchain — Security Scanning, Quality, and Supply Chain
 
 **Status:** Accepted

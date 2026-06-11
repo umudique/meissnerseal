@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-010: Vault Unrecoverable Without Recovery Kit
 
 **Date:** 2025-06

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Threat Model
 
 **Status:** Draft — MVP-0  

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-015: Mathematical Verification Strategy
 
 **Date:** 2026-06

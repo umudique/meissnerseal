@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-018: Branch Protection and CI Workflow Strategy
 
 **Status:** Accepted

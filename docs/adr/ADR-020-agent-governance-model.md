@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-020: AI-Assisted Development and Agent Governance Model
 
 **Status:** Accepted  

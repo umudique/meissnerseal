@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Mathematical Verification Guide
 
 **Decision:** ADR-015  

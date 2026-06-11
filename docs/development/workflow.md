@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Arcanum Development Workflow
 
 **Audience:** Human developer and all agents  

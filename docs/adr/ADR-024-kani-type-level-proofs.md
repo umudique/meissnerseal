@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-024: Kani Harnesses Are Type-Level Constant Proofs (MVP-0)
 
 **Status:** Accepted  
