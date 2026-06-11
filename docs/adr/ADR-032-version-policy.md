@@ -9,7 +9,7 @@
 
 ## Context
 
-Arcanum has seven defined milestones (MVP-0 through MVP-6). A version policy
+MeissnerSeal has seven defined milestones (MVP-0 through MVP-6). A version policy
 is needed to answer three questions:
 
 1. What does a version number communicate to a user or downstream integrator?
@@ -60,7 +60,7 @@ patches, or non-breaking additions.
    required for new envelopes
 3. Formal verification gates complete — ProVerif (transfer), TLA+ (sync),
    Kani bounds proofs (crypto)
-4. `arcanum-core` API stable — semver-checks enforced, no breaking changes
+4. `meissnerseal-core` API stable — semver-checks enforced, no breaking changes
    since last minor
 
 External security audit is recommended before `1.0.0` but is not a blocker.
@@ -105,5 +105,5 @@ scope, not yet format-frozen."
 - Patch releases follow the same signed-tag protocol; no minor bump required.
 - The roadmap table in `README.md` and `docs/architecture/mvp_roadmap.md`
   must be kept consistent with this policy.
-- `cargo semver-checks` enforces API stability on `arcanum-core` from
+- `cargo semver-checks` enforces API stability on `meissnerseal-core` from
   `API Status: Stable` forward (ADR-017); breaking changes require a minor bump.

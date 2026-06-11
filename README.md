@@ -1,8 +1,8 @@
-# Arcanum
+# MeissnerSeal
 
 A local-first secrets vault designed for the post-quantum transition.
 
-Arcanum encrypts secrets on disk with a layered key hierarchy — Argon2id passphrase hardening, HKDF-derived session subkeys, and XChaCha20-Poly1305 authenticated encryption. The vault format and key hierarchy are designed from the start to accommodate hybrid KEM envelopes (X-Wing: X25519 + ML-KEM-768) when sync and transfer land in the next milestone. No cloud, no sync in MVP-0 — just a sealed vault on your filesystem.
+MeissnerSeal encrypts secrets on disk with a layered key hierarchy — Argon2id passphrase hardening, HKDF-derived session subkeys, and XChaCha20-Poly1305 authenticated encryption. The vault format and key hierarchy are designed from the start to accommodate hybrid KEM envelopes (X-Wing: X25519 + ML-KEM-768) when sync and transfer land in the next milestone. No cloud, no sync in MVP-0 — just a sealed vault on your filesystem.
 
 > **Alpha software.** Do not store real secrets. The vault format is not stable before v1.0 and no external security audit has been completed.
 
@@ -10,7 +10,7 @@ Arcanum encrypts secrets on disk with a layered key hierarchy — Argon2id passp
 
 ## Why
 
-Most secrets managers treat post-quantum as a future retrofit. Arcanum treats it as an architecture constraint: the key hierarchy, vault format, and planned envelope layer are all specified before implementation — not patched in later. The tradeoffs and rejections are in the ADR log.
+Most secrets managers treat post-quantum as a future retrofit. MeissnerSeal treats it as an architecture constraint: the key hierarchy, vault format, and planned envelope layer are all specified before implementation — not patched in later. The tradeoffs and rejections are in the ADR log.
 
 ---
 
@@ -36,13 +36,13 @@ Post-MVP-0 sync and transfer envelopes will use X-Wing hybrid KEM (X25519 + ML-K
 Local vault operations only:
 
 ```
-arcanum init              # create a new vault
-arcanum add <label>       # store a secret
-arcanum get <id>          # retrieve a secret
-arcanum list              # list items (no secrets printed)
-arcanum lock              # explicit lock
-arcanum export <file>     # encrypted portable bundle
-arcanum import <file>     # restore from bundle
+meissnerseal init              # create a new vault
+meissnerseal add <label>       # store a secret
+meissnerseal get <id>          # retrieve a secret
+meissnerseal list              # list items (no secrets printed)
+meissnerseal lock              # explicit lock
+meissnerseal export <file>     # encrypted portable bundle
+meissnerseal import <file>     # restore from bundle
 ```
 
 ---
@@ -52,10 +52,10 @@ arcanum import <file>     # restore from bundle
 Requires Rust stable (1.78+).
 
 ```bash
-git clone https://github.com/umudique/arcanum
-cd arcanum
-cargo build --release -p arcanum-cli
-./target/release/arcanum init
+git clone https://github.com/umudique/meissnerseal
+cd meissnerseal
+cargo build --release -p meissnerseal-cli
+./target/release/meissnerseal init
 ```
 
 No binary releases yet.
@@ -94,13 +94,13 @@ Decision-log driven. Every non-obvious choice has an ADR:
 
 ```
 crates/
-  arcanum-core/         vault engine, item store, export/import
-  arcanum-crypto/       AEAD, KDF, HKDF, RNG primitives
-  arcanum-pqc/          ML-KEM, ML-DSA, hybrid key derivation
-  arcanum-security/     secret lifecycle, redaction, hardware adapter
-  arcanum-ffi/          FFI boundary
-  arcanum-cli/          CLI (binary: arcanum)
-  arcanum-sync-server/  encrypted blob sync server (post-MVP-0)
+  meissnerseal-core/         vault engine, item store, export/import
+  meissnerseal-crypto/       AEAD, KDF, HKDF, RNG primitives
+  meissnerseal-pqc/          ML-KEM, ML-DSA, hybrid key derivation
+  meissnerseal-security/     secret lifecycle, redaction, hardware adapter
+  meissnerseal-ffi/          FFI boundary
+  meissnerseal-cli/          CLI (binary: meissnerseal)
+  meissnerseal-sync-server/  encrypted blob sync server (post-MVP-0)
 fuzz/                   cargo-fuzz targets
 specs/                  protocol and cryptographic specifications
 docs/                   architecture decisions, ADR log, operations

@@ -7,7 +7,7 @@
 ## Context
 
 When two devices concurrently edit the same vault item and neither version vector
-dominates the other, Arcanum must resolve the conflict. Auto-merge strategies must
+dominates the other, MeissnerSeal must resolve the conflict. Auto-merge strategies must
 be evaluated against the critical-secret use case.
 
 ## Decision

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Formal Specifications
+# MeissnerSeal Formal Specifications
 
-This directory contains formal verification models for Arcanum's security protocols.
+This directory contains formal verification models for MeissnerSeal's security protocols.
 These models verify logical properties of the protocol design at a symbolic level.
 
 **Important scope note:** Formal verification here operates on mathematical models,

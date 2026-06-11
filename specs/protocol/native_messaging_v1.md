@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Browser Native Messaging Protocol v1
+# MeissnerSeal Browser Native Messaging Protocol v1
 
 **Status:** Specification — MVP-4
 **Fuzz target:** `fuzz/fuzz_targets/native_message.rs`

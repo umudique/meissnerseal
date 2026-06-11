@@ -29,10 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - arcanum-crypto
-          - arcanum-pqc
-          - arcanum-security
-          - arcanum-ffi
+          - meissnerseal-crypto
+          - meissnerseal-pqc
+          - meissnerseal-security
+          - meissnerseal-ffi
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@5b842231ba77f5c045dba54ac5560fed2db780e2 # nightly
@@ -104,8 +104,8 @@ jobs:
           RUSTDOCFLAGS: "-Z sanitizer=address"
         run: >
           cargo +nightly test
-          -p arcanum-crypto
-          -p arcanum-security
+          -p meissnerseal-crypto
+          -p meissnerseal-security
           --target x86_64-unknown-linux-gnu
           -Z build-std
 
@@ -120,8 +120,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: model-checking/kani-github-action@f838096619a707b0f6b2118cf435eaccfa33e51f # v1.1
-      - name: Kani — arcanum-crypto type proofs
-        run: cargo kani --package arcanum-crypto
+      - name: Kani — meissnerseal-crypto type proofs
+        run: cargo kani --package meissnerseal-crypto
 
   # ─── SLSA Provenance Attestation ──────────────────────────────────────────
   # Generates signed build provenance for SLSA Level 2.
@@ -219,7 +219,7 @@ jobs:
 
   # ─── Semver checks ────────────────────────────────────────────────────────
   # Detects breaking API changes in crates with API Status: Stable.
-  # Gate: arcanum-core promoted to Stable (2026-06-10). ADR-017, mvp_roadmap §7.
+  # Gate: meissnerseal-core promoted to Stable (2026-06-10). ADR-017, mvp_roadmap §7.
   semver-checks:
     name: Semver Checks
     runs-on: ubuntu-latest
@@ -235,9 +235,9 @@ jobs:
         run: git fetch origin main:main
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked
-      - name: semver-checks — arcanum-core
-        # arcanum-core is not published to crates.io; compare against main branch.
-        run: cargo semver-checks --package arcanum-core --baseline-rev main
+      - name: semver-checks — meissnerseal-core
+        # meissnerseal-core is not published to crates.io; compare against main branch.
+        run: cargo semver-checks --package meissnerseal-core --baseline-rev main
 
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review.

@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Git Workflow
+# MeissnerSeal Git Workflow
 
 **Status:** Authoritative reference — all agents and contributors must follow
 **Read by:** Every agent before creating any commit
@@ -67,8 +67,8 @@ acceptable only for genuinely trivial changes (typo, whitespace).
 Scope is the crate or area affected, in parentheses after the type:
 
 ```
-feat(arcanum-crypto): add HKDF-SHA256 key derivation
-fix(arcanum-ffi): release secret view handle on panic path
+feat(meissnerseal-crypto): add HKDF-SHA256 key derivation
+fix(meissnerseal-ffi): release secret view handle on panic path
 docs(adr): add ADR-017 for replay window size
 ci(thorough): add Kani bounded model checking job
 ```
@@ -85,8 +85,8 @@ crate.
 ✓ feat: add XChaCha20-Poly1305 AEAD encryption module
 ✓ fix: reject transfer envelope with expired TTL
 ✓ docs: add threat model coverage for malicious browser extension
-✓ feat(arcanum-core): add vault crash-safe write with fsync-rename strategy
-✓ chore: initialize arcanum workspace
+✓ feat(meissnerseal-core): add vault crash-safe write with fsync-rename strategy
+✓ chore: initialize meissnerseal workspace
 
 ✗ feat: Complete development infrastructure design    ← capital letter, "Complete" not imperative
 ✗ feat: ADRs, CONTRACT files, spec update             ← no leading verb; reads as a list
@@ -167,7 +167,7 @@ If your subject requires "and" to be accurate, split the commit:
 
 ✓ feat: add HKDF-SHA256 key derivation module
 ✓ fix: enforce fresh nonce generation for each AEAD seal call
-✓ docs(arcanum-crypto): update CONTRACT.md for HKDF public API
+✓ docs(meissnerseal-crypto): update CONTRACT.md for HKDF public API
 ```
 
 ### Exceptions

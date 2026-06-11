@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Security Assurance Architecture
+# MeissnerSeal Security Assurance Architecture
 
 **Status:** Architecture reference — v4.0
 **Related:** [threat_model.md](threat_model.md),
@@ -26,7 +26,7 @@ Every high-risk security claim maps to:
 | Control | Threat | Component | Verification | Phase | Evidence |
 |---|---|---|---|---:|---|
 | Canonical vault binary format | Parser ambiguity, migration failures | Serialization Layer | Format vectors, fuzzing, round-trip tests | MVP-0 | `vault_format_v1.md`, vectors |
-| Secret wrapper types | Accidental logging | `arcanum-security`, `arcanum-crypto` | Unit tests | MVP-0 | Secret type policy |
+| Secret wrapper types | Accidental logging | `meissnerseal-security`, `meissnerseal-crypto` | Unit tests | MVP-0 | Secret type policy |
 | Redacted Debug/Display | Secret in logs/crashes | Core, FFI, UI | Snapshot/logging tests | MVP-0 | Redaction test report |
 | Zeroization | Plaintext memory residue | Crypto, FFI | Unit tests, Miri | MVP-0 | Memory hygiene checklist |
 | Scoped plaintext API | Long-lived plaintext ownership | Vault Engine, FFI | API tests | MVP-0 | Scoped API policy |
@@ -103,7 +103,7 @@ Every high-risk security claim maps to:
 
 ### 3.4 Explicit Non-Claims
 
-Arcanum must never claim:
+MeissnerSeal must never claim:
 - Unhackable security
 - Absolute quantum-proof protection
 - Resistance to a fully compromised endpoint
@@ -179,7 +179,7 @@ Side-channel protection is organized in three layers. See ADR-014 for the
 full rationale. Noise-based approaches (Layer 3) do not provide mathematical
 guarantees — statistical averaging removes noise given enough measurements.
 
-### Layer 1 — Primary (mandatory for arcanum-crypto and arcanum-pqc)
+### Layer 1 — Primary (mandatory for meissnerseal-crypto and meissnerseal-pqc)
 
 - Constant-time implementation using `subtle` crate
 - No secret-dependent branches or memory accesses

@@ -4,14 +4,14 @@
 **Status:** Accepted  
 **Date:** 2026-06-08  
 **Related:** ADR-020 (agent governance / API Stable is a human gate),
-ADR-025 (core Stable by implementation, not re-scoping), arcanum-core
+ADR-025 (core Stable by implementation, not re-scoping), meissnerseal-core
 CONTRACT P-01, finding_register F-11
 
 ---
 
 ## Context
 
-The arcanum-core contract already declares:
+The meissnerseal-core contract already declares:
 
 ```text
 vault::
@@ -42,7 +42,7 @@ one of those code-to-contract findings.
 `VaultSession` is obtainable only through `vault::unlock()`, as required by
 CONTRACT P-01.
 
-During creation, arcanum-core may derive the key hierarchy only long enough to
+During creation, meissnerseal-core may derive the key hierarchy only long enough to
 wrap and persist the `VaultRootKey`. Those derived keys are not placed in any
 returned value and are dropped before `create()` returns. The returned
 `VaultHandle` contains no key material; it identifies the persisted vault file
@@ -85,5 +85,5 @@ P-01.
 - Tests must assert that creation yields a handle and that any usable
   `VaultSession` comes from `unlock()`.
 - This decision resolves F-11 in the implementation direction selected by
-  ADR-025; it does not mark arcanum-core Stable. Stable remains a separate
+  ADR-025; it does not mark meissnerseal-core Stable. Stable remains a separate
   human gate under ADR-020.

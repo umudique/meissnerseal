@@ -11,7 +11,7 @@
 
 ## Context
 
-Arcanum's hybrid transfer protocol requires ML-KEM-768 (NIST FIPS 203).
+MeissnerSeal's hybrid transfer protocol requires ML-KEM-768 (NIST FIPS 203).
 Unlike the classical RustCrypto crates (ADR-011), the ML-KEM Rust ecosystem
 is newer and has less accumulated audit history.
 
@@ -38,7 +38,7 @@ Accept ML-KEM risk with the following active mitigations:
 3. **Crate pinning** — The ML-KEM crate version is pinned in Cargo.lock.
    Minor version bumps require manual review before acceptance.
 
-4. **Isolation** — ML-KEM operations are confined to `arcanum-pqc`.
+4. **Isolation** — ML-KEM operations are confined to `meissnerseal-pqc`.
    A future library swap requires changes only in that crate.
 
 5. **Formal verification scope** — The ProVerif model (MVP-2) verifies
@@ -53,6 +53,6 @@ Accept ML-KEM risk with the following active mitigations:
 
 - ML-KEM crate must be documented in `dependency_risk_register.md` with
   audit status and version before MVP-2 ships
-- CONTRACT.md for `arcanum-pqc` must document the audit gap
+- CONTRACT.md for `meissnerseal-pqc` must document the audit gap
 - `cargo vet` review must be applied to the ML-KEM crate before beta
 - This ADR must be reviewed and updated when an independent audit is published

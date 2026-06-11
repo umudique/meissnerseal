@@ -19,7 +19,7 @@ output_len   = 32 bytes
 argon2_version = 0x13 (current)
 ```
 
-Salt: `"arcanum-argon2id-salt-v1" || vault_id`
+Salt: `"meissnerseal-argon2id-salt-v1" || vault_id`
 
 ## Rationale
 

@@ -62,7 +62,7 @@ operation, and bootstrap unlock without any cleartext table or locator.**
    pointer. The only cleartext that remains is the **header** (KDF params,
    vault_id, header_nonce) — unavoidable because it is required to run Argon2id at
    all, and it discloses nothing beyond what the magic bytes already announce
-   ("this is an Arcanum vault, format vN").
+   ("this is an MeissnerSeal vault, format vN").
 3. **Bootstrap order.** header (cleartext) → WrappedRootKey frame (fixed position,
    ciphertext) → MEK-sealed record table → item record frames. Unlock: header →
    derive VKEK from password → decrypt WRK → VRK → derive MEK → decrypt the table →

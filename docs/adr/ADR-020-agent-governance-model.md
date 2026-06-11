@@ -10,7 +10,7 @@
 
 ## Context
 
-Arcanum is developed with AI agent assistance (Claude Code). Agents accelerate
+MeissnerSeal is developed with AI agent assistance (Claude Code). Agents accelerate
 implementation but introduce a class of risks specific to security-critical
 software:
 

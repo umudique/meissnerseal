@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Standards Conformance
+# MeissnerSeal Standards Conformance
 
 **Status:** Active reference — maintained alongside security_assurance.md
 **Related:** [security_assurance.md](../../specs/security/security_assurance.md),
@@ -10,7 +10,7 @@
 
 ## 1. Purpose
 
-This document maps Arcanum's design and practices to recognized security
+This document maps MeissnerSeal's design and practices to recognized security
 standards. It serves two purposes:
 
 1. **Internal discipline** — standards provide vocabulary and checklists that
@@ -29,12 +29,12 @@ is partial or future-targeted, that is stated explicitly.
 **Reference:** NSA CNSA 2.0 (2022), transition deadline 2030 for NSS
 
 CNSA 2.0 mandates migration to post-quantum algorithms for National Security
-Systems. Arcanum's architecture was designed from the start to align with this
+Systems. MeissnerSeal's architecture was designed from the start to align with this
 transition.
 
 ### Algorithm Mapping
 
-| CNSA 2.0 Requirement | Arcanum Primitive | Status |
+| CNSA 2.0 Requirement | MeissnerSeal Primitive | Status |
 |---|---|---|
 | Key agreement (PQC) | ML-KEM-768 (`TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`) | In architecture, MVP-2 |
 | Key agreement (classical, hybrid) | X25519 (hybrid with ML-KEM-768) | In architecture, MVP-2 |
@@ -44,7 +44,7 @@ transition.
 
 ### Explicit Non-Alignment
 
-- Arcanum does not use P-384 or RSA-4096 as primary algorithms — these are
+- MeissnerSeal does not use P-384 or RSA-4096 as primary algorithms — these are
   CNSA 2.0 classical fallbacks, not targets for new designs.
 - ML-DSA for device identity keys is noted but not scheduled before Beta.
 - "CNSA 2.0 compliant" is not a product claim. The correct framing is:
@@ -62,7 +62,7 @@ Software (PS), Produce Well-Secured Software (PW), Respond to Vulnerabilities (R
 
 ### Practice Mapping
 
-| SSDF Practice | Arcanum Control | Location |
+| SSDF Practice | MeissnerSeal Control | Location |
 |---|---|---|
 | PO.1 — Security requirements | Threat model, security assurance matrix | `specs/security/` |
 | PO.2 — Roles and tools | Agent roles, tool inventory | `AGENTS.md`, `security_engineering_protocol.md` §3 |
@@ -89,7 +89,7 @@ Software (PS), Produce Well-Secured Software (PW), Respond to Vulnerabilities (R
 **Status:** Delegated to OS — documented here per SP 800-90B transparency requirement
 **Reference:** NIST SP 800-90B (2018)
 
-Arcanum uses OS CSPRNG exclusively (ADR-013). This delegates entropy source
+MeissnerSeal uses OS CSPRNG exclusively (ADR-013). This delegates entropy source
 responsibility to the operating system kernel, which is the correct model for
 application software.
 
@@ -102,9 +102,9 @@ application software.
 | Windows | `BCryptGenRandom` (Windows CNG) | FIPS 140-2 validated in OS |
 | Android | `getrandom(2)` (Linux kernel) | Kernel-validated |
 
-### Arcanum's Responsibility Boundary
+### MeissnerSeal's Responsibility Boundary
 
-Arcanum does not implement or modify the entropy source. The project's
+MeissnerSeal does not implement or modify the entropy source. The project's
 obligation is:
 
 1. Use only `OsRng` from the `rand_core` crate (which calls OS primitives).
@@ -124,18 +124,18 @@ TVLA (Test Vector Leakage Assessment) is the standard methodology for
 measuring side-channel leakage using Welch's t-test on power traces or
 timing measurements.
 
-Arcanum uses **timing-mode TVLA** via the `dudect` framework, which applies
+MeissnerSeal uses **timing-mode TVLA** via the `dudect` framework, which applies
 the same Welch's t-test to timing measurements rather than power traces.
 
 ### Methodology Binding
 
-| Concept | TVLA / ISO 17825 | Arcanum Implementation |
+| Concept | TVLA / ISO 17825 | MeissnerSeal Implementation |
 |---|---|---|
 | Leakage model | Fixed vs. random input sets | Fixed: all-zero keys. Random: uniformly sampled keys |
 | Statistical test | Welch's t-test | dudect implements this directly |
 | Confidence threshold | |t| < 4.5 (ISO 17825 §5.5) | dudect reports t-statistic; threshold is |t| < 4.5 |
 | Measurement count | ≥ 1M traces recommended | Beta: ≥ 1M timing samples per function |
-| Scope | Cryptographic boundary | arcanum-crypto + arcanum-pqc (mandatory) |
+| Scope | Cryptographic boundary | meissnerseal-crypto + meissnerseal-pqc (mandatory) |
 | Binary-level verification | Complementary to TVLA | BINSEC/checkct (Beta) |
 
 ### Scope of Claim
@@ -190,9 +190,9 @@ Every finding in a Security Review Agent report must include the applicable
 CWE identifier. This makes findings machine-readable, comparable across reviews,
 and linkable to the MITRE knowledge base.
 
-### High-Relevance CWE Identifiers for Arcanum
+### High-Relevance CWE Identifiers for MeissnerSeal
 
-| CWE | Name | Arcanum Context |
+| CWE | Name | MeissnerSeal Context |
 |---|---|---|
 | CWE-327 | Use of a Broken or Risky Cryptographic Algorithm | Wrong primitive or deprecated algorithm |
 | CWE-330 | Use of Insufficiently Random Values | Non-OS entropy source |
@@ -221,7 +221,7 @@ and linkable to the MITRE knowledge base.
 ### FIPS 140-3 (Cryptographic Module Validation)
 
 FIPS 140-3 validation requires a NVLAP-accredited third-party lab and is a
-multi-year, high-cost process. Arcanum's design is **FIPS-ready**:
+multi-year, high-cost process. MeissnerSeal's design is **FIPS-ready**:
 
 - All cryptographic primitives are from FIPS-approved algorithm families
   (AES-256, SHA-256, HMAC-SHA-256, HKDF-SHA-256)
@@ -235,7 +235,7 @@ demand. No validation target is committed without a sponsor.
 
 ### Common Criteria (ISO 15408)
 
-Arcanum's threat model, security assurance matrix, and protocol specifications
+MeissnerSeal's threat model, security assurance matrix, and protocol specifications
 collectively constitute the foundation of a CC Security Target document.
 EAL 4 (methodically designed, tested, and reviewed) is the typical target
 for commercial security software.

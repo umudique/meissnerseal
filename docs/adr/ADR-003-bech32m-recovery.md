@@ -34,7 +34,7 @@ Format: `arc1<base32-data><6-char-checksum>`
 
 ## Consequences
 
-- Recovery secrets look like `arc1...` and are clearly Arcanum-specific
+- Recovery secrets look like `arc1...` and are clearly MeissnerSeal-specific
 - Bech32m library required (available in Rust: `bech32` crate)
 - Test vectors must cover: valid decode, checksum error, wrong HRP, wrong profile_id
 - Optional passphrase hardening via Argon2id is a separate optional profile

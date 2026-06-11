@@ -1,4 +1,4 @@
-# Arcanum Test Vectors
+# MeissnerSeal Test Vectors
 
 All cryptographic test vectors must be independently cross-verified —
 the reference implementation and at least one independent calculation

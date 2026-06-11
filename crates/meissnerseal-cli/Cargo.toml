@@ -1,0 +1,24 @@
+[package]
+name = "meissnerseal-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "meissnerseal"
+path = "src/main.rs"
+
+[dependencies]
+meissnerseal-core.workspace = true
+meissnerseal-security.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+zeroize.workspace = true
+rpassword = "2"
+
+[package.metadata.cargo-machete]
+ignored = ["meissnerseal-core", "meissnerseal-security", "anyhow", "zeroize"]

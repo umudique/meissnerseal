@@ -10,7 +10,7 @@
 
 ## Context
 
-Arcanum's hybrid key agreement (transfer, device pairing, sync key wrapping)
+MeissnerSeal's hybrid key agreement (transfer, device pairing, sync key wrapping)
 combines a classical KEM (X25519) with a post-quantum KEM (ML-KEM-768) so the
 result is secure if **either** component is secure. The current spec defines a
 **bespoke combiner**:
@@ -30,7 +30,7 @@ Two problems:
    binds the X25519 ephemeral, the ML-KEM ciphertext and the algorithm IDs, but
    not the recipient's ML-KEM public key.
 
-The hybrid layer is unimplemented (arcanum-pqc is a scaffold, scheduled MVP-2),
+The hybrid layer is unimplemented (meissnerseal-pqc is a scaffold, scheduled MVP-2),
 so there is **no migration cost** to fixing this now — the same posture ADR-023
 took for the backend choice.
 
@@ -48,7 +48,7 @@ X25519 ciphertext and recipient public key suffices.
 profiles, replacing the bespoke HKDF combiner. Planned construction; finalized at
 MVP-2 against the conditions in point 5.**
 
-**Why X-Wing and not the TLS `X25519MLKEM768` named group.** Arcanum is not
+**Why X-Wing and not the TLS `X25519MLKEM768` named group.** MeissnerSeal is not
 designing a TLS named group; it is designing an *application-level* hybrid KEM for
 transfer envelopes, device pairing and sync key wrapping. `X25519MLKEM768`
 (draft-ietf-tls-ecdhe-mlkem) defines its combiner *inside the TLS 1.3 key
@@ -58,7 +58,7 @@ construction. X-Wing (draft-connolly-cfrg-xwing-kem) is a standalone,
 self-contained KEM purpose-built for exactly X25519 + ML-KEM-768, with a published
 IND-CCA security bound, which is the right abstraction for our layer. The TLS named
 group's stronger maturity signal (broad interop, Cloudflare/Chrome production
-deployment) is real but is a *TLS-context* signal; it does not imply Arcanum should
+deployment) is real but is a *TLS-context* signal; it does not imply MeissnerSeal should
 copy a TLS-internal combiner into its envelope format.
 
 1. The bespoke combiner in crypto_design.md §7 and transfer_profile_v1.md §3 is

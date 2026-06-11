@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Development Workflow
+# MeissnerSeal Development Workflow
 
 **Audience:** Human developer and all agents  
 **Read alongside:** AGENTS.md, docs/security/security_engineering_protocol.md
@@ -23,7 +23,7 @@ that changes a contract, a spec, or a dependency.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  HUMAN: Define task                                         │
-│  "Implement KDF_ARGON2ID_V1 in arcanum-crypto"              │
+│  "Implement KDF_ARGON2ID_V1 in meissnerseal-crypto"              │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -166,7 +166,7 @@ Every push — CI fast (~5 min):
   + cargo geiger (informational, does not fail)
 
 PRs to main + nightly — CI thorough:
-  + Miri (arcanum-crypto, arcanum-pqc, arcanum-security, arcanum-ffi)
+  + Miri (meissnerseal-crypto, meissnerseal-pqc, meissnerseal-security, meissnerseal-ffi)
   + cargo fuzz build + 30s smoke (all 6 targets)
   + AddressSanitizer
   + cargo vet (informational)
@@ -192,20 +192,20 @@ Crates must reach `API Status: Stable` before dependents begin:
 
 ```
 Batch 1 (independent, can parallelize):
-  arcanum-crypto
-  (no dependencies on other arcanum crates)
+  meissnerseal-crypto
+  (no dependencies on other meissnerseal crates)
 
-Batch 2 (after arcanum-crypto is Stable):
-  arcanum-pqc
-  arcanum-security
+Batch 2 (after meissnerseal-crypto is Stable):
+  meissnerseal-pqc
+  meissnerseal-security
 
-Batch 3 (after arcanum-pqc and arcanum-security are Stable):
-  arcanum-core
+Batch 3 (after meissnerseal-pqc and meissnerseal-security are Stable):
+  meissnerseal-core
 
-Batch 4 (after arcanum-core is Stable):
-  arcanum-ffi
-  arcanum-cli
-  arcanum-sync-server
+Batch 4 (after meissnerseal-core is Stable):
+  meissnerseal-ffi
+  meissnerseal-cli
+  meissnerseal-sync-server
 ```
 
 To promote a crate to Stable, update its CONTRACT.md:

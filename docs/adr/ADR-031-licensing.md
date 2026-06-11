@@ -9,7 +9,7 @@
 
 ## Context
 
-Arcanum is a local-first post-quantum secrets vault intended as an open
+MeissnerSeal is a local-first post-quantum secrets vault intended as an open
 research artefact. The licensing decision must balance three objectives:
 
 1. **Research openness** — the codebase should be freely inspectable,
@@ -57,7 +57,7 @@ Apache-2.0 licence achieves the same openness with stronger protections.
 
 ### AGPL-3.0
 
-Would require any network-accessible service built on Arcanum to release
+Would require any network-accessible service built on MeissnerSeal to release
 its source code. Rejected because it conflicts with objective 3: future
 commercial layers would be forced open, eliminating the option to offer
 proprietary managed services. It also reduces adoption in enterprise and
@@ -78,11 +78,11 @@ requires an unambiguous open-source licence from day one.
 - `docs/LICENSE-docs` file: CC BY 4.0 full text.
 - Each source file carries an SPDX header: `SPDX-License-Identifier: Apache-2.0`.
 - Each documentation file carries: `SPDX-License-Identifier: CC-BY-4.0`.
-- Future commercial products built on Arcanum core operate under separate
+- Future commercial products built on MeissnerSeal core operate under separate
   licences in separate repositories; the core licence is not affected.
 - Contributor workflow: DCO (`Signed-off-by`) is sufficient at current
   project scale. A CLA may be introduced if relicensing becomes necessary;
   that decision will be recorded in a separate ADR.
-- Trademark: "Arcanum" is not yet registered. Apache-2.0 §6 restricts use
+- Trademark: "MeissnerSeal" is not yet registered. Apache-2.0 §6 restricts use
   of the project name for endorsement without permission. Formal trademark
   registration should be pursued before any public commercial offering.

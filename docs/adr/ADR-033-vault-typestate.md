@@ -10,7 +10,7 @@
 
 ## Context
 
-The current arcanum-core vault API uses two separate types to represent vault
+The current meissnerseal-core vault API uses two separate types to represent vault
 state:
 
 ```rust
@@ -103,8 +103,8 @@ same capability restriction with less complexity and no runtime cost.
 
 ## Consequences
 
-- `arcanum-core` public API is a breaking change. All callers
-  (`arcanum-cli`, future `arcanum-ffi`, `arcanum-sync-server`) must be updated.
+- `meissnerseal-core` public API is a breaking change. All callers
+  (`meissnerseal-cli`, future `meissnerseal-ffi`, `meissnerseal-sync-server`) must be updated.
 - The `Vault<Unlocked>` type becomes the single locus for secret key material.
   `UnlockedKeys` is an implementation detail, not part of the public API.
 - Kani harnesses can assert state transition invariants at the type level:

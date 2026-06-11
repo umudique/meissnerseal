@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum — Cryptographic Design
+# MeissnerSeal — Cryptographic Design
 
 **Document status:** Specification  
 **Spec version:** v4.0  
@@ -33,7 +33,7 @@
 | Transfer AEAD | XChaCha20-Poly1305 | default |
 
 **Rules:**
-- Custom RNG is forbidden. Arcanum must use OS CSPRNG exclusively.
+- Custom RNG is forbidden. MeissnerSeal must use OS CSPRNG exclusively.
 - Custom cryptographic primitives are forbidden.
 - HKDF-SHA384 is reserved for future profiles; must not appear in v1 formats.
 
@@ -50,11 +50,11 @@
 | `p_lanes` | `4` | Desktop parallelism |
 | `output_len` | `32` bytes | 256-bit Master Unlock Key |
 | `argon2_version` | `0x13` | Current Argon2 version identifier |
-| Salt | `"arcanum-argon2id-salt-v1" \|\| vault_id` | Domain-separated, vault-specific |
+| Salt | `"meissnerseal-argon2id-salt-v1" \|\| vault_id` | Domain-separated, vault-specific |
 
 **Salt construction** — fixed-width concatenation, no length ambiguity:
 ```
-argon2_salt = b"arcanum-argon2id-salt-v1"  # 24 bytes, ASCII
+argon2_salt = b"meissnerseal-argon2id-salt-v1"  # 24 bytes, ASCII
            || vault_id                      # 16 bytes, raw UUID bytes
                                             # = 40 bytes total
 ```
@@ -74,13 +74,13 @@ No step may be left to implementation discretion.
 
 ```
 Master Password
-  └─[1]─ Argon2id(KDF_ARGON2ID_V1, salt="arcanum-argon2id-salt-v1"||vault_id)
+  └─[1]─ Argon2id(KDF_ARGON2ID_V1, salt="meissnerseal-argon2id-salt-v1"||vault_id)
           └─ Master Unlock Key (MUK, 32 bytes)
 
 Master Unlock Key
-  └─[2]─ HKDF-SHA256-Extract(salt=b"arcanum-vkek-salt-v1"||vault_id, ikm=MUK)
+  └─[2]─ HKDF-SHA256-Extract(salt=b"meissnerseal-vkek-salt-v1"||vault_id, ikm=MUK)
           └─ vault_kek_prk
-  └─[3]─ HKDF-SHA256-Expand(prk=vault_kek_prk, info="arcanum:vault-kek:v1", length=32)
+  └─[3]─ HKDF-SHA256-Expand(prk=vault_kek_prk, info="meissnerseal:vault-kek:v1", length=32)
           └─ Vault Key Encryption Key (VKEK, 32 bytes)
 
 Vault Key Encryption Key
@@ -89,7 +89,7 @@ Vault Key Encryption Key
           └─ vkek_nonce              [stored in WrappedRootKey record frame]
 
 Vault Root Key (VRK, 32 bytes)
-  └─[5]─ HKDF-SHA256-Extract(salt=SHA256("arcanum-root-salt-v1"||vault_id||header_nonce), ikm=VRK)
+  └─[5]─ HKDF-SHA256-Extract(salt=SHA256("meissnerseal-root-salt-v1"||vault_id||header_nonce), ikm=VRK)
           └─ root_prk
   └─[6]─ HKDF-SHA256-Expand(root_prk, info=<see registry>, length=32) × 7
           ├─ Item Key Wrapping Key (IKWK)
@@ -112,7 +112,7 @@ Transfer
   └─[11]─ ML-KEM-768.Decapsulate(recipient_mlkem_private, pq_ciphertext) → pq_secret (32 bytes)
   └─[12]─ HKDF-SHA256-Extract(salt=transcript_hash_sha256, ikm=x_secret||pq_secret)
            └─ hybrid_prk
-  └─[13]─ HKDF-SHA256-Expand(hybrid_prk, info="arcanum-transfer-v1", length=32)
+  └─[13]─ HKDF-SHA256-Expand(hybrid_prk, info="meissnerseal-transfer-v1", length=32)
            └─ Transfer Payload Key (TPK, 32 bytes)
 ```
 
@@ -124,7 +124,7 @@ Transfer
 
 ```
 # Step 2: Extract
-vkek_salt = b"arcanum-vkek-salt-v1"  # 20 bytes, ASCII
+vkek_salt = b"meissnerseal-vkek-salt-v1"  # 20 bytes, ASCII
           || vault_id                 # 16 bytes, raw bytes
                                       # = 36 bytes total (fixed-width, no length prefix needed)
 
@@ -133,7 +133,7 @@ vault_kek_prk = HKDF-SHA256-Extract(salt=vkek_salt, ikm=master_unlock_key)
 # Step 3: Expand
 vault_kek = HKDF-SHA256-Expand(
   prk    = vault_kek_prk,
-  info   = b"arcanum:vault-kek:v1",   # 20 bytes, ASCII
+  info   = b"meissnerseal:vault-kek:v1",   # 20 bytes, ASCII
   length = 32
 )
 ```
@@ -169,7 +169,7 @@ On unlock: decrypt this record with `vault_kek` to recover `vault_root_key`.
 ```
 # Step 5: Root PRK
 root_salt = SHA256(
-  b"arcanum-root-salt-v1"  # 20 bytes
+  b"meissnerseal-root-salt-v1"  # 20 bytes
   || vault_id              # 16 bytes
   || header_nonce          # 24 bytes
 )                          # SHA256 → 32 bytes
@@ -222,19 +222,19 @@ the following canonical encodings to ensure deterministic reproduction:
 | `{aead_id}` | decimal string of the u16 enum value (e.g., `1` for XChaCha20-Poly1305) |
 | `{recovery_id}` | lowercase hex string, 32 characters |
 
-Example: `arcanum:item-wrap:v1:vault:a1b2c3d4e5f6789012345678abcdef01:aead:1`
+Example: `meissnerseal:item-wrap:v1:vault:a1b2c3d4e5f6789012345678abcdef01:aead:1`
 
 ### Derived Key Info Strings
 
 | Derived Key | Info String |
 |---|---|
-| Item Key Wrapping Key | `arcanum:item-wrap:v1:vault:{vault_id}:aead:{aead_id}` |
-| Metadata Encryption Key | `arcanum:metadata:v1:vault:{vault_id}:aead:{aead_id}` |
-| Local Audit Event Key | `arcanum:audit:v1:vault:{vault_id}` |
-| Sync Envelope Key | `arcanum:sync-envelope:v1:vault:{vault_id}` |
-| Device Enrollment Key | `arcanum:device-enroll:v1:vault:{vault_id}` |
-| Recovery Wrapping Key | `arcanum:recovery-wrap:v1:vault:{vault_id}` |
-| Export Bundle Key | `arcanum:export-bundle:v1:vault:{vault_id}` |
+| Item Key Wrapping Key | `meissnerseal:item-wrap:v1:vault:{vault_id}:aead:{aead_id}` |
+| Metadata Encryption Key | `meissnerseal:metadata:v1:vault:{vault_id}:aead:{aead_id}` |
+| Local Audit Event Key | `meissnerseal:audit:v1:vault:{vault_id}` |
+| Sync Envelope Key | `meissnerseal:sync-envelope:v1:vault:{vault_id}` |
+| Device Enrollment Key | `meissnerseal:device-enroll:v1:vault:{vault_id}` |
+| Recovery Wrapping Key | `meissnerseal:recovery-wrap:v1:vault:{vault_id}` |
+| Export Bundle Key | `meissnerseal:export-bundle:v1:vault:{vault_id}` |
 
 ### Registry Rules
 
@@ -290,7 +290,7 @@ hybrid_prk   = HKDF-SHA256-Extract(
 
 transfer_key = HKDF-SHA256-Expand(
   prk    = hybrid_prk,
-  info   = b"arcanum-transfer-v1",
+  info   = b"meissnerseal-transfer-v1",
   length = 32
 )
 ```

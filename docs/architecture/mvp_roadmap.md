@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum — MVP Roadmap
+# MeissnerSeal — MVP Roadmap
 
 **Document status:** Planning reference  
 **Spec version:** v4.0
@@ -8,9 +8,9 @@
 
 ## 1. MVP Philosophy
 
-Arcanum should avoid becoming a broad password manager too early. The MVP must prove the unique security thesis:
+MeissnerSeal should avoid becoming a broad password manager too early. The MVP must prove the unique security thesis:
 
-> "Arcanum can locally store critical secrets and transfer them between devices or recipients using a documented hybrid post-quantum-ready protocol without exposing plaintext to any server."
+> "MeissnerSeal can locally store critical secrets and transfer them between devices or recipients using a documented hybrid post-quantum-ready protocol without exposing plaintext to any server."
 
 ---
 
@@ -39,12 +39,12 @@ The strongest early demo is:
 **Objective:** Build the minimal trusted foundation.
 
 **Included:**
-- Rust workspace, `arcanum-core`, `arcanum-crypto` crates
+- Rust workspace, `meissnerseal-core`, `meissnerseal-crypto` crates
 - Local vault file format (`ARCANUM_FORMAT_V1`)
 - Master password unlock with `KDF_ARGON2ID_V1`
 - AEAD encryption with `AEAD_XCHACHA20_POLY1305_V1`
 - Item types: Password, SeedPhrase, SshPrivateKey, ApiToken, SecureNote
-- CLI: `arcanum init|add|list|get|export|import|lock`
+- CLI: `meissnerseal init|add|list|get|export|import|lock`
 - CLI operational safety: no plaintext in argv, stdin/prompt/fd input
 - Encrypted `.arcexp` export/import by default
 - Unit tests, property-based tests, test vectors
@@ -78,7 +78,7 @@ The strongest early demo is:
 
 ---
 
-### MVP-2 — Arcanum Transfer
+### MVP-2 — MeissnerSeal Transfer
 
 **Target:** 6–8 weeks after MVP-1  
 **Objective:** Secure transfer using hybrid post-quantum-ready key agreement.
@@ -88,7 +88,7 @@ The strongest early demo is:
 - QR/manual pairing flow
 - `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1` profile
 - Transfer envelope format, encrypted file bundles
-- CLI: `arcanum transfer create|receive`, `arcanum device pair`
+- CLI: `meissnerseal transfer create|receive`, `meissnerseal device pair`
 - Desktop transfer UI, offline bundle mode
 - Optional relay server prototype
 - Replay protection, expiring transfer metadata
@@ -203,8 +203,8 @@ The strongest early demo is:
 | Audit logs and policy controls | Enterprise | Compliance and governance |
 | SSO / SCIM | Enterprise | Enterprise readiness |
 
-**First paid product:** Arcanum Sync Pro — managed encrypted sync and secure transfer history.  
-**Second paid product:** Arcanum Teams — shared vaults, device approvals, audit trails, policy controls.
+**First paid product:** MeissnerSeal Sync Pro — managed encrypted sync and secure transfer history.  
+**Second paid product:** MeissnerSeal Teams — shared vaults, device approvals, audit trails, policy controls.
 
 ---
 
@@ -214,14 +214,14 @@ Tools evaluated but deferred to a specific milestone. See ADR-017 for full ratio
 
 | Tool | Milestone | Trigger condition | What it provides |
 |---|---|---|---|
-| cargo-mutants | MVP-0 complete | arcanum-crypto implementation done | Mutation testing: verifies crypto tests catch actual bugs |
+| cargo-mutants | MVP-0 complete | meissnerseal-crypto implementation done | Mutation testing: verifies crypto tests catch actual bugs |
 | cargo-semver-checks | First `API Status: Stable` | Any crate promoted to Stable | Catches breaking API changes not reflected in version bumps |
 
 **cargo-mutants — MVP-0 gate**
 
-Run manually after arcanum-crypto reaches full implementation:
+Run manually after meissnerseal-crypto reaches full implementation:
 ```
-cargo mutants --package arcanum-crypto
+cargo mutants --package meissnerseal-crypto
 ```
 A mutation that survives (test suite does not catch it) is a test gap in
 security-critical code. Treat surviving mutants in crypto/ as blocking.

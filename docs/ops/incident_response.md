@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Security Incident Response
+# MeissnerSeal Security Incident Response
 
 **Status:** Draft — complete before MVP-5 (Managed Sync Beta)
 

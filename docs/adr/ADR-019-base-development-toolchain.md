@@ -10,7 +10,7 @@
 
 ## Context
 
-Arcanum is a security-critical Rust project. The toolchain must enforce a
+MeissnerSeal is a security-critical Rust project. The toolchain must enforce a
 minimum correctness and safety bar on every commit, locally and in CI, before
 any code reaches `main`. The base toolchain covers:
 

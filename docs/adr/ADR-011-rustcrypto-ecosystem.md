@@ -6,7 +6,7 @@
 
 ## Context
 
-Arcanum requires implementations of Argon2id, XChaCha20-Poly1305, AES-256-GCM,
+MeissnerSeal requires implementations of Argon2id, XChaCha20-Poly1305, AES-256-GCM,
 HKDF-SHA256, SHA-256, and OS CSPRNG. A dependency ecosystem must be chosen.
 
 ## Alternatives Considered
@@ -25,7 +25,7 @@ HKDF-SHA256, SHA-256, and OS CSPRNG. A dependency ecosystem must be chosen.
 
 3. **RustCrypto ecosystem (rust-lang/RustCrypto)**
    - Pure Rust implementations, no C FFI for symmetric primitives
-   - Covers the complete Arcanum primitive set
+   - Covers the complete MeissnerSeal primitive set
    - Consistent API design across crates
    - Active maintenance with security disclosure process
    - Used by a large portion of the Rust security ecosystem

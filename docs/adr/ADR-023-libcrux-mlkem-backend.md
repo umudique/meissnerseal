@@ -10,7 +10,7 @@
 
 ## Context
 
-The post-quantum layer (`arcanum-pqc`) is currently unimplemented — the crate is
+The post-quantum layer (`meissnerseal-pqc`) is currently unimplemented — the crate is
 a scaffold (`mlkem`, `mldsa`, `hybrid`, `backend` are empty module stubs) and is
 scheduled for MVP-2. No ML-KEM dependency has been added yet.
 
@@ -20,7 +20,7 @@ RustCrypto `ml-kem` crate and recorded its residual risk:
 - `ml-kem` crate **security audit: High** — no independent audit.
 - **Side-channel resistance: High** — constant-time claimed, not formally verified.
 
-ADR-012 §4 explicitly anticipated a future library swap confined to `arcanum-pqc`,
+ADR-012 §4 explicitly anticipated a future library swap confined to `meissnerseal-pqc`,
 and §5 reserved formal verification for the *protocol* (symbolic level), not the
 *implementation*. Because the layer is still empty, there is **no migration debt**:
 we can choose the backend for the first implementation rather than swapping later.
@@ -30,7 +30,7 @@ lineage) has matured into normal, pure-Rust crates published on crates.io
 (`libcrux-ml-kem`, `libcrux-ml-dsa`). This changes the trade-off that ADR-012 was
 written against.
 
-ADR-005 / ADR-015 reject *writing our own* formal proofs of Arcanum as
+ADR-005 / ADR-015 reject *writing our own* formal proofs of MeissnerSeal as
 disproportionate. This ADR is the complementary move: **consume** a verified
 artifact rather than produce one.
 
@@ -38,7 +38,7 @@ artifact rather than produce one.
 
 ## Decision
 
-**Adopt `libcrux-ml-kem` (Cryspen) as the ML-KEM-768 backend for `arcanum-pqc`,
+**Adopt `libcrux-ml-kem` (Cryspen) as the ML-KEM-768 backend for `meissnerseal-pqc`,
 implemented directly at MVP-2. The RustCrypto `ml-kem` crate is not introduced.**
 
 Scope and constraints:
@@ -59,7 +59,7 @@ Scope and constraints:
 
 3. **What the proof does NOT buy us.** Verification covers an abstract Rust model,
    not the compiler, intrinsics, or hardware, and it does **not** cover our usage
-   contract. The `arcanum-pqc` wrapper (encapsulation/decapsulation, hybrid KDF
+   contract. The `meissnerseal-pqc` wrapper (encapsulation/decapsulation, hybrid KDF
    combination, AAD/transcript binding, fail-closed error handling, Zeroize of
    transient secrets) remains **our** responsibility and must be validated by
    KAT test-vectors and Kani harnesses (ADR-015) exactly as classical primitives
@@ -90,7 +90,7 @@ High risks ADR-012 documented. Since the PQC layer is empty, choosing it now wou
 incur exactly the migration cost ADR-012 §4 tried to defer, for no benefit over
 starting on the verified crate.
 
-**Write our own F*/formal proofs of Arcanum's PQC code:**
+**Write our own F*/formal proofs of MeissnerSeal's PQC code:**
 Rejected — consistent with ADR-005 / ADR-015. Disproportionate for a
 single-developer project; the value is in consuming verified artifacts, not
 producing proofs of glue code.
@@ -111,7 +111,7 @@ take only the proven core and keep our classical primitives on RustCrypto
 - ADR-012's risk table is revised at MVP-2: the audit-gap and side-channel rows
   move from High toward Low/Medium once libcrux-ml-kem is integrated. ADR-012
   should be cross-noted to point here.
-- `arcanum-pqc/CONTRACT.md` must document: verified backend, the precise
+- `meissnerseal-pqc/CONTRACT.md` must document: verified backend, the precise
   verification scope (core only), and that the usage-contract wrapper is validated
   by our own KAT + Kani, not by libcrux's proofs.
 - The `dependency_risk_register.md` entry shifts from "unaudited ml-kem crate" to

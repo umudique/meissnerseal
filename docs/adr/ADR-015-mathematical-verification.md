@@ -6,7 +6,7 @@
 
 ## Context
 
-Arcanum stores secrets that are difficult or impossible to rotate.
+MeissnerSeal stores secrets that are difficult or impossible to rotate.
 A bug in the cryptographic layer can cause permanent, unrecoverable data loss.
 The development team has no embedded security engineer reviewing every line.
 AI agents write implementation code.
@@ -94,7 +94,7 @@ test vectors, Miri, fuzzing, and external security audit.
 
 ## Consequences
 
-- `arcanum-crypto` introduces `Key<const N: usize>` as the canonical
+- `meissnerseal-crypto` introduces `Key<const N: usize>` as the canonical
   fixed-length secret type
 - Kani harnesses written alongside implementation code (not after)
 - `cargo kani` added to CI thorough pipeline (Beta+)

@@ -1,0 +1,21 @@
+[package]
+name = "meissnerseal-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+meissnerseal-core.workspace = true
+meissnerseal-security.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["thiserror", "meissnerseal-core", "meissnerseal-security", "zeroize"]

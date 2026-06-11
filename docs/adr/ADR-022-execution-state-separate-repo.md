@@ -10,7 +10,7 @@
 
 ## Context
 
-Arcanum is developed by a single operator with AI agent assistance. Day-to-day
+MeissnerSeal is developed by a single operator with AI agent assistance. Day-to-day
 work needs live execution state — what task is being worked on, by which agent
 role, in what order, blocked on what — held as a machine-parseable task graph so
 agents can read and patch it cheaply.
@@ -38,7 +38,7 @@ Execution state is a fifth, distinct concern with a different lifecycle.
 ## Decision
 
 **Adopted.** Live execution state lives in a **separate, local-only git
-repository** (`arcanum-ops`), not in the main repo and not on any remote.
+repository** (`meissnerseal-ops`), not in the main repo and not on any remote.
 
 - **Source of truth:** `tasks.yaml` — a machine-parseable acyclic task graph
   (Task / Gate / Workstream nodes; `deps` and `triggers` edges). The primary
@@ -59,7 +59,7 @@ repository** (`arcanum-ops`), not in the main repo and not on any remote.
   verifies reference closure, acyclicity, finding linkage, spec-ref existence, no
   lost work, and human-view sync — the local analogue of Spec-Kit's `/analyze`.
 
-The full schema and protocol live in `arcanum-ops/README.md`; this ADR records
+The full schema and protocol live in `meissnerseal-ops/README.md`; this ADR records
 only *that* and *why* this layer is separate, for auditors reading the main repo.
 
 ---

@@ -10,5 +10,5 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
     let frame_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    let _ = arcanum_core::vault::format::parse_record_frame(&data[4..], frame_len);
+    let _ = meissnerseal_core::vault::format::parse_record_frame(&data[4..], frame_len);
 });

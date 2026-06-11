@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Security Engineering Protocol
+# MeissnerSeal Security Engineering Protocol
 
 **Status:** Authoritative reference — all agents and contributors must follow  
 **Read by:** Every agent before writing any code  
@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-Arcanum is a security-critical platform. There is no experienced security engineer
+MeissnerSeal is a security-critical platform. There is no experienced security engineer
 reviewing every line in real time. This protocol is the substitute: a set of
 mandatory disciplines and automated tools that enforce correct behavior whether
 the author is a human or an AI agent.
@@ -120,10 +120,10 @@ Miri detects undefined behavior. It is slow — run only on changed crates.
 
 | Crate | When to run Miri | Command |
 |---|---|---|
-| arcanum-crypto | Every change | `cargo +nightly miri test -p arcanum-crypto` |
-| arcanum-pqc | Every change | `cargo +nightly miri test -p arcanum-pqc` |
-| arcanum-ffi | Every change | `cargo +nightly miri test -p arcanum-ffi` |
-| arcanum-security | Every change | `cargo +nightly miri test -p arcanum-security` |
+| meissnerseal-crypto | Every change | `cargo +nightly miri test -p meissnerseal-crypto` |
+| meissnerseal-pqc | Every change | `cargo +nightly miri test -p meissnerseal-pqc` |
+| meissnerseal-ffi | Every change | `cargo +nightly miri test -p meissnerseal-ffi` |
+| meissnerseal-security | Every change | `cargo +nightly miri test -p meissnerseal-security` |
 
 ### Layer 5 — Fuzzing (periodic, security lab)
 
@@ -310,7 +310,7 @@ FORBIDDEN: using String for secret values (use SecretBytes or equivalent)
 
 ## 7. Constant-Time Requirements
 
-These rules apply to all code in arcanum-crypto and arcanum-pqc.
+These rules apply to all code in meissnerseal-crypto and meissnerseal-pqc.
 
 ### Rules
 

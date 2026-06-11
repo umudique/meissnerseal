@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# ADR-025: arcanum-core Reaches Stable by Implementation, Not Re-Scoping
+# ADR-025: meissnerseal-core Reaches Stable by Implementation, Not Re-Scoping
 
 **Status:** Accepted  
 **Date:** 2026-06-08  
 **Related:** ADR-006 (Argon2id params), ADR-020 (agent governance / API Stable
 is a human gate), ADR-024 (Kani type-level proofs), crypto_design.md §2–§3,
-vault_format_v1.md §7–§8, arcanum-crypto CONTRACT G-05, arcanum-core CONTRACT
+vault_format_v1.md §7–§8, meissnerseal-crypto CONTRACT G-05, meissnerseal-core CONTRACT
 P-02; finding_register F-01/F-02/F-03/F-09/F-10/F-11
 
 ---
@@ -14,7 +14,7 @@ P-02; finding_register F-01/F-02/F-03/F-09/F-10/F-11
 
 The MVP-0 Stable-readiness milestone review (Consistency Agent + Security
 Review Agent, 2026-06-08, branch `feat/mvp0-test-vectors`) **blocked** marking
-`arcanum-core` as `API Status: Stable`. The reviews surfaced a single root
+`meissnerseal-core` as `API Status: Stable`. The reviews surfaced a single root
 problem: **the core CONTRACT promises behavior the implementation does not yet
 provide.** The contract and the code disagree, and "Stable" would freeze that
 disagreement.
@@ -32,7 +32,7 @@ The concrete contradictions:
   revision.
 - **F-03 (CWE-1188):** `keys/hierarchy.rs` hardcodes the Argon2id parameters
   instead of reading the KDF parameter TLVs from the vault header. This
-  contradicts ADR-006 and arcanum-crypto CONTRACT G-05 (no hardcoded
+  contradicts ADR-006 and meissnerseal-crypto CONTRACT G-05 (no hardcoded
   parameters in the implementation chain).
 - **F-10 (CWE-325):** Session derivation expands **4** HKDF subkeys, while
   crypto_design.md §3 specifies **7** registry subkeys (the test vectors in
@@ -58,7 +58,7 @@ Two honest resolutions exist:
 
 ## Decision
 
-Adopt **Option A: arcanum-core reaches Stable by implementation, not by
+Adopt **Option A: meissnerseal-core reaches Stable by implementation, not by
 re-scoping.**
 
 We will implement the behavior the CONTRACT already promises, rather than
@@ -82,7 +82,7 @@ Rationale:
   forward from Phase 3, with the understanding that it carries new
   implementation and a fresh security review.
 
-Marking `arcanum-core` `API Status: Stable` remains a human gate (ADR-020) and
+Marking `meissnerseal-core` `API Status: Stable` remains a human gate (ADR-020) and
 occurs only after all six findings are resolved and re-reviewed.
 
 ---
@@ -103,9 +103,9 @@ freezes a contract that makes promises the code does not keep.
 
 ## Consequences
 
-- `arcanum-core` stays `Unstable` until F-01, F-02, F-03, F-09, F-10, F-11 are
+- `meissnerseal-core` stays `Unstable` until F-01, F-02, F-03, F-09, F-10, F-11 are
   resolved and a follow-up security/consistency review clears them.
-- A roadmap of implementation tasks is added to arcanum-ops under the CORE
+- A roadmap of implementation tasks is added to meissnerseal-ops under the CORE
   workstream (crash-safe persistence, AAD record/revision binding incl.
   exposing the stored revision from `parse_record_frame`, header-read KDF
   params, full 7-subkey hierarchy, CONTRACT reconciliation).

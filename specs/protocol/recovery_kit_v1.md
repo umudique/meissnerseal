@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Recovery Kit v1
+# MeissnerSeal Recovery Kit v1
 
 **Profile:** `QVRK_RECOVERY_SECRET_V1`
 **Status:** Specification — MVP-1 (kit generation), MVP-3 (sync interaction)
@@ -13,14 +13,14 @@
 > If the user loses the master password and has neither an approved unlocked device
 > nor a valid recovery kit, the vault is **unrecoverable**.
 
-Arcanum servers must not be able to reset or recover a zero-knowledge vault.
+MeissnerSeal servers must not be able to reset or recover a zero-knowledge vault.
 This limitation must be documented clearly in the product.
 
 ---
 
 ## 2. Recovery Secret Encoding v1
 
-Arcanum uses a Bech32m-encoded recovery secret rather than BIP-39.
+MeissnerSeal uses a Bech32m-encoded recovery secret rather than BIP-39.
 BIP-39 mnemonics imply compatibility with cryptocurrency seed phrases and
 increase user confusion for a general vault product.
 
@@ -40,7 +40,7 @@ Example format: `arc1<base32-encoded-data><6-char-checksum>`
 ## 3. Recovery Key Derivation
 
 ```
-recovery_salt     = SHA256("arcanum-recovery-salt-v1" || vault_id || recovery_id)
+recovery_salt     = SHA256("meissnerseal-recovery-salt-v1" || vault_id || recovery_id)
 
 recovery_prk      = HKDF-SHA256-Extract(
   salt = recovery_salt,
@@ -49,7 +49,7 @@ recovery_prk      = HKDF-SHA256-Extract(
 
 recovery_wrap_key = HKDF-SHA256-Expand(
   prk    = recovery_prk,
-  info   = "arcanum:recovery-wrap:v1:vault:{vault_id}:recovery:{recovery_id}",
+  info   = "meissnerseal:recovery-wrap:v1:vault:{vault_id}:recovery:{recovery_id}",
   length = 32
 )
 ```
@@ -63,7 +63,7 @@ If the user enables a recovery passphrase, it is mixed into the PRK:
 ```
 recovery_passphrase_key = Argon2id(
   passphrase,
-  salt   = SHA256("arcanum-recovery-passphrase-v1" || vault_id || recovery_id),
+  salt   = SHA256("meissnerseal-recovery-passphrase-v1" || vault_id || recovery_id),
   params = KDF_ARGON2ID_V1   (same parameter set as vault KDF)
 )
 

@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum — System Architecture Overview
+# MeissnerSeal — System Architecture Overview
 
 **Document status:** Architecture reference  
 **Spec version:** v4.0
@@ -8,7 +8,7 @@
 
 ## 1. Product Positioning
 
-Arcanum is a local-first critical secrets vault and secure transfer platform. It is not a general password manager.
+MeissnerSeal is a local-first critical secrets vault and secure transfer platform. It is not a general password manager.
 
 **Primary positioning:**
 > Local-first vault and secure transfer for critical secrets, ready for the post-quantum era.
@@ -18,7 +18,7 @@ Arcanum is a local-first critical secrets vault and secure transfer platform. It
 - Crypto operators (seed phrases, validator keys, wallet backups)
 - Security-conscious small teams (self-hosted sync, audit trails)
 
-**Arcanum is not:**
+**MeissnerSeal is not:**
 - A browser autofill password manager
 - A cloud-first SaaS vault
 - A product claiming resistance to all physical side-channel attacks
@@ -46,7 +46,7 @@ Arcanum is a local-first critical secrets vault and secure transfer platform. It
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Arcanum Platform                         │
+│                        MeissnerSeal Platform                         │
 │                                                                 │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌────────────┐  │
 │  │  Desktop  │  │   CLI     │  │  Mobile   │  │  Browser   │  │
@@ -57,10 +57,10 @@ Arcanum is a local-first critical secrets vault and secure transfer platform. It
 │                              │                                  │
 │                    ┌─────────▼──────────┐                       │
 │                    │    Rust Core       │                       │
-│                    │  arcanum-core      │                       │
-│                    │  arcanum-crypto    │                       │
-│                    │  arcanum-pqc       │                       │
-│                    │  arcanum-security  │                       │
+│                    │  meissnerseal-core      │                       │
+│                    │  meissnerseal-crypto    │                       │
+│                    │  meissnerseal-pqc       │                       │
+│                    │  meissnerseal-security  │                       │
 │                    └─────────┬──────────┘                       │
 │                              │                                  │
 │               ┌──────────────┼──────────────┐                  │
@@ -106,7 +106,7 @@ Security Capability Layer
 | System | Purpose |
 |---|---|
 | OS Secure Storage | Keychain, Keystore, DPAPI, TPM-backed key wrapping |
-| Web Browser | Hosts the Arcanum extension |
+| Web Browser | Hosts the MeissnerSeal extension |
 | Source Repository | Open-source distribution and review |
 | Object Storage | Optional encrypted blob storage for sync |
 | Payment Provider | Managed sync subscription billing |
@@ -162,7 +162,7 @@ Security Capability Layer
 
 ```
 crates/
-  arcanum-core/
+  meissnerseal-core/
     src/
       vault/         engine.rs, format.rs, migration.rs
       item/          model.rs, store.rs, types.rs
@@ -174,7 +174,7 @@ crates/
       audit/         event.rs
       error.rs
 
-  arcanum-crypto/
+  meissnerseal-crypto/
     src/
       aead.rs        XChaCha20-Poly1305 (default), AES-256-GCM (strict)
       argon2.rs      KDF_ARGON2ID_V1
@@ -184,14 +184,14 @@ crates/
       zeroize.rs     zeroization policy
       test_vectors.rs
 
-  arcanum-pqc/
+  meissnerseal-pqc/
     src/
       mlkem.rs       ML-KEM-768 (default), ML-KEM-1024 (future)
       mldsa.rs       ML-DSA signatures (future)
       hybrid.rs      TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1
       backend.rs     PQC library adapter
 
-  arcanum-security/
+  meissnerseal-security/
     src/
       secret_lifecycle.rs
       redaction.rs
@@ -200,20 +200,20 @@ crates/
       side_channel.rs
       audit_guard.rs
 
-  arcanum-ffi/
+  meissnerseal-ffi/
     src/
       api.rs         VaultSessionHandle, SecretViewHandle
       error.rs
       memory.rs      FFI allocation and cleanup semantics
 
-  arcanum-cli/
+  meissnerseal-cli/
     src/
-      main.rs        binary: arcanum
+      main.rs        binary: meissnerseal
       commands/      init, add, get, list, transfer, device, export
 
-  arcanum-sync-server/
+  meissnerseal-sync-server/
     src/
-      main.rs        binary: arcanum-server
+      main.rs        binary: meissnerseal-server
       api/           authenticated endpoints
       devices/       device registry
       blobs/         encrypted blob store adapter
@@ -261,7 +261,7 @@ test-vectors/
 
 ## 9. Security Boundaries
 
-**Trusted local boundary:** arcanum-core, arcanum-crypto, arcanum-pqc, arcanum-security, arcanum-ffi, arcanum-cli
+**Trusted local boundary:** meissnerseal-core, meissnerseal-crypto, meissnerseal-pqc, meissnerseal-security, meissnerseal-ffi, meissnerseal-cli
 
 **Untrusted boundary:** Browser extension, relay server, sync server, managed service layer, OS accessibility APIs
 

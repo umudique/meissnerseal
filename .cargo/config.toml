@@ -10,15 +10,15 @@ deny-check  = ["deny", "check"]
 geiger-scan = ["geiger", "--workspace"]
 
 # Miri — cryptographic crates only (requires nightly)
-miri-crypto   = ["+nightly", "miri", "test", "-p", "arcanum-crypto"]
-miri-pqc      = ["+nightly", "miri", "test", "-p", "arcanum-pqc"]
-miri-security = ["+nightly", "miri", "test", "-p", "arcanum-security"]
-miri-ffi      = ["+nightly", "miri", "test", "-p", "arcanum-ffi"]
+miri-crypto   = ["+nightly", "miri", "test", "-p", "meissnerseal-crypto"]
+miri-pqc      = ["+nightly", "miri", "test", "-p", "meissnerseal-pqc"]
+miri-security = ["+nightly", "miri", "test", "-p", "meissnerseal-security"]
+miri-ffi      = ["+nightly", "miri", "test", "-p", "meissnerseal-ffi"]
 miri-all      = ["+nightly", "miri", "test",
-                 "-p", "arcanum-crypto",
-                 "-p", "arcanum-pqc",
-                 "-p", "arcanum-security",
-                 "-p", "arcanum-ffi"]
+                 "-p", "meissnerseal-crypto",
+                 "-p", "meissnerseal-pqc",
+                 "-p", "meissnerseal-security",
+                 "-p", "meissnerseal-ffi"]
 
 # Full pre-release check
 pre-release = ["check", "--workspace", "--all-targets", "--all-features"]

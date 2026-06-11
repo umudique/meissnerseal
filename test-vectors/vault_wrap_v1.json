@@ -8,43 +8,43 @@
       "id": "wrap-vrk-roundtrip",
       "description": "crypto_design.md Step 4: wrap VRK with VKEK + WrappedRootKey AAD, then unwrap",
       "inputs": {
-        "vault_kek": "5172a4ac42a7ac7328c37d4adbc9817e50a54c008fa28455ee94cdc166cf420f",
+        "vault_kek": "59a4e5d035d78c5b941db4145cf5fe26dc1f08101d8725ea4f52de843c006e66",
         "vkek_nonce": "010203040506070809101112131415161718192021222324",
-        "wrap_aad": "617263616e756d2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
+        "wrap_aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
         "vault_root_key": "a0b1c2d3e4f5060718293a4b5c6d7e8f901112131415161718191a1b1c1d1e1f"
       },
       "expected": {
-        "wrapped_root_key": "a1421d80264d79662743e3a44359170f7e38f2a5c34440f2f1a4b58abede52216176274a59037a969a140c7e607e1266",
+        "wrapped_root_key": "6a6858b93a3a22e27195ad344af707ff185c5ca65c6f860e2b45f51f8cebb41a9009f3980e8e774b69d178918325e81b",
         "unwrapped_root_key": "a0b1c2d3e4f5060718293a4b5c6d7e8f901112131415161718191a1b1c1d1e1f",
         "result": "Ok"
       }
     },
     {
       "id": "wrap-vrk-cross-vault-domain-separation",
-      "description": "B3: distinct vault_id -> distinct VKEK and distinct WrappedRootKey (crypto_design.md \u00a7VKEK derivation, \u00a7Step 4)",
+      "description": "B3: distinct vault_id -> distinct VKEK and distinct WrappedRootKey (crypto_design.md §VKEK derivation, §Step 4)",
       "inputs": {
         "vault_id": "1112131415161718191a1b1c1d1e1f20",
-        "vault_kek": "068eacf16757411c09bc82398b885759dd011f5588bc5751ba80b5d898ea12e8",
+        "vault_kek": "d46204939309c1fef5e7a8a34336b0283fc5081077eb6f0802db7091c7820dd3",
         "vkek_nonce": "010203040506070809101112131415161718192021222324",
-        "wrap_aad": "617263616e756d2d6161642d76311112131415161718191a1b1c1d1e1f2001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
+        "wrap_aad": "6d656973736e65727365616c2d6161642d76311112131415161718191a1b1c1d1e1f2001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
         "vault_root_key": "a0b1c2d3e4f5060718293a4b5c6d7e8f901112131415161718191a1b1c1d1e1f"
       },
       "expected": {
-        "wrapped_root_key": "624b02a14288711af84813bcaaeea1c77790f4df88219d28ee199620b0a296a66f601f293300a35df46b81000ed9fc30",
+        "wrapped_root_key": "664cd077ba22f4e24a883fb7e96fcb9e16033fb5c5ee5f00964f5300eafc4be5c6cf2f0b68665758dd2a768c459166e7",
         "differs_from_vault1": true,
         "result": "Ok"
       }
     },
     {
       "id": "wrong-password-muk-distinct",
-      "description": "B4: a different password yields a distinct MUK and VKEK (crypto_design.md \u00a7KDF/\u00a7VKEK)",
+      "description": "B4: a different password yields a distinct MUK and VKEK (crypto_design.md §KDF/§VKEK)",
       "inputs": {
         "password": "different-password-never-real",
         "vault_id": "0102030405060708090a0b0c0d0e0f10"
       },
       "expected": {
-        "master_unlock_key": "80c84eb6ba03b6794c7015e2bafef6c5e65e008a15c825ac3652cff3ea9e4835",
-        "vault_key_encryption_key": "ba57756a7dbe360e55f7e5936f36a3afb11aa5d61c8a0fb0fcc0586f037c0911",
+        "master_unlock_key": "002cde04a888a21a2be0119ac85b2572c78cfe8202d07ee44b4deb246c900bae",
+        "vault_key_encryption_key": "0fac7381e14df0a0d9360703e29a7a7bb5e36b388d0d7339f12d766f6b0d4165",
         "differs_from_correct_password": true
       }
     }

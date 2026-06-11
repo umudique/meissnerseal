@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Threat Model
+# MeissnerSeal Threat Model
 
 **Status:** Draft — MVP-0  
 **Review cadence:** Before each MVP public release  
@@ -42,7 +42,7 @@
 | Stolen device attacker | Physical access to vault file and local metadata DB |
 | Insider sync admin | Read server metadata, blob sizes, device IDs, timestamps |
 | Compromised trusted device | Previously paired device later compromised; possesses sync keys derived before revocation |
-| Malicious browser extension | Fake or compromised extension attempting to impersonate Arcanum extension to native host |
+| Malicious browser extension | Fake or compromised extension attempting to impersonate MeissnerSeal extension to native host |
 | Future quantum attacker | Harvest public-key encrypted material now; decrypt after quantum computer available |
 | Supply-chain attacker | Compromise dependencies, CI pipeline, or release artifacts |
 
@@ -52,7 +52,7 @@
 
 | Component | Trusted For | Not Trusted For |
 |---|---|---|
-| Rust Core (`arcanum-core`, `arcanum-crypto`, `arcanum-pqc`) | Secret lifecycle, cryptographic operations | Nothing excluded |
+| Rust Core (`meissnerseal-core`, `meissnerseal-crypto`, `meissnerseal-pqc`) | Secret lifecycle, cryptographic operations | Nothing excluded |
 | OS Secure Storage (Keychain, Keystore, DPAPI) | Device wrapping key storage | Availability on all platforms; absolute hardware guarantee |
 | Dart/Flutter heap | Displaying secrets transiently | Zeroization timing; swap/hibernation protection |
 | Sync server | Availability, ordering, pagination | Confidentiality, authenticity, key material |
@@ -146,7 +146,7 @@ and where possible mitigated in the product:
 
 ## 8. Security Claim Boundaries
 
-**Arcanum may claim:**
+**MeissnerSeal may claim:**
 - Local-first encrypted vault
 - Zero-knowledge encrypted sync
 - Hybrid post-quantum-ready transfer
@@ -154,7 +154,7 @@ and where possible mitigated in the product:
 - Fuzz-tested parsers (only after fuzz targets run in CI)
 - Public threat model
 
-**Arcanum must not claim:**
+**MeissnerSeal must not claim:**
 - Unhackable security
 - Military-grade quantum encryption
 - Absolute quantum-proof protection

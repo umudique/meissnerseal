@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Sync Profile v1
+# MeissnerSeal Sync Profile v1
 
 **Status:** Specification — MVP-3
 **Formal model:** `specs/formal/sync_state_machine.tla` (TLA+ — MVP-3)
@@ -31,7 +31,7 @@ VersionVector = Map<DeviceId, Counter>
 ```
 
 A new local edit increments the local device counter.
-When two revisions are concurrent (neither vector dominates), Arcanum marks a conflict.
+When two revisions are concurrent (neither vector dominates), MeissnerSeal marks a conflict.
 
 ### Conflict Resolution Rules
 
@@ -91,8 +91,8 @@ devices, not vault plaintext or master passwords.
 ### Request Authentication Header
 
 ```http
-Authorization: Arcanum-Device-V1 device_id="...", key_id="...", nonce="...", ts="...", sig="..."
-X-Arcanum-Body-SHA256: <hex-encoded-sha256-body-digest>
+Authorization: MeissnerSeal-Device-V1 device_id="...", key_id="...", nonce="...", ts="...", sig="..."
+X-MeissnerSeal-Body-SHA256: <hex-encoded-sha256-body-digest>
 ```
 
 ### Canonical Request String (signed)

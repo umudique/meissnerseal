@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Supply Chain
+# MeissnerSeal Supply Chain
 
 **Status:** Living document — update on every dependency change  
 **Related:** `docs/ops/dependency_risk_register.md`, ADR-011, ADR-012, ADR-013
@@ -10,14 +10,14 @@
 
 ```mermaid
 graph TD
-    subgraph arcanum ["Arcanum Workspace"]
-        cli["arcanum-cli"]
-        core["arcanum-core"]
-        crypto["arcanum-crypto"]
-        pqc["arcanum-pqc"]
-        security["arcanum-security"]
-        ffi["arcanum-ffi"]
-        server["arcanum-sync-server"]
+    subgraph meissnerseal ["MeissnerSeal Workspace"]
+        cli["meissnerseal-cli"]
+        core["meissnerseal-core"]
+        crypto["meissnerseal-crypto"]
+        pqc["meissnerseal-pqc"]
+        security["meissnerseal-security"]
+        ffi["meissnerseal-ffi"]
+        server["meissnerseal-sync-server"]
     end
 
     subgraph rustcrypto ["RustCrypto Ecosystem"]
@@ -141,7 +141,7 @@ graph TD
 | Android | `/dev/urandom` via getrandom | Kernel CSPRNG |
 | iOS | `SecRandomCopyBytes` | Security framework |
 
-Arcanum trusts the OS entropy source. A compromised OS kernel is documented
+MeissnerSeal trusts the OS entropy source. A compromised OS kernel is documented
 as out-of-scope in `specs/security/threat_model.md §5`.
 
 ---
@@ -168,7 +168,7 @@ as out-of-scope in `specs/security/threat_model.md §5`.
          See: ADR-012, dependency_risk_register.md
 
 [GAP-02] tokio has a large transitive dependency surface
-         Mitigation: confined to arcanum-sync-server only
+         Mitigation: confined to meissnerseal-sync-server only
          crypto crates have zero tokio dependency
 
 [GAP-03] bech32 has no formal security audit

@@ -7,14 +7,14 @@
 ## Context
 
 Many secrets management products offer server-assisted password reset,
-compromising zero-knowledge guarantees. Arcanum must decide its recovery posture.
+compromising zero-knowledge guarantees. MeissnerSeal must decide its recovery posture.
 
 ## Decision
 
 If the user loses the master password and has neither an approved unlocked device
 nor a valid recovery kit, the vault is **permanently unrecoverable**.
 
-Arcanum servers must not be able to reset or recover a zero-knowledge vault.
+MeissnerSeal servers must not be able to reset or recover a zero-knowledge vault.
 
 ## Rationale
 

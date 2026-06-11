@@ -37,5 +37,5 @@ View expires after TTL (default 30 seconds). Released explicitly with `release_s
 - Clipboard operations routed through Rust/platform clipboard manager where practical
 - Production builds disable debug overlays and hot-reload state snapshots
 - Documentation must explicitly state: Dart GC timing, OS swap, screenshots,
-  accessibility APIs, and crash dump capture cannot be fully controlled by Arcanum
+  accessibility APIs, and crash dump capture cannot be fully controlled by MeissnerSeal
 - This is a mitigation strategy, not a perfect memory-safety guarantee

@@ -11,7 +11,7 @@
 
 ## Context
 
-Arcanum is designed for critical secrets storage with military/intelligence-grade
+MeissnerSeal is designed for critical secrets storage with military/intelligence-grade
 security ambitions. Without an in-house security certification team, the project
 must align with recognized external standards to:
 
@@ -32,7 +32,7 @@ until post-Production with explicit sponsor demand.
 ### Tier 1 Standards (Adopted)
 
 **CNSA 2.0 (NSA Commercial National Security Algorithm Suite)**
-- Rationale: Arcanum already uses ML-KEM-768 + X25519 hybrid (MVP-2) and
+- Rationale: MeissnerSeal already uses ML-KEM-768 + X25519 hybrid (MVP-2) and
   AES-256 / XChaCha20-Poly1305 with SHA-256. CNSA 2.0 alignment is a
   natural consequence of the existing architecture.
 - Obligation: Maintain a CNSA 2.0 algorithm mapping table in
@@ -49,7 +49,7 @@ until post-Production with explicit sponsor demand.
   milestone.
 
 **NIST SP 800-90B (Entropy Source Validation)**
-- Rationale: Arcanum's OS-CSPRNG-only policy (ADR-013) delegates entropy
+- Rationale: MeissnerSeal's OS-CSPRNG-only policy (ADR-013) delegates entropy
   responsibility to the OS, which is the correct design. SP 800-90B requires
   that this delegation be explicitly documented and the platform entropy
   sources be identified.
@@ -68,7 +68,7 @@ until post-Production with explicit sponsor demand.
   timing only, not power/EM/fault.
 
 **SLSA (Supply-chain Levels for Software Artifacts)**
-- Rationale: Arcanum already has scripted CI builds (SLSA L1). Adding
+- Rationale: MeissnerSeal already has scripted CI builds (SLSA L1). Adding
   `actions/attest-build-provenance@v2` in the release workflow advances to
   SLSA L2 with minimal effort. Signed provenance attestation is the single
   highest-value supply chain improvement available now.
@@ -110,7 +110,7 @@ evaluate security products against known frameworks.
 **Adopt ISO 27001 (information security management)**
 Rejected. ISO 27001 is an organizational management standard, not a software
 engineering standard. It applies to a security program, not a codebase. Relevant
-if Arcanum becomes an organization with managed SaaS; premature now.
+if MeissnerSeal becomes an organization with managed SaaS; premature now.
 
 ---
 

@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Vault Binary Wire Format v1
+# MeissnerSeal Vault Binary Wire Format v1
 
 **Profile:** `SCHEMA_ARCANUM_RECORDS_V2 = 0x0002`
 **Status:** Specification — MVP-0
@@ -104,7 +104,7 @@ KdfParamTlv := tag:u16le || len:u16le || value:bytes[len]
 | `0x0104` | `output_len` | u16le | `32` |
 | `0x0105` | `argon2_version` | u32le | `0x13` |
 
-Salt: `"arcanum-argon2id-salt-v1" || vault_id[16]`
+Salt: `"meissnerseal-argon2id-salt-v1" || vault_id[16]`
 
 ---
 
@@ -137,7 +137,7 @@ or cleartext locator is needed to find the WrappedRootKey frame.
 The only mandatory cleartext is the file prefix and header: KDF parameters,
 `vault_id`, `schema_profile`, `aead_profile`, `pqc_profile`, and
 `header_nonce`. These fields are required before any key exists and disclose no
-secret beyond what the magic bytes already announce: that the file is an Arcanum
+secret beyond what the magic bytes already announce: that the file is an MeissnerSeal
 vault.
 
 ### Sealed Record Table Section
@@ -277,7 +277,7 @@ encode offsets. `schema_profile` is already included and must carry the V2 value
 through unchanged (ADR-030).
 
 ```
-AAD = "arcanum-aad-v1"      # 14 bytes
+AAD = "meissnerseal-aad-v1"      # 14 bytes
    || vault_id              # 16 bytes
    || format_version:u16le  #  2 bytes
    || schema_profile:u16le  #  2 bytes

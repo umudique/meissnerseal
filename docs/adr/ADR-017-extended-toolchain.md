@@ -86,7 +86,7 @@ Evaluation criteria applied to each candidate:
 - Integration: `.github/dependabot.yml`, weekly schedule
 
 **semgrep** — semantic code pattern analysis
-- Rationale: Custom rules can encode Arcanum-specific invariants that clippy
+- Rationale: Custom rules can encode MeissnerSeal-specific invariants that clippy
   cannot express: "no direct rand call outside the rng module", "no
   PartialEq on types implementing ZeroizeOnDrop". Rust security ruleset
   catches common misuse patterns.
@@ -106,7 +106,7 @@ Evaluation criteria applied to each candidate:
   cryptographic functions, this is very valuable.
 - Why deferred: Requires a full implementation to mutate. Pre-MVP-0, the
   codebase is mostly stubs. Add at MVP-0 completion.
-- Milestone: MVP-0 complete → run cargo-mutants on arcanum-crypto
+- Milestone: MVP-0 complete → run cargo-mutants on meissnerseal-crypto
 - **MVP-0 gate completed 2026-06-11** (commit 32a37dc). Blocking mutants caught.
   Accepted equivalent mutants (2): `kdf/argon2.rs:61/62` — `||→&&` on t_cost/p_lanes
   zero guards. These guards are redundant: `argon2::Params::new` independently

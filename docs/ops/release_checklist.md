@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Release Security Checklist
+# MeissnerSeal Release Security Checklist
 
 ---
 

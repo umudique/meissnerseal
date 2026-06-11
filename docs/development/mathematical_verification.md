@@ -8,18 +8,18 @@
 
 ## Proof Scope
 
-Formal verification in Arcanum covers specific, bounded properties of the
+Formal verification in MeissnerSeal covers specific, bounded properties of the
 cryptographic core. Knowing what is and is not proven is as important as
 knowing that proofs exist.
 
-**Primitive correctness** (`arcanum-crypto`) — Kani bounded proofs:
+**Primitive correctness** (`meissnerseal-crypto`) — Kani bounded proofs:
 - `Key<N>` types — length invariants at compile time (const generics)
 - `build_aad_v1` / `AAD_V1` construction — output length == 74 invariant
 - `argon2id_v1_salt`, `derive_master_unlock_key`, `derive_vkek` — output length contracts
 - `hkdf_info_string` — valid ASCII output
 - Nonce generation — output length matches AEAD profile
 
-**Protocol correctness** (`arcanum-core`) — Kani bounds + formal models:
+**Protocol correctness** (`meissnerseal-core`) — Kani bounds + formal models:
 - TLV parser — no buffer overread (Kani)
 - Record frame parser — `frame_len` bounds respected (Kani)
 - Transfer replay / downgrade rejection — ProVerif symbolic model (MVP-2)
@@ -40,7 +40,7 @@ claims are bounded, falsifiable, and tied to specific functions and properties.
 
 ## Why Mathematical Verification
 
-Arcanum stores secrets that cannot be rotated. A single incorrect length,
+MeissnerSeal stores secrets that cannot be rotated. A single incorrect length,
 a wrong nonce, or an off-by-one in a parser can be catastrophic.
 Tests check examples. Mathematical verification checks all possible inputs.
 
@@ -59,10 +59,10 @@ Zero runtime cost. Zero tooling required beyond `rustc`.
 
 ### How to use
 
-All fixed-length cryptographic values must use `Key<N>` from `arcanum-crypto::types`.
+All fixed-length cryptographic values must use `Key<N>` from `meissnerseal-crypto::types`.
 
 ```rust
-use arcanum_crypto::{AeadKey, XChaCha20Nonce, VaultId};
+use meissnerseal_crypto::{AeadKey, XChaCha20Nonce, VaultId};
 
 // The compiler verifies: key is 32 bytes, nonce is 24 bytes.
 // Passing a 16-byte key where 32 is required is a compile error.
@@ -121,11 +121,11 @@ cargo kani setup
 ### Running harnesses
 
 ```bash
-# Run all Kani harnesses in arcanum-crypto
-cargo kani --package arcanum-crypto
+# Run all Kani harnesses in meissnerseal-crypto
+cargo kani --package meissnerseal-crypto
 
 # Run a specific harness
-cargo kani --package arcanum-crypto --harness verify_aad_length
+cargo kani --package meissnerseal-crypto --harness verify_aad_length
 ```
 
 ### Writing a Kani harness
@@ -152,7 +152,7 @@ fn verify_aad_v1_length() {
 }
 ```
 
-### Kani targets for Arcanum
+### Kani targets for MeissnerSeal
 
 Each harness traces back to a spec document. The spec is the authoritative
 source; the harness is the machine-checked enforcement of that spec's invariants.
@@ -172,7 +172,7 @@ source; the harness is the machine-checked enforcement of that spec's invariants
 ### Kani harness rules (for agents)
 
 - Harnesses are in the same file as the function under proof
-- Every security-critical function in arcanum-crypto must have at least one harness
+- Every security-critical function in meissnerseal-crypto must have at least one harness
 - Harnesses must use `kani::any()` for inputs — no hardcoded values
 - Each `kani::assert` must have a descriptive message
 - TODO markers from types.rs are mandatory work items for MVP-0
@@ -235,7 +235,7 @@ prusti-rustc --edition=2021 src/lib.rs
 cargo prusti
 ```
 
-### Prusti targets for Arcanum
+### Prusti targets for MeissnerSeal
 
 | Function | Precondition | Postcondition | Phase |
 |---|---|---|---|
@@ -303,7 +303,7 @@ No single layer catches everything.
 Level 1 — always:
   Use Key<N> types, never raw [u8; N] or Vec<u8> for fixed-length secrets
 
-Level 2 — for every security-critical function in arcanum-crypto:
+Level 2 — for every security-critical function in meissnerseal-crypto:
   Write at least one Kani harness using kani::any() for inputs
   Gate with #[cfg(kani)] — never in production binary
   Add TODO markers for harnesses not yet implemented

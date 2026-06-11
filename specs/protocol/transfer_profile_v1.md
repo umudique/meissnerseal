@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Transfer Profile v1
+# MeissnerSeal Transfer Profile v1
 
 **Profile ID:** `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`
 **Status:** Specification — MVP-2
@@ -18,7 +18,7 @@
 | Transcript hash | SHA-256 (32 bytes) |
 | HKDF | HKDF-SHA256 |
 | AEAD | XChaCha20-Poly1305 (default) |
-| Context string | `"arcanum-transfer-v1"` |
+| Context string | `"meissnerseal-transfer-v1"` |
 
 SHA-384 and 48-byte transcripts are reserved for a future profile
 (`TRANSFER_HYBRID_X25519_MLKEM1024_SHA384_V2`). They must not be mixed into v1.
@@ -58,7 +58,7 @@ hybrid_secret = HKDF-SHA256-Extract(
 
 transfer_key = HKDF-SHA256-Expand(
   prk    = hybrid_secret,
-  info   = "arcanum-transfer-v1",
+  info   = "meissnerseal-transfer-v1",
   length = 32
 )
 ```
@@ -71,7 +71,7 @@ The transcript hash binds all protocol parameters to prevent downgrade attacks:
 
 ```
 transcript_input =
-    "arcanum-transfer-transcript-v1"
+    "meissnerseal-transfer-transcript-v1"
  || transfer_profile_id : u16le
  || sender_device_id[16]
  || sender_classical_ephemeral_public_key[32]

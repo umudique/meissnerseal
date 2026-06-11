@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Agent Prompt Templates
+# MeissnerSeal Agent Prompt Templates
 
 Prompts are **deduplicated**: one shared `common` block plus a per-role delta in
 the `roles:` map below. You do not copy a role block verbatim — you **render** it
@@ -24,7 +24,7 @@ follow natural language, not YAML.
 ### Builder roles (`kind: builder`)
 
 ```
-You are acting as {role.title} in the Arcanum project.
+You are acting as {role.title} in the MeissnerSeal project.
 
 Read first, in order:
 {common.read_prefix} + {role.crate}/CONTRACT.md + {role.reads}
@@ -51,7 +51,7 @@ Completion:
 ### Evaluator roles (`kind: evaluator`)
 
 ```
-You are acting as {role.title} in the Arcanum project.
+You are acting as {role.title} in the MeissnerSeal project.
 This is an evaluator-only role: read, evaluate, produce a bounded structured
 review. Do not modify any file, write patches, or implement fixes.
 
@@ -107,14 +107,14 @@ roles:
   crypto:
     kind: builder
     title: Crypto Agent
-    crate: crates/arcanum-crypto
+    crate: crates/meissnerseal-crypto
     reads: [specs/crypto/crypto_design.md, test-vectors/README.md]
     before: >
       For a cryptographic operation, write the test vector in test-vectors/ and
       cross-verify with Python or SageMath before committing; for a behavioral
       invariant, write a proptest property. Vector-first: the Rust code is correct
       when it reproduces the vector.
-    checks_extra: [cargo +nightly miri test -p arcanum-crypto, cargo kani --package arcanum-crypto]
+    checks_extra: [cargo +nightly miri test -p meissnerseal-crypto, cargo kani --package meissnerseal-crypto]
     rules:
       - No custom cryptographic primitives — only approved crates from Cargo.toml.
       - No custom RNG — all randomness through the rng module's OS CSPRNG wrapper.
@@ -129,7 +129,7 @@ roles:
   pqc:
     kind: builder
     title: PQC Agent
-    crate: crates/arcanum-pqc
+    crate: crates/meissnerseal-pqc
     reads:
       - specs/crypto/crypto_design.md
       - specs/protocol/transfer_profile_v1.md
@@ -137,14 +137,14 @@ roles:
     before: >
       Write a test vector for the hybrid derivation path and cross-verify with
       SageMath before committing.
-    checks_extra: [cargo +nightly miri test -p arcanum-pqc, cargo kani --package arcanum-pqc]
+    checks_extra: [cargo +nightly miri test -p meissnerseal-pqc, cargo kani --package meissnerseal-pqc]
     rules:
       - ML-KEM must come from an audited library — no custom implementation.
       - Hybrid derivation follows TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 exactly.
       - Transcript hash is SHA-256 (32 bytes) for the MVP profile — no SHA-384 in v1.
       - Hybrid fails closed — missing PQC component → reject, no classical-only fallback.
       - All operations constant-time — no secret-dependent branches.
-      - Fixed-length values use Key<N> from arcanum-crypto, never [u8;N] or Vec<u8>.
+      - Fixed-length values use Key<N> from meissnerseal-crypto, never [u8;N] or Vec<u8>.
       - Document the ML-KEM crate's audit status in CONTRACT.md before shipping.
     done: >
       Hybrid derivation matches crypto_design.md §7; test vector cross-verified
@@ -154,7 +154,7 @@ roles:
   core:
     kind: builder
     title: Core Agent
-    crate: crates/arcanum-core
+    crate: crates/meissnerseal-core
     reads:
       - specs/crypto/crypto_design.md
       - specs/protocol/vault_format_v1.md
@@ -165,8 +165,8 @@ roles:
       Write property tests for behavioral invariants and negative tests for all
       failure paths, before the implementation.
     rules:
-      - Never implement crypto directly — call arcanum-crypto APIs only.
-      - Never call arcanum-pqc from business logic — use the arcanum-core transfer module.
+      - Never implement crypto directly — call meissnerseal-crypto APIs only.
+      - Never call meissnerseal-pqc from business logic — use the meissnerseal-core transfer module.
       - Vault writes follow the crash-safe strategy (serialize → encrypt → temp file → fsync → rename → fsync parent).
       - Fail closed on all security-relevant errors — no partial success.
       - No plaintext secrets in error types, log output, or audit events.
@@ -176,12 +176,12 @@ roles:
   security:
     kind: builder
     title: Security Agent
-    crate: crates/arcanum-security
+    crate: crates/meissnerseal-security
     reads: [specs/security/security_assurance.md, docs/adr/ADR-004-handle-lease-ffi.md]
     before: >
       Write redaction tests (Debug output contains [REDACTED]) and zeroization
       tests (memory cleared after drop), before the implementation.
-    checks_extra: [cargo +nightly miri test -p arcanum-security]
+    checks_extra: [cargo +nightly miri test -p meissnerseal-security]
     rules:
       - Every secret-bearing type derives Zeroize + ZeroizeOnDrop.
       - Every secret type has a manually implemented redacted Debug.
@@ -193,14 +193,14 @@ roles:
   ffi:
     kind: builder
     title: FFI Agent
-    crate: crates/arcanum-ffi
+    crate: crates/meissnerseal-ffi
     reads:
       - "specs/crypto/crypto_design.md (§3 — FFI and Flutter plaintext minimization)"
       - docs/adr/ADR-004-handle-lease-ffi.md
     before: >
       Write a test that plaintext is inaccessible after lease expiry, and a test
       that release_secret_view clears the backing memory, before the implementation.
-    checks_extra: [cargo +nightly miri test -p arcanum-ffi]
+    checks_extra: [cargo +nightly miri test -p meissnerseal-ffi]
     rules:
       - Default model is handle-and-lease — Dart receives VaultSessionHandle or SecretViewHandle, not plaintext.
       - Every unsafe block has a // SAFETY: comment explaining soundness.
@@ -212,7 +212,7 @@ roles:
   cli:
     kind: builder
     title: CLI Agent
-    crate: crates/arcanum-cli
+    crate: crates/meissnerseal-cli
     reads:
       - "specs/protocol/vault_format_v1.md (file extensions section)"
       - "specs/protocol/recovery_kit_v1.md (recovery flow)"
@@ -231,7 +231,7 @@ roles:
   sync:
     kind: builder
     title: Sync Server Agent
-    crate: crates/arcanum-sync-server
+    crate: crates/meissnerseal-sync-server
     reads: [specs/protocol/sync_profile_v1.md]
     before: >
       Write tests confirming server logs contain no secret values and that
@@ -375,7 +375,7 @@ roles:
       **Findings** — Primary only (max 5 unless exhaustive requested), ordered by
       severity. Each: location, CWE number, description, severity (Critical/High/
       Medium). CWE numbers mandatory — see docs/security/standards_conformance.md §7.
-      Example: `crates/arcanum-crypto/src/lib.rs:42 | CWE-323 | Nonce reused across encrypt calls | Critical`
+      Example: `crates/meissnerseal-crypto/src/lib.rs:42 | CWE-323 | Nonce reused across encrypt calls | Critical`
       **Approval Recommendation** — one word from the vocabulary + one sentence.
       **Residual Risks** — risks remaining after approval; blocking or non-blocking.
     done: >
@@ -415,9 +415,9 @@ roles:
 
 ## 3. Worked example (TV-1, Test Vector Agent)
 
-Rendering the `testvector` role with the task from `arcanum-ops` produces:
+Rendering the `testvector` role with the task from `meissnerseal-ops` produces:
 
-> You are acting as Test Vector Agent in the Arcanum project.
+> You are acting as Test Vector Agent in the MeissnerSeal project.
 >
 > Read first, in order: AGENTS.md, docs/security/security_engineering_protocol.md,
 > test-vectors/README.md, specs/crypto/crypto_design.md (for the profile being

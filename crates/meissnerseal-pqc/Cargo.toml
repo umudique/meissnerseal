@@ -1,0 +1,19 @@
+[package]
+name = "meissnerseal-pqc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+meissnerseal-crypto.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["thiserror", "meissnerseal-crypto", "hkdf", "sha2", "zeroize"]

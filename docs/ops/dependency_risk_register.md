@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Arcanum Dependency Risk Register
+# MeissnerSeal Dependency Risk Register
 
 **Update policy:** Review cryptographic dependencies on every version bump.
 Review all dependencies monthly during active development.

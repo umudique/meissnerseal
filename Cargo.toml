@@ -1,30 +1,30 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/arcanum-core",
-    "crates/arcanum-crypto",
-    "crates/arcanum-pqc",
-    "crates/arcanum-ffi",
-    "crates/arcanum-security",
-    "crates/arcanum-cli",
-    "crates/arcanum-sync-server",
+    "crates/meissnerseal-core",
+    "crates/meissnerseal-crypto",
+    "crates/meissnerseal-pqc",
+    "crates/meissnerseal-ffi",
+    "crates/meissnerseal-security",
+    "crates/meissnerseal-cli",
+    "crates/meissnerseal-sync-server",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Arcanum Contributors"]
+authors = ["MeissnerSeal Contributors"]
 license = "Apache-2.0"
-repository = "https://github.com/umudique/arcanum"
+repository = "https://github.com/umudique/meissnerseal"
 
 [workspace.dependencies]
 # Internal workspace crates — versioned to satisfy cargo-deny wildcard check
-arcanum-crypto      = { path = "crates/arcanum-crypto",      version = "0.1.0" }
-arcanum-pqc         = { path = "crates/arcanum-pqc",         version = "0.1.0" }
-arcanum-security    = { path = "crates/arcanum-security",    version = "0.1.0" }
-arcanum-core        = { path = "crates/arcanum-core",        version = "0.1.0" }
-arcanum-ffi         = { path = "crates/arcanum-ffi",         version = "0.1.0" }
-arcanum-sync-server = { path = "crates/arcanum-sync-server", version = "0.1.0" }
+meissnerseal-crypto      = { path = "crates/meissnerseal-crypto",      version = "0.1.0" }
+meissnerseal-pqc         = { path = "crates/meissnerseal-pqc",         version = "0.1.0" }
+meissnerseal-security    = { path = "crates/meissnerseal-security",    version = "0.1.0" }
+meissnerseal-core        = { path = "crates/meissnerseal-core",        version = "0.1.0" }
+meissnerseal-ffi         = { path = "crates/meissnerseal-ffi",         version = "0.1.0" }
+meissnerseal-sync-server = { path = "crates/meissnerseal-sync-server", version = "0.1.0" }
 
 # Cryptography
 argon2 = "0.5"

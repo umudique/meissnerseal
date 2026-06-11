@@ -17,19 +17,19 @@
         "argon2_version": "0x13"
       },
       "expected": {
-        "argon2_salt": "617263616e756d2d6172676f6e3269642d73616c742d76310102030405060708090a0b0c0d0e0f10",
-        "master_unlock_key": "aa0897fcfbed25db54507b64afb3bc7b46ead8bedda6ad6cdd6ddf01f6a98ccd"
+        "argon2_salt": "6d656973736e65727365616c2d6172676f6e3269642d73616c742d76310102030405060708090a0b0c0d0e0f10",
+        "master_unlock_key": "f31c08b32bfd5223e284395ddcd6b3377837bf0f2f051073d692dabc44370bff"
       }
     },
     {
       "id": "vkek-derivation",
       "description": "Vault Key Encryption Key from MUK",
       "inputs": {
-        "master_unlock_key": "aa0897fcfbed25db54507b64afb3bc7b46ead8bedda6ad6cdd6ddf01f6a98ccd",
+        "master_unlock_key": "f31c08b32bfd5223e284395ddcd6b3377837bf0f2f051073d692dabc44370bff",
         "vault_id": "0102030405060708090a0b0c0d0e0f10"
       },
       "expected": {
-        "vault_key_encryption_key": "5172a4ac42a7ac7328c37d4adbc9817e50a54c008fa28455ee94cdc166cf420f"
+        "vault_key_encryption_key": "59a4e5d035d78c5b941db4145cf5fe26dc1f08101d8725ea4f52de843c006e66"
       }
     },
     {
@@ -41,25 +41,25 @@
         "header_nonce": "010203040506070809101112131415161718192021222324"
       },
       "expected": {
-        "root_prk": "24034e17118240323a71f8d880ad3356fa1ba304ea9a7a26945e4708bebec8f9"
+        "root_prk": "7abb746c40400de853be639b16fa26fbbf5d1ebafc8688143849eaa4970fa242"
       }
     },
     {
       "id": "subkey-derivation",
       "description": "All domain-separated subkeys from root PRK",
       "inputs": {
-        "root_prk": "24034e17118240323a71f8d880ad3356fa1ba304ea9a7a26945e4708bebec8f9",
+        "root_prk": "7abb746c40400de853be639b16fa26fbbf5d1ebafc8688143849eaa4970fa242",
         "vault_id": "0102030405060708090a0b0c0d0e0f10",
         "aead_id": 1
       },
       "expected": {
-        "item_key_wrapping_key": "39bf9e28a90306246f0bfc3cb8192cd9c362a70825247739875cf57b54611389",
-        "metadata_encryption_key": "b6d170e1b7440e079d06c02e40087744b4d45b37cc9cfef36131e64452b5ea58",
-        "local_audit_event_key": "0418f4ab3c08618fc93e2fd9bbd735da11e83f3c5fe8015e33d28909c30d5707",
-        "sync_envelope_key": "10f22977a2523a2be97aa925945fe5579c2690f74372fd0be5cc57f9d211d4d7",
-        "device_enrollment_key": "68a1a9cf2c3496780d5ba6a039a05a2cdf465b896b7d4cd6be85c0449921fbf7",
-        "recovery_wrapping_key": "d744692d9a7d186cd841002b86ddd55aa65f52364f2f78f42f12451ab16ab335",
-        "export_bundle_key": "c282425b3d6f6e7eea0f02c63f7a9304a4456e478e881bcc9a8e1f72384fe0c1"
+        "item_key_wrapping_key": "9307e50425f2adb502c69fc55d578940fb4160e1fe2d23662c7ce48266cc5b53",
+        "metadata_encryption_key": "03bdb5904126a7c8d74483e653e53a8aefc662349b7839602206884279fb17b7",
+        "local_audit_event_key": "b6ba5565fcf8ada7d40957746a8b33109216e9cf3e74bfd4453fa93886f8cff3",
+        "sync_envelope_key": "9dd577fc9d2f12c441a72b31d4ff5240c1765b078b810163a5afb7eb5495b6fa",
+        "device_enrollment_key": "1deed5d6c1b5ebed4c99aa3002e065b61997cabbe92fb84cbd3c1cbca0f393db",
+        "recovery_wrapping_key": "d5df32fd2ae8184b03ab4d12fe90f1e5a7e6387fa1c89a87d9002ec27b32d1f1",
+        "export_bundle_key": "394d87986c76dbeae56d6ff8f4c23e7b83b7d26ec805a6810275413755f0d968"
       }
     }
   ]

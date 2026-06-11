@@ -94,91 +94,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "arcanum-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arcanum-core",
- "arcanum-security",
- "clap",
- "rpassword",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-core"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "arcanum-pqc",
- "arcanum-security",
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-crypto"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "chacha20poly1305",
- "hkdf",
- "rand",
- "serde_json",
- "sha2",
- "subtle",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-ffi"
-version = "0.1.0"
-dependencies = [
- "arcanum-core",
- "arcanum-security",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-pqc"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "hkdf",
- "sha2",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-security"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-sync-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arcanum-core",
- "arcanum-crypto",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -575,6 +490,91 @@ name = "log"
 version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
+
+[[package]]
+name = "meissnerseal-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meissnerseal-core",
+ "meissnerseal-security",
+ "rpassword",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-core"
+version = "0.1.0"
+dependencies = [
+ "meissnerseal-crypto",
+ "meissnerseal-pqc",
+ "meissnerseal-security",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-crypto"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "chacha20poly1305",
+ "hkdf",
+ "rand",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-ffi"
+version = "0.1.0"
+dependencies = [
+ "meissnerseal-core",
+ "meissnerseal-security",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-pqc"
+version = "0.1.0"
+dependencies = [
+ "hkdf",
+ "meissnerseal-crypto",
+ "sha2",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-security"
+version = "0.1.0"
+dependencies = [
+ "meissnerseal-crypto",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-sync-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "meissnerseal-core",
+ "meissnerseal-crypto",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "memchr"

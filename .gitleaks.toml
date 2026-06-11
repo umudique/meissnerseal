@@ -1,4 +1,4 @@
-# Gitleaks configuration for Arcanum
+# Gitleaks configuration for MeissnerSeal
 #
 # test-vectors/ contains deliberately computed cryptographic outputs (hex-encoded
 # keys, salts, ciphertexts) derived from non-real test inputs. These are test

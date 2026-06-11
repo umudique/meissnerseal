@@ -1,4 +1,4 @@
-# Arcanum test vector cross-verification dependencies
+# MeissnerSeal test vector cross-verification dependencies
 #
 # Install: pip install -r requirements.txt
 

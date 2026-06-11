@@ -1,4 +1,4 @@
-# Arcanum — Agent Reference
+# MeissnerSeal — Agent Reference
 
 **Read this file first. Every agent reads this before anything else.**
 
@@ -6,9 +6,9 @@
 
 ## 1. Project
 
-Arcanum is a local-first critical secrets vault with hybrid post-quantum-ready
+MeissnerSeal is a local-first critical secrets vault with hybrid post-quantum-ready
 transfer. It stores seed phrases, SSH keys, API tokens, and other secrets that
-are difficult or impossible to rotate. A bug in Arcanum can cause permanent,
+are difficult or impossible to rotate. A bug in MeissnerSeal can cause permanent,
 unrecoverable data loss or secret exposure.
 
 There is no experienced security engineer reviewing every line in real time.
@@ -19,38 +19,38 @@ The protocols and tools in this file are the substitute.
 ## 2. Crate Map
 
 ```
-arcanum-crypto/       Cryptographic primitives only.
+meissnerseal-crypto/       Cryptographic primitives only.
                       Argon2id, XChaCha20-Poly1305, HKDF, RNG.
                       No application logic.
                       API Status: Unstable
 
-arcanum-pqc/          Post-quantum primitives only.
+meissnerseal-pqc/          Post-quantum primitives only.
                       ML-KEM-768, ML-DSA, hybrid key derivation.
                       No application logic.
                       API Status: Unstable
 
-arcanum-security/     Secret lifecycle enforcement.
+meissnerseal-security/     Secret lifecycle enforcement.
                       Zeroization, redaction, hardware adapter,
                       session policy, audit guard.
                       API Status: Unstable
 
-arcanum-core/         Vault engine, item store, transfer protocol,
+meissnerseal-core/         Vault engine, item store, transfer protocol,
                       sync protocol, device manager, recovery manager.
-                      Calls arcanum-crypto and arcanum-pqc.
+                      Calls meissnerseal-crypto and meissnerseal-pqc.
                       Never implements crypto directly.
                       API Status: Unstable
 
-arcanum-ffi/          FFI boundary to Flutter/Dart.
+meissnerseal-ffi/          FFI boundary to Flutter/Dart.
                       Handle-and-lease model only.
                       Exposes VaultSessionHandle, SecretViewHandle.
                       API Status: Unstable
 
-arcanum-cli/          Developer CLI binary (arcanum).
+meissnerseal-cli/          Developer CLI binary (meissnerseal).
                       No plaintext secrets in argv.
                       Secret input via stdin, prompt, or file descriptor.
                       API Status: Unstable
 
-arcanum-sync-server/  Encrypted blob relay.
+meissnerseal-sync-server/  Encrypted blob relay.
                       Zero plaintext access.
                       Device-signed request authentication.
                       API Status: Unstable
@@ -110,7 +110,7 @@ CRYPTO (see also: docs/security/standards_conformance.md — CNSA 2.0 §2)
   [ ] No caller-supplied nonces outside test modules
   [ ] No == comparison on secret values — use subtle::ConstantTimeEq
   [ ] Fixed-length crypto values use Key<N> types, never raw [u8;N] or Vec<u8>
-  [ ] Every security-critical fn in arcanum-crypto has a #[cfg(kani)] harness
+  [ ] Every security-critical fn in meissnerseal-crypto has a #[cfg(kani)] harness
   [ ] New algorithm selections checked against CNSA 2.0 mapping table before adoption
 
 MATHEMATICAL VERIFICATION (see ADR-015, docs/development/mathematical_verification.md)
@@ -140,7 +140,7 @@ PROTOCOL
 
 UNSAFE RUST
   [ ] Every unsafe block has a // SAFETY: comment explaining why it is sound
-  [ ] No unsafe in arcanum-crypto or arcanum-pqc without maintainer review
+  [ ] No unsafe in meissnerseal-crypto or meissnerseal-pqc without maintainer review
   [ ] cargo geiger output is reviewed on every unsafe addition
 
 SCOPE
@@ -173,8 +173,8 @@ cargo test --workspace
 cargo audit
 ```
 
-Additional tools for cryptographic crates (arcanum-crypto, arcanum-pqc,
-arcanum-security, arcanum-ffi):
+Additional tools for cryptographic crates (meissnerseal-crypto, meissnerseal-pqc,
+meissnerseal-security, meissnerseal-ffi):
 
 ```bash
 # Undefined behavior detection
@@ -271,13 +271,13 @@ docs/adr/                              → architecture decisions
 Full prompts are in `docs/agents/AGENT_PROMPT_TEMPLATE.md`.
 
 ```
-Crypto Agent          arcanum-crypto only
-PQC Agent             arcanum-pqc only
-Core Agent            arcanum-core only
-Security Agent        arcanum-security only
-FFI Agent             arcanum-ffi only
-CLI Agent             arcanum-cli only
-Sync Server Agent     arcanum-sync-server only
+Crypto Agent          meissnerseal-crypto only
+PQC Agent             meissnerseal-pqc only
+Core Agent            meissnerseal-core only
+Security Agent        meissnerseal-security only
+FFI Agent             meissnerseal-ffi only
+CLI Agent             meissnerseal-cli only
+Sync Server Agent     meissnerseal-sync-server only
 Fuzz Agent            fuzz/fuzz_targets/ only
 Test Vector Agent     test-vectors/ only
 Spec Agent            specs/ and docs/ only — no code
@@ -295,11 +295,11 @@ This declaration is verified against `git diff` when the task ends.
 
 ```
 SCOPE DECLARATION
-  Will modify:    crates/arcanum-crypto/src/aead.rs
-                  crates/arcanum-crypto/src/lib.rs
+  Will modify:    crates/meissnerseal-crypto/src/aead.rs
+                  crates/meissnerseal-crypto/src/lib.rs
   Will read:      specs/crypto/crypto_design.md
-                  crates/arcanum-crypto/CONTRACT.md
-  Will NOT touch: crates/arcanum-core/**
+                  crates/meissnerseal-crypto/CONTRACT.md
+  Will NOT touch: crates/meissnerseal-core/**
                   specs/**
                   docs/**
 ```
@@ -317,17 +317,17 @@ have `API Status: Stable` in their CONTRACT.md.
 ```
 Dependency order:
 
-  arcanum-crypto    must be Stable before:
-                      arcanum-pqc, arcanum-security start
+  meissnerseal-crypto    must be Stable before:
+                      meissnerseal-pqc, meissnerseal-security start
 
-  arcanum-pqc       must be Stable before:
-                      arcanum-core starts (transfer module)
+  meissnerseal-pqc       must be Stable before:
+                      meissnerseal-core starts (transfer module)
 
-  arcanum-security  must be Stable before:
-                      arcanum-core, arcanum-ffi start
+  meissnerseal-security  must be Stable before:
+                      meissnerseal-core, meissnerseal-ffi start
 
-  arcanum-core      must be Stable before:
-                      arcanum-ffi, arcanum-cli, arcanum-sync-server start
+  meissnerseal-core      must be Stable before:
+                      meissnerseal-ffi, meissnerseal-cli, meissnerseal-sync-server start
 ```
 
 To mark a crate Stable, update its CONTRACT.md header:
@@ -400,7 +400,7 @@ Full crate lifecycle:
 ```
 
 MVP-0 complete gate: Consistency Agent runs across the full repository
-(arcanum-crypto + arcanum-security + arcanum-core) before MVP-0 is declared done.
+(meissnerseal-crypto + meissnerseal-security + meissnerseal-core) before MVP-0 is declared done.
 
 ---
 

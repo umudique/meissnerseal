@@ -1,6 +1,6 @@
-# Contributing to Arcanum
+# Contributing to MeissnerSeal
 
-Arcanum is a security-critical project. Contributions are welcome but must meet
+MeissnerSeal is a security-critical project. Contributions are welcome but must meet
 higher-than-average scrutiny for correctness, security, and test coverage.
 
 ---
@@ -19,7 +19,7 @@ higher-than-average scrutiny for correctness, security, and test coverage.
 ### Cryptographic code
 
 - Never implement cryptographic primitives from scratch
-- All changes to `arcanum-crypto` or `arcanum-pqc` require explicit review
+- All changes to `meissnerseal-crypto` or `meissnerseal-pqc` require explicit review
   from a maintainer with cryptographic background
 - New cryptographic operations require test vectors
 - New AEAD usages require nonce policy review
@@ -40,7 +40,7 @@ higher-than-average scrutiny for correctness, security, and test coverage.
 ### FFI changes
 
 - FFI memory ownership must be explicit and auditable
-- Changes to `arcanum-ffi` require review of lifetime and cleanup semantics
+- Changes to `meissnerseal-ffi` require review of lifetime and cleanup semantics
 - Dart/Flutter code must not store plaintext in widget state, providers, or route args
 
 ---
