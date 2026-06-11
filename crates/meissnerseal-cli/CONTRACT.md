@@ -17,9 +17,9 @@ meissnerseal list <PATH>              — list item IDs and types (no secret val
 meissnerseal get <item-id> --vault PATH
                                  — retrieve item (secret to stdout after NOTE line)
 meissnerseal export --output PATH --vault PATH
-                                 — export encrypted .arcexp bundle
+                                 — export encrypted .msexp bundle
 meissnerseal import --input PATH --vault PATH
-                                 — import encrypted .arcexp bundle
+                                 — import encrypted .msexp bundle
 meissnerseal lock                     — lock vault session
 ```
 
@@ -51,7 +51,7 @@ These commands parse correctly but return an error at runtime until wired.
 [G-02] meissnerseal list and meissnerseal get --list never print secret field values.
        Only item_id, item_type, and label are shown.
 
-[G-03] meissnerseal export produces an encrypted .arcexp bundle by default.
+[G-03] meissnerseal export produces an encrypted .msexp bundle by default.
        The export passphrase is required and not stored.
 
 [G-04] meissnerseal import --unsafe-plaintext emits a prominent warning that

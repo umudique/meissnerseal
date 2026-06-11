@@ -297,11 +297,11 @@ Any future variable-length field must include explicit length prefix and new sch
 
 ## 8. Crash-Safe Write Strategy
 
-The temporary file must be a per-call-unique sibling of the final `.arcv` path
-(F-12/F-15). A fixed shared name such as `.arcv.tmp` is permitted only as a
+The temporary file must be a per-call-unique sibling of the final `.msv` path
+(F-12/F-15). A fixed shared name such as `.msv.tmp` is permitted only as a
 non-normative example; it must not be the required name. One valid construction
 is a suffix derived from the CSPRNG-backed WrappedRootKey `record_id`, for
-example `vault.<hex(record_id)>.arcv.tmp`, in the same parent directory as the
+example `vault.<hex(record_id)>.msv.tmp`, in the same parent directory as the
 final vault file.
 
 ```
@@ -309,9 +309,9 @@ final vault file.
 2. Encrypt updated records and re-seal the record table under MEK
 3. Write to a per-call-unique sibling temporary file
 4. fsync the temporary file
-5. Atomic rename the temporary file to the final .arcv path
+5. Atomic rename the temporary file to the final .msv path
 6. fsync parent directory (where supported)
-7. Keep .arcv.bak if backup enabled
+7. Keep .msv.bak if backup enabled
 ```
 
 On `SCHEMA_ARCANUM_RECORDS_V2` mutation, the whole table is re-sealed under MEK.
@@ -327,8 +327,8 @@ foreign final path or a foreign temporary file.
 
 | Extension | Purpose |
 |---|---|
-| `.arcv` | Vault file |
-| `.arcexp` | Encrypted export bundle |
+| `.msv` | Vault file |
+| `.msexp` | Encrypted export bundle |
 
 ---
 

@@ -1,9 +1,9 @@
-# Arcanum Security Lab
+# MeissnerSeal Security Lab
 
 **Status:** Skeleton — activates after MVP-2
 
 The security lab is a controlled environment for conducting, observing, and
-documenting adversarial tests against the Arcanum implementation.
+documenting adversarial tests against the MeissnerSeal implementation.
 Every test is a scientific observation: hypothesis, method, result, conclusion.
 
 ---
@@ -12,7 +12,7 @@ Every test is a scientific observation: hypothesis, method, result, conclusion.
 
 The lab activates when:
 - MVP-2 (Transfer Protocol) is complete and stable
-- arcanum-crypto and arcanum-pqc pass all static tools and Miri
+- meissnerseal-crypto and meissnerseal-pqc pass all static tools and Miri
 - A QEMU environment with the built binary can be provisioned
 
 Before MVP-2, this directory holds the scenario templates only.

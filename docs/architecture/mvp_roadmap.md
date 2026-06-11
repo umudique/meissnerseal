@@ -46,7 +46,7 @@ The strongest early demo is:
 - Item types: Password, SeedPhrase, SshPrivateKey, ApiToken, SecureNote
 - CLI: `meissnerseal init|add|list|get|export|import|lock`
 - CLI operational safety: no plaintext in argv, stdin/prompt/fd input
-- Encrypted `.arcexp` export/import by default
+- Encrypted `.msexp` export/import by default
 - Unit tests, property-based tests, test vectors
 - Initial threat model and cryptographic design document
 
@@ -70,7 +70,7 @@ The strongest early demo is:
 - Rust core through FFI with handle-and-lease model
 - Secret item creation/editing, encrypted file attachments
 - Clipboard timeout, auto-lock, local search
-- Encrypted vault backup/export using `.arcexp`
+- Encrypted vault backup/export using `.msexp`
 - Signed development builds, alpha banner
 - Crash-safe write strategy
 

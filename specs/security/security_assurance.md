@@ -41,7 +41,7 @@ Every high-risk security claim maps to:
 | HKDF domain separation | Key confusion, cross-context reuse | Key Manager | Info-string registry tests | MVP-0 | HKDF registry |
 | Recovery kit encoding | Transcription errors | Recovery Manager | Bech32m tests, vectors | MVP-1 | `recovery_kit_v1.md` |
 | Recovery kit theft mitigation | Physical adversary | Recovery Manager, UX | UX warning review, passphrase option tests | MVP-1 | Recovery kit spec |
-| Export bundle encryption | `.arcexp` theft from disk | CLI, Vault Engine | Export/import vectors, passphrase derivation tests | MVP-0/1 | `.arcexp` format spec |
+| Export bundle encryption | `.msexp` theft from disk | CLI, Vault Engine | Export/import vectors, passphrase derivation tests | MVP-0/1 | `.msexp` format spec |
 | Transfer transcript binding | MITM, downgrade | Transfer Protocol | Vectors, ProVerif model | MVP-2 | Transfer spec |
 | X25519 + ML-KEM hybrid | Harvest-now attack | PQC Provider | Vectors, protocol review | MVP-2 | Hybrid profile doc |
 | Relay TTL + payload policy | Relay abuse, metadata overexposure | Relay Service | API tests, rate-limit tests | MVP-2/5 | Relay threat model |

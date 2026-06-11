@@ -126,7 +126,7 @@ recovery::  [MVP-1 — ADR-010]
        recovery-wrap, export-bundle.
 
 [P-05] export:: export/import passphrase must be non-empty user-supplied
-       secret material for the .arcexp bundle. It is independent from vault
+       secret material for the .msexp bundle. It is independent from vault
        master passwords and vault-internal HKDF subkeys.
 ```
 

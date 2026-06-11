@@ -1,18 +1,18 @@
-# GDB Procedures for Arcanum Security Lab
+# GDB Procedures for MeissnerSeal Security Lab
 
 **Status:** Skeleton — fill before first lab activation (MVP-2)
 
 ## Memory Inspection After Session Lock
 
 ```gdb
-# Attach to running arcanum process
+# Attach to running meissnerseal process
 gdb -p <pid>
 
 # Inspect memory region of VaultSession
 # [procedure to be documented after implementation]
 
 # Dump memory to file for analysis
-dump memory /tmp/arcanum-memdump.bin 0xADDRESS 0xADDRESS+0x1000
+dump memory /tmp/meissnerseal-memdump.bin 0xADDRESS 0xADDRESS+0x1000
 ```
 
 ## Zeroization Verification (Scenario 009)

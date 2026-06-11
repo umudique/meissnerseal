@@ -27,7 +27,7 @@ struct Cli {
 enum Commands {
     /// Initialize a new vault
     Init {
-        /// Path to the .arcv vault file to create
+        /// Path to the .msv vault file to create
         path: PathBuf,
     },
     /// Add a secret item (secret value via hidden prompt, never argv)
@@ -38,38 +38,38 @@ enum Commands {
         /// Item kind: password, seed-phrase, ssh-key, api-token, secure-note
         #[arg(long)]
         kind: String,
-        /// Path to the .arcv vault file to open
+        /// Path to the .msv vault file to open
         #[arg(long)]
         vault: PathBuf,
     },
     /// List item IDs and types (no secret values)
     List {
-        /// Path to the .arcv vault file to open
+        /// Path to the .msv vault file to open
         vault: PathBuf,
     },
     /// Retrieve a secret item (secret is printed to stdout after a NOTE line)
     Get {
         /// Opaque 32-character hex item id (from `meissnerseal list`)
         item_id: String,
-        /// Path to the .arcv vault file to open
+        /// Path to the .msv vault file to open
         #[arg(long)]
         vault: PathBuf,
     },
-    /// Export an encrypted .arcexp bundle
+    /// Export an encrypted .msexp bundle
     Export {
-        /// Destination path for the encrypted .arcexp bundle
+        /// Destination path for the encrypted .msexp bundle
         #[arg(long)]
         output: PathBuf,
-        /// Path to the .arcv vault file to open
+        /// Path to the .msv vault file to open
         #[arg(long)]
         vault: PathBuf,
     },
-    /// Import an encrypted .arcexp bundle
+    /// Import an encrypted .msexp bundle
     Import {
-        /// Source path of the encrypted .arcexp bundle
+        /// Source path of the encrypted .msexp bundle
         #[arg(long)]
         input: PathBuf,
-        /// Path to the .arcv vault file to open
+        /// Path to the .msv vault file to open
         #[arg(long)]
         vault: PathBuf,
     },
@@ -381,7 +381,7 @@ mod tests {
         let result = Cli::try_parse_from([
             "meissnerseal",
             "init",
-            "/tmp/test-vault.arcv",
+            "/tmp/test-vault.msv",
             "plaintext-password-never-real",
         ]);
 
@@ -400,7 +400,7 @@ mod tests {
             "--kind",
             "api-token",
             "--vault",
-            "/tmp/test-vault.arcv",
+            "/tmp/test-vault.msv",
             "plaintext-secret-never-real",
         ]);
         assert!(positional.is_err());
@@ -413,7 +413,7 @@ mod tests {
             "--kind",
             "api-token",
             "--vault",
-            "/tmp/test-vault.arcv",
+            "/tmp/test-vault.msv",
             "--secret",
             "plaintext-secret-never-real",
         ]);
@@ -602,7 +602,7 @@ mod tests {
             .as_nanos();
         std::env::temp_dir() // nosemgrep: rust.lang.security.temp-dir.temp-dir
             .join(format!(
-                "meissnerseal-{label}-{}-{now}.arcv",
+                "meissnerseal-{label}-{}-{now}.msv",
                 std::process::id()
             ))
     }

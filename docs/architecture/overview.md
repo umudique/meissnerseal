@@ -68,7 +68,7 @@ MeissnerSeal is a local-first critical secrets vault and secure transfer platfor
 │        ┌─────────┐   ┌────────────┐  ┌──────────┐             │
 │        │  Vault  │   │  Local DB  │  │  Sync    │             │
 │        │  File   │   │  (SQLite)  │  │  Server  │             │
-│        │(.arcv)  │   │            │  │          │             │
+│        │(.msv)  │   │            │  │          │             │
 │        └─────────┘   └────────────┘  └──────────┘             │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -128,7 +128,7 @@ Security Capability Layer
 | Sync Server | Rust or Go | Encrypted blob sync, device registry |
 | Managed Service Layer | Backend services | Billing, accounts, monitoring |
 | Security Assurance Pipeline | CI + tooling | Static analysis, fuzzing, protocol verification, release gates |
-| Local Vault File | Encrypted binary `.arcv` | User secrets at rest |
+| Local Vault File | Encrypted binary `.msv` | User secrets at rest |
 | Local Metadata DB | SQLite | Non-secret indexes, sync state, preferences |
 
 ---

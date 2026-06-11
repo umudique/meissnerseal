@@ -196,7 +196,7 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 ///   from the CSPRNG `record_id` and `revision_id`.
 ///
 /// ## Postconditions
-/// - On success, `path` exists as a durable `.arcv` vault file and no
+/// - On success, `path` exists as a durable `.msv` vault file and no
 ///   temporary file created by this call remains.
 /// - On any serialization, write, fsync, rename, or parent fsync failure,
 ///   returns `Err`, removes the temporary file if present, and leaves no
@@ -225,7 +225,7 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
 /// ## Invariants
 /// - Crash-safe order is exactly:
 ///   serialize header + fixed WRK frame + MEK-sealed table + item frames → write
-///   unique sibling temp → fsync temp → atomic rename to `.arcv` → fsync parent
+///   unique sibling temp → fsync temp → atomic rename to `.msv` → fsync parent
 ///   directory.
 /// - No plaintext password, VaultRootKey, or derived key bytes are written to
 ///   disk, logs, or error messages.
@@ -331,7 +331,7 @@ pub(crate) fn persist_vault_mutation_v2(
 }
 
 fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::PathBuf {
-    path.with_extension(format!("{}.arcv.tmp", hex16(record_id)))
+    path.with_extension(format!("{}.msv.tmp", hex16(record_id)))
 }
 
 fn hex16(bytes: &[u8; 16]) -> String {
@@ -613,7 +613,7 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         path.push(format!(
-            "meissnerseal-core-{label}-{}-{nanos}.arcv",
+            "meissnerseal-core-{label}-{}-{nanos}.msv",
             std::process::id()
         ));
         path
@@ -749,7 +749,7 @@ mod tests {
     #[test]
     fn test_create_rejects_empty_password() {
         let params = CreateVaultParams {
-            path: std::path::PathBuf::from("/tmp/should-not-exist-meissnerseal-test.arcv"),
+            path: std::path::PathBuf::from("/tmp/should-not-exist-meissnerseal-test.msv"),
             password: SecretBytes::new(vec![]),
         };
         assert!(create(params).is_err());
@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn test_unlock_rejects_empty_password() {
         let params = UnlockParams {
-            path: std::path::PathBuf::from("/tmp/does-not-exist-meissnerseal.arcv"),
+            path: std::path::PathBuf::from("/tmp/does-not-exist-meissnerseal.msv"),
             password: SecretBytes::new(vec![]),
         };
         assert!(unlock(params).is_err());
@@ -838,7 +838,7 @@ mod tests {
             "meissnerseal-core-missing-parent-{}-{nanos}",
             std::process::id()
         ));
-        path.push("failure-cleanup.arcv");
+        path.push("failure-cleanup.msv");
         let tmp_path = tmp_path_for(&path);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
@@ -992,7 +992,7 @@ mod tests {
         let _ = std::fs::remove_file(&tmp_path);
     }
 
-    /// A successful create leaves a durable `.arcv` file at the requested path
+    /// A successful create leaves a durable `.msv` file at the requested path
     /// and removes the sibling `.tmp`.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]

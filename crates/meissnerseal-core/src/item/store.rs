@@ -757,7 +757,7 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         path.push(format!(
-            "meissnerseal-core-item-{label}-{}-{nanos}.arcv",
+            "meissnerseal-core-item-{label}-{}-{nanos}.msv",
             std::process::id()
         ));
         path

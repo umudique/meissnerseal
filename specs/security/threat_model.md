@@ -21,8 +21,8 @@
 | API tokens | Critical | Often non-rotatable or costly to rotate |
 | Recovery codes | Critical | Single-use; catastrophic if exposed |
 | Recovery kit | Critical | Offline key material; possession may unlock vault |
-| `.arcexp` export bundles | Critical | Encrypted; passphrase-protected; must not be left unguarded |
-| Encrypted vault file (`.arcv`) | Sensitive | Offline brute-force target without strong KDF |
+| `.msexp` export bundles | Critical | Encrypted; passphrase-protected; must not be left unguarded |
+| Encrypted vault file (`.msv`) | Sensitive | Offline brute-force target without strong KDF |
 | Transfer envelopes (relay) | Sensitive | Opaque to relay; metadata visible |
 | Local metadata DB (SQLite) | Sensitive | Device IDs, sync state, timestamps — metadata leakage risk |
 | Sync metadata (server) | Sensitive | Blob sizes, timestamps, device IDs visible to server |
@@ -76,7 +76,7 @@
 - Timing side-channel leakage in cryptographic boundary
 - Dependency supply-chain compromise
 - Recovery kit theft (printed or file-based)
-- Export bundle (`.arcexp`) theft from disk
+- Export bundle (`.msexp`) theft from disk
 - Browser extension isolation failure (web page attempting native host access)
 - Device pairing MITM (without out-of-band verification)
 - Unauthorized sync commits from revoked devices
@@ -118,7 +118,7 @@ The following are documented limitations, not failures:
 | Clipboard leakage | Local malware | Clipboard timeout + overwrite | UI platform tests |
 | Supply-chain compromise | Supply-chain attacker | cargo-audit, cargo-deny, SBOM, signed releases | CI report, release checklist |
 | Recovery kit theft | Physical adversary | Argon2id passphrase hardening (optional) + user warning | Recovery kit spec, UX review |
-| Export bundle theft | Physical / malware | Encrypted `.arcexp` by default, passphrase required | Export vector tests |
+| Export bundle theft | Physical / malware | Encrypted `.msexp` by default, passphrase required | Export vector tests |
 | Browser isolation failure | Malicious extension | Extension ID allowlist in native host | Native messaging parser tests |
 | Device pairing MITM | Network attacker | QR/OOB fingerprint verification, signed transcript | Pairing spec, Tamarin model |
 | Revoked device access | Compromised device | Signed revocation event + sync key rotation | Revocation tests, TLA+ model |
@@ -137,8 +137,8 @@ and where possible mitigated in the product:
 | User loses master password with no recovery kit | Vault permanently unrecoverable | Prominent recovery kit creation prompt at init; repeated reminders |
 | User stores recovery kit digitally without encryption | Kit becomes a single point of failure | Warn during kit generation; recommend offline physical storage |
 | User uses same recovery kit across multiple vaults | Single kit compromise unlocks all vaults | Each vault generates its own `recovery_id`; kits are vault-specific |
-| User forgets `.arcexp` export bundle passphrase | Export data unrecoverable | Warn that export passphrase is separate and not stored |
-| User leaves `.arcexp` bundle in cloud storage | Encrypted, but increases attack surface | Warn during export; recommend immediate deletion after use |
+| User forgets `.msexp` export bundle passphrase | Export data unrecoverable | Warn that export passphrase is separate and not stored |
+| User leaves `.msexp` bundle in cloud storage | Encrypted, but increases attack surface | Warn during export; recommend immediate deletion after use |
 | User approves a device without verifying OOB fingerprint | TOFU pairing; weaker security | Label clearly as "unverified pairing" in UI; recommend QR |
 | Developer uses `--unsafe-plaintext` import in production | Plaintext secrets written to disk | Flag requires explicit confirmation; warning cannot be suppressed |
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Encrypted `.arcexp` export/import surface.
+//! Encrypted `.msexp` export/import surface.
 
 use meissnerseal_crypto::{
     aead::{decrypt, encrypt, Ciphertext},
@@ -43,7 +43,7 @@ const MIN_BUNDLE_LEN: usize = MAGIC_LEN
     + NONCE_LEN
     + CIPHERTEXT_LEN_FIELD;
 
-/// Export the live item set from an unlocked vault into an encrypted `.arcexp`
+/// Export the live item set from an unlocked vault into an encrypted `.msexp`
 /// bundle protected by a user-supplied export passphrase.
 ///
 /// # Contract
@@ -58,7 +58,7 @@ const MIN_BUNDLE_LEN: usize = MAGIC_LEN
 ///   Encryption Key, and every live item record authenticates before inclusion.
 ///
 /// ## Postconditions
-/// - On success, returns a versioned `.arcexp` byte container:
+/// - On success, returns a versioned `.msexp` byte container:
 ///   `ARCEXP_MAGIC[8] || version:u16le || source_vault_id[16] ||
 ///   kdf_params_len:u32le || kdf_params[N] || nonce[24] ||
 ///   ciphertext_len:u32le || ciphertext_and_tag`.
@@ -105,7 +105,7 @@ pub fn export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>> {
     )
 }
 
-/// Import an encrypted `.arcexp` bundle into an unlocked vault using the
+/// Import an encrypted `.msexp` bundle into an unlocked vault using the
 /// user-supplied export passphrase.
 ///
 /// # Contract
@@ -473,7 +473,7 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         path.push(format!(
-            "meissnerseal-core-export-{label}-{}-{nanos}.arcv",
+            "meissnerseal-core-export-{label}-{}-{nanos}.msv",
             std::process::id()
         ));
         path

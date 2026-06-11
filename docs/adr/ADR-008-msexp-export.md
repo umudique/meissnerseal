@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# ADR-008: Encrypted .arcexp as Default Export Format
+# ADR-008: Encrypted .msexp as Default Export Format
 
 **Date:** 2025-06
 **Status:** Accepted
@@ -11,7 +11,7 @@ Plaintext JSON/CSV exports are a common security failure mode in secrets managem
 
 ## Decision
 
-The default export format is an encrypted `.arcexp` bundle protected by a
+The default export format is an encrypted `.msexp` bundle protected by a
 user-supplied export passphrase, derived via KDF_ARGON2ID_V1.
 
 Plaintext JSON/CSV import is allowed only as an explicitly unsafe development
@@ -20,13 +20,13 @@ and testing path, behind a mandatory unsafe flag and warning.
 ## Rationale
 
 - Encrypted-by-default prevents accidental plaintext backup leakage
-- `.arcexp` extension is clearly MeissnerSeal-specific; not confused with vault files (`.arcv`)
+- `.msexp` extension is clearly MeissnerSeal-specific; not confused with vault files (`.msv`)
 - Consistent with the "no plaintext to disk" principle
 - Developers legitimately need to import test fixtures — allowed with explicit warning
 
 ## Consequences
 
-- `meissnerseal export` always produces `.arcexp` by default; passphrase required
+- `meissnerseal export` always produces `.msexp` by default; passphrase required
 - `meissnerseal import --unsafe-plaintext` flag required for JSON/CSV; emits loud warning
-- `.arcexp` format uses same AEAD/KDF as vault format; reuses the same TLV structure
+- `.msexp` format uses same AEAD/KDF as vault format; reuses the same TLV structure
 - Export fuzz target added to `fuzz/fuzz_targets/`

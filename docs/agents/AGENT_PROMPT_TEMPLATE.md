@@ -224,7 +224,7 @@ roles:
       - Secret input through hidden prompt (rpassword), --stdin, or file descriptor only.
       - Item retrieval through opaque item ID or interactive selection — not sensitive item names.
       - Help text documents the shell-history leakage risk.
-      - Export produces a .arcexp encrypted bundle by default.
+      - Export produces a .msexp encrypted bundle by default.
       - Plaintext JSON/CSV import only with an explicit --unsafe-plaintext flag + prominent warning.
       - No sensitive data in shell completion suggestions.
 

@@ -280,7 +280,7 @@ FORBIDDEN in any commit message, body, or test fixture:
   Real secret values (passwords, seed phrases, API keys, tokens)
   Real private keys (SSH, GPG, X25519, ML-KEM)
   Internal server addresses, credentials, or database URLs
-  Real vault files or real .arcexp bundles
+  Real vault files or real .msexp bundles
   Personal identifying information of users
 
 REQUIRED:
