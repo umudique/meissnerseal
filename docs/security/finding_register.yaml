@@ -428,11 +428,20 @@ findings:
     description: "meissnerseal-core was marked API Status: Stable (commit fc00bd9) while the crate is NOT MVP-0-complete and its published CONTRACT surface contradicts implementation. (1) Completeness: MVP-0 roadmap scopes item operations (add/list/get backing CLI) + .msexp export/import into meissnerseal-core, but item/store.rs is an empty stub, no item ops exist, and there is no export path. (2) Published surface: CONTRACT publishes transfer::/device::/recovery:: APIs and guarantees G-03 (DeviceTrustState)/G-04 (receive_envelope) that are unimplemented; transfer/device are post-MVP-0 (sync excluded per roadmap), yet the binary crate-level Stable gate (workflow.md §5) would advertise them to Batch-4 dependents (ffi/cli/sync-server). Root cause: the CORE-STABLE milestone was scoped as 'remediate security findings F-01..F-13' (CORE-1..7), which covered only the vault lifecycle — necessary but NOT sufficient for Stable (= MVP-0 completeness)."
     cwe: CWE-1059
     severity: critical
-    blocking: true
-    status: in_progress
-    remediation: "Revert the Stable flip (crate back to Unstable). Re-scope CORE-STABLE to depend on true MVP-0 completeness, not just findings: (a) multi-record persist (generalize the crash-safe path from the single WrappedRootKey record to N records + rewrite-on-mutation); (b) item operations add/list/with_item/update/delete with per-record AAD binding + tombstone delete; (c) .msexp export/import (ADR-008); (d) recovery kit at creation per P-03 (pending ADR-010 reconciliation); (e) table authentication (F-14 pulled in, ADR-TBLAUTH); (f) align CONTRACT published surface to MVP-0 (move transfer::/device:: + G-03/G-04 to an explicit Planned section). Then a security+consistency milestone (GATE-CORE-MVP0) before Stable."
-    verification: "Stable flip reverted (CONTRACT.md API Status: Stable -> Unstable; ADR-025/026 ref refresh retained). CORE workstream reopened in ops with the CORE-MVP0 roadmap (multi-record persist, item ops, export, table-auth, contract-align, milestone gate) gating CORE-STABLE. F-14 reopened (pulled into MVP-0). UPDATE 2026-06-09: both raised items are now DECIDED — (i) recovery kit stays MVP-1 per ADR-010 (decision ADR-REC); CONTRACT P-03 (recovery-at-creation) is the drift and moves to the Planned section in CORE-12 — this SUPERSEDES remediation item (d) 'recovery kit at creation'; recovery is OUT of the MVP-0 published surface (backlog MVP1-REC). (ii) Table authentication decided as ADR-029 (MEK-AEAD sealed table) + ADR-030 (fail-closed schema_profile version policy); spec revision tracked as ADR-TBLAUTH (gates CORE-8). The CONTRACT surface trim itself (move transfer::/device::/recovery:: + P-03/G-03/G-04 to Planned) remains pending work in CORE-12; F-16 stays blocking until that lands."
-    commit: ""
+    blocking: false
+    status: resolved
+    remediation: "Revert the Stable flip (crate back to Unstable). Re-scope CORE-STABLE to depend on true MVP-0 completeness: (a) multi-record persist; (b) item operations; (c) .msexp export/import; (d) recovery kit → superseded, moved to MVP-1 per ADR-010; (e) table authentication (ADR-029); (f) CONTRACT surface trim (move transfer::/device::/recovery:: + G-03/G-04/P-03 to Planned)."
+    verification: >-
+      All six remediation items complete:
+      (a) CORE-8 (05fc067) — MEK-sealed table + multi-record persist.
+      (b) CORE-9 (62b754c) — item ops add/list/with_item/update/delete.
+      (c) export.rs pub fn export/import implemented and tested.
+      (d) Recovery superseded — ADR-010, moved to MVP-1 (backlog MVP1-REC).
+      (e) F-14 resolved — ADR-029 MEK-sealed table.
+      (f) CONTRACT.md Planned section carries transfer::/device::/recovery:: + G-03/G-04/P-03;
+          API Status confirmed Unstable per ADR-025.
+      Remaining blocking item: F-17 (item rejection tests vacuous) — tracked separately.
+    commit: "62b754c"
 
   - id: F-15
     kind: design
