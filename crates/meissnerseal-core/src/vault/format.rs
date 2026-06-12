@@ -114,6 +114,10 @@ impl HeaderKdfParams {
 }
 
 /// Parsed vault header.
+///
+/// No secret material — all fields are public vault metadata from the
+/// unencrypted header. `Debug` is safe and enabled for test tooling.
+#[derive(Debug)]
 pub struct VaultHeader {
     /// 128-bit vault identifier.
     pub vault_id: [u8; 16],
@@ -1579,6 +1583,67 @@ mod proofs {
         // Kani cannot complete in practical time. The rejection behavior is
         // proven by the concrete test test_parse_header_rejects_wrong_magic.
         kani::assert(HEADER_MIN_LEN == 26, "minimum prefix must be 26 bytes");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn arbitrary_header() -> impl Strategy<Value = VaultHeader> {
+        (
+            proptest::array::uniform16(0u8..),
+            proptest::array::uniform::<_, 24>(0u8..),
+            proptest::num::u64::ANY,
+        )
+            .prop_map(|(vault_id, header_nonce, created_at)| VaultHeader {
+                vault_id,
+                created_at,
+                format_version: FORMAT_VERSION,
+                schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
+                aead_profile: 1, // AEAD_XCHACHA20_POLY1305_V1
+                kdf_profile: KDF_ARGON2ID_V1,
+                kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
+                pqc_profile: 0, // PQC_NONE
+                header_nonce,
+            })
+    }
+
+    // Property: serialize_header → serialize_vault_file → parse_header roundtrip.
+    //
+    // parse_header expects magic + prefix + header TLV bytes (serialize_vault_file
+    // output). Serializing header alone is insufficient — the prefix must be present.
+    //
+    // ∀ valid VaultHeader: parse_header(serialize_vault_file(prefix, header, ...))
+    // succeeds and all fields are preserved.
+    proptest! {
+        #[test]
+        fn header_roundtrip(header in arbitrary_header()) {
+            let header_bytes = serialize_header(&header).expect("serialize_header must not fail");
+            let vault_file = serialize_vault_file(&header_bytes, &[], &[])
+                .expect("serialize_vault_file must not fail");
+            let parse_result = parse_header(&vault_file);
+            prop_assert!(parse_result.is_ok(), "parse_header failed: {:?}", parse_result.err());
+            let recovered = parse_result.expect("just checked is_ok");
+            prop_assert!(recovered.vault_id == header.vault_id);
+            prop_assert!(recovered.created_at == header.created_at);
+            prop_assert!(recovered.format_version == header.format_version);
+            prop_assert!(recovered.schema_profile == header.schema_profile);
+            prop_assert!(recovered.aead_profile == header.aead_profile);
+            prop_assert!(recovered.kdf_profile == header.kdf_profile);
+            prop_assert!(recovered.pqc_profile == header.pqc_profile);
+            prop_assert!(recovered.header_nonce == header.header_nonce);
+        }
+
+        // Property: parse_header never panics on arbitrary input.
+        //
+        // ∀ bytes[0..512]: parse_header(bytes) ∈ {Ok, Err} — no panic.
+        #[test]
+        fn parse_header_no_panic(bytes in proptest::collection::vec(0u8.., 0..512)) {
+            let _ = parse_header(&bytes);
+        }
     }
 }
 

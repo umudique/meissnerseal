@@ -233,6 +233,53 @@ mod proofs {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: HKDF extract+expand is deterministic.
+    //
+    // ∀ salt, ikm, info: two calls with identical inputs produce identical output.
+    proptest! {
+        #[test]
+        fn deterministic(
+            salt in proptest::collection::vec(0u8.., 0..64),
+            ikm in proptest::collection::vec(0u8.., 0..64),
+            info in proptest::collection::vec(0u8.., 0..64),
+        ) {
+            let prk1 = extract(&salt, &ikm);
+            let prk2 = extract(&salt, &ikm);
+            let k1: Result<Key<32>> = expand(&prk1, &info);
+            let k2: Result<Key<32>> = expand(&prk2, &info);
+            prop_assert_eq!(k1.is_ok(), k2.is_ok());
+            if let (Ok(k1), Ok(k2)) = (k1, k2) {
+                prop_assert_eq!(k1.as_slice(), k2.as_slice());
+            }
+        }
+
+        // Property: different info strings produce different keys.
+        //
+        // ∀ prk, info1 ≠ info2: expand(prk, info1) ≠ expand(prk, info2)
+        #[test]
+        fn distinct_info_distinct_key(
+            salt in proptest::collection::vec(0u8.., 1..32),
+            ikm in proptest::collection::vec(0u8.., 1..32),
+            info1 in proptest::collection::vec(0u8.., 1..64),
+            info2 in proptest::collection::vec(0u8.., 1..64),
+        ) {
+            prop_assume!(info1 != info2);
+            let prk = extract(&salt, &ikm);
+            let k1: Result<Key<32>> = expand(&prk, &info1);
+            let k2: Result<Key<32>> = expand(&prk, &info2);
+            if let (Ok(k1), Ok(k2)) = (k1, k2) {
+                prop_assert_ne!(k1.as_slice(), k2.as_slice());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;

@@ -195,6 +195,111 @@ pub fn generate_nonce() -> XChaCha20Nonce {
     XChaCha20Nonce::from_bytes(crate::rng::random_nonce_xchacha20())
 }
 
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: encrypt → decrypt roundtrip holds for all inputs.
+    //
+    // ∀ key[32], nonce[24], plaintext (0..512 bytes), aad (0..128 bytes):
+    //   decrypt(encrypt(p, aad, n, k), aad, n, k) == Ok(p)
+    proptest! {
+        #[test]
+        fn roundtrip(
+            key_bytes in proptest::array::uniform32(0u8..),
+            nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
+            plaintext in proptest::collection::vec(0u8.., 0..512),
+            aad in proptest::collection::vec(0u8.., 0..128),
+        ) {
+            let key = AeadKey::from_bytes(key_bytes);
+            let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
+            let ciphertext = encrypt_with_nonce(&key, &nonce, &plaintext, &aad)
+                .expect("encrypt must not fail");
+            let recovered = decrypt(&key, &nonce, &ciphertext, &aad)
+                .expect("decrypt of own ciphertext must succeed");
+            prop_assert_eq!(recovered.as_ref(), plaintext.as_slice());
+        }
+
+        // Property: wrong key → always Err.
+        //
+        // ∀ plaintext, aad, k1 ≠ k2: decrypt(encrypt(p, aad, k1), aad, k2) == Err
+        #[test]
+        fn wrong_key_rejected(
+            key1_bytes in proptest::array::uniform32(0u8..),
+            key2_bytes in proptest::array::uniform32(0u8..),
+            nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
+            plaintext in proptest::collection::vec(0u8.., 1..64),
+            aad in proptest::collection::vec(0u8.., 0..64),
+        ) {
+            prop_assume!(key1_bytes != key2_bytes);
+            let key1 = AeadKey::from_bytes(key1_bytes);
+            let key2 = AeadKey::from_bytes(key2_bytes);
+            let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
+            let ciphertext = encrypt_with_nonce(&key1, &nonce, &plaintext, &aad)
+                .expect("encrypt must not fail");
+            prop_assert!(decrypt(&key2, &nonce, &ciphertext, &aad).is_err());
+        }
+
+        // Property: wrong AAD → always Err.
+        //
+        // ∀ p, k, aad1 ≠ aad2: decrypt(encrypt(p, aad1, k), aad2, k) == Err
+        #[test]
+        fn wrong_aad_rejected(
+            key_bytes in proptest::array::uniform32(0u8..),
+            nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
+            plaintext in proptest::collection::vec(0u8.., 1..64),
+            aad1 in proptest::collection::vec(0u8.., 0..64),
+            aad2 in proptest::collection::vec(0u8.., 0..64),
+        ) {
+            prop_assume!(aad1 != aad2);
+            let key = AeadKey::from_bytes(key_bytes);
+            let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
+            let ciphertext = encrypt_with_nonce(&key, &nonce, &plaintext, &aad1)
+                .expect("encrypt must not fail");
+            prop_assert!(decrypt(&key, &nonce, &ciphertext, &aad2).is_err());
+        }
+
+        // Property: ciphertext length == plaintext length + TAG_LEN.
+        #[test]
+        fn ciphertext_len(
+            key_bytes in proptest::array::uniform32(0u8..),
+            nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
+            plaintext in proptest::collection::vec(0u8.., 0..512),
+            aad in proptest::collection::vec(0u8.., 0..128),
+        ) {
+            let key = AeadKey::from_bytes(key_bytes);
+            let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
+            let ciphertext = encrypt_with_nonce(&key, &nonce, &plaintext, &aad)
+                .expect("encrypt must not fail");
+            let expected_len = plaintext.len().checked_add(TAG_LEN).expect("len fits usize");
+            prop_assert_eq!(ciphertext.as_ref().len(), expected_len);
+        }
+
+        // Property: single-byte flip in ciphertext → always Err.
+        #[test]
+        fn bit_flip_rejected(
+            key_bytes in proptest::array::uniform32(0u8..),
+            nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
+            plaintext in proptest::collection::vec(0u8.., 1..64),
+            aad in proptest::collection::vec(0u8.., 0..64),
+        ) {
+            let key = AeadKey::from_bytes(key_bytes);
+            let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
+            let ciphertext = encrypt_with_nonce(&key, &nonce, &plaintext, &aad)
+                .expect("encrypt must not fail");
+            let mut tampered = ciphertext.as_ref().to_vec();
+            // Flip the last byte of the authentication tag
+            if let Some(last) = tampered.last_mut() {
+                *last ^= 0xff;
+            }
+            let tampered_ct = Ciphertext::from(tampered);
+            prop_assert!(decrypt(&key, &nonce, &tampered_ct, &aad).is_err());
+        }
+    }
+}
+
 #[cfg(kani)]
 mod proofs {
     use super::*;

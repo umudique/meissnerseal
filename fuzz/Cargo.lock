@@ -50,63 +50,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
-name = "arcanum-core"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "arcanum-pqc",
- "arcanum-security",
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-crypto"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "chacha20poly1305",
- "hkdf",
- "rand",
- "sha2",
- "subtle",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-fuzz"
-version = "0.0.0"
-dependencies = [
- "arcanum-core",
- "libfuzzer-sys",
-]
-
-[[package]]
-name = "arcanum-pqc"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "hkdf",
- "sha2",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
-name = "arcanum-security"
-version = "0.1.0"
-dependencies = [
- "arcanum-crypto",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -466,6 +409,63 @@ name = "log"
 version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
+
+[[package]]
+name = "meissnerseal-core"
+version = "0.1.0"
+dependencies = [
+ "meissnerseal-crypto",
+ "meissnerseal-pqc",
+ "meissnerseal-security",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-crypto"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "chacha20poly1305",
+ "hkdf",
+ "rand",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "meissnerseal-core",
+]
+
+[[package]]
+name = "meissnerseal-pqc"
+version = "0.1.0"
+dependencies = [
+ "hkdf",
+ "meissnerseal-crypto",
+ "sha2",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "meissnerseal-security"
+version = "0.1.0"
+dependencies = [
+ "meissnerseal-crypto",
+ "thiserror",
+ "zeroize",
+]
 
 [[package]]
 name = "memchr"

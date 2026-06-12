@@ -18,5 +18,9 @@ uuid.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# Property-based testing — mvp_roadmap §3 deliverable
+proptest.workspace = true
+
 [package.metadata.cargo-machete]
 ignored = ["meissnerseal-pqc", "meissnerseal-security", "serde", "serde_json", "uuid"]

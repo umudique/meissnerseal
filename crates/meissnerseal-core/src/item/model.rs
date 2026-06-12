@@ -153,6 +153,37 @@ pub struct ItemSummary {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: from_u16(as_u16(k)) == Ok(k) for every valid ItemKind.
+    //
+    // Uses an index strategy over the known variants rather than raw u16
+    // (most u16 values are invalid; prop_assume on those wastes test budget).
+    proptest! {
+        #[test]
+        fn item_kind_codec(wire in proptest::prop_oneof![
+            Just(0x0001u16),
+            Just(0x0002u16),
+            Just(0x0003u16),
+            Just(0x0004u16),
+            Just(0x0005u16),
+        ]) {
+            let kind = ItemKind::from_u16(wire).expect("known wire value must parse");
+            prop_assert_eq!(kind.as_u16(), wire);
+        }
+
+        // Property: unknown wire values are always rejected.
+        #[test]
+        fn unknown_wire_value_rejected(v in 0x0006u16..) {
+            prop_assert!(ItemKind::from_u16(v).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;

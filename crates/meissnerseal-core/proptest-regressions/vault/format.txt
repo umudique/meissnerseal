@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0ef54bd8c45a66a9e2451ad5e06826bc0903228fcebf660adc362446ba5fe474 # shrinks to header = VaultHeader { vault_id: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], created_at: 0, format_version: 1, schema_profile: 2, aead_profile: 1, kdf_profile: 1, kdf_params: HeaderKdfParams { profile_id: 1, argon2: Argon2Params { m_cost_kib: 65536, t_cost: 3, p_lanes: 4, output_len: 32 }, argon2_version: 19 }, pqc_profile: 0, header_nonce: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }

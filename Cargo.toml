@@ -54,6 +54,10 @@ uuid = { version = "1", features = ["v4"] }
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Testing — dev-only; not linked in production binaries
+proptest = "1"
+tempfile = "3"
+
 # ─── Workspace-level lints ───────────────────────────────────────────────────
 # All lints are "warn" here. CI runs clippy with -D warnings, promoting them
 # to errors. This gives warnings locally and failures in CI.
