@@ -50,8 +50,9 @@ ignore = []
 
 # ─── Bans ────────────────────────────────────────────────────────────────────
 [bans]
-# Deny multiple versions of the same crate — forces resolution
-multiple-versions = "warn"
+# Deny multiple versions of the same crate — forces resolution.
+# Known transitive conflicts are listed in skip[] below.
+multiple-versions = "deny"
 
 # Deny wildcard dependencies
 wildcards = "deny"
@@ -68,8 +69,16 @@ deny = [
     { name = "tempdir" },         # replaced by tempfile
 ]
 
-# Skip duplicate version check for these (common transitive conflicts)
-skip = []
+# Skip duplicate version check for these (accepted transitive conflicts).
+# Each entry is a known ecosystem split; no direct control over resolution.
+skip = [
+    # getrandom 0.2 (rand 0.8 ecosystem) vs 0.4 (newer crates)
+    { name = "getrandom", version = "0.2" },
+    # windows-sys 0.59 (older ecosystem) vs 0.61 (newer crates)
+    { name = "windows-sys", version = "0.59" },
+    # wit-bindgen 0.51 (older toolchain) vs 0.57 (newer toolchain)
+    { name = "wit-bindgen", version = "0.51" },
+]
 skip-tree = []
 
 # ─── Sources ─────────────────────────────────────────────────────────────────
