@@ -605,6 +605,7 @@ mod tests {
     use crate::vault::format::SCHEMA_ARCANUM_RECORDS_V2;
     use meissnerseal_crypto::types::AeadKey;
     use meissnerseal_security::secret_lifecycle::SecretBytes;
+    use static_assertions::assert_not_impl_any;
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
         let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
@@ -721,29 +722,10 @@ mod tests {
         assert_eq!(handle.path, path);
     }
 
-    /// Compile-time invariant: `VaultSession` must not implement `Debug`.
-    ///
-    /// We cannot call `format!("{:?}", session)` because `Debug` is absent.
-    /// This test documents the invariant. If `VaultSession` were to derive
-    /// `Debug`, key material could appear in log output.
-    #[test]
-    fn test_vault_session_has_no_debug_impl() {
-        let _: () = {
-            // This block exists to document the invariant.
-            // If VaultSession derived Debug, the test author would remove this comment.
-        };
-    }
-
-    /// Type-system invariant: `lock()` takes ownership, preventing use-after-lock.
-    ///
-    /// Once `lock(session)` is called, the compiler rejects any further use of
-    /// `session`. No runtime assertion is needed — the invariant is structural.
-    #[test]
-    fn test_lock_consumes_session() {
-        // Document that lock() takes ownership (no use-after-lock possible).
-        // This is enforced by the type system — no runtime assertion needed.
-        // The test confirms the API signature is correct.
-    }
+    // Compile-time gate: VaultSession must never implement Debug.
+    // If Debug is derived, key material can appear in log output.
+    // Adding #[derive(Debug)] to VaultSession breaks this assertion at compile time.
+    assert_not_impl_any!(VaultSession: std::fmt::Debug);
 
     /// `create()` rejects an empty password without producing any key material.
     #[test]

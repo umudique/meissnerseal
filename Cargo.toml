@@ -57,6 +57,7 @@ clap = { version = "4", features = ["derive"] }
 # Testing — dev-only; not linked in production binaries
 proptest = "1"
 tempfile = "3"
+static_assertions = "1"
 
 # ─── Workspace-level lints ───────────────────────────────────────────────────
 # All lints are "warn" here. CI runs clippy with -D warnings, promoting them
