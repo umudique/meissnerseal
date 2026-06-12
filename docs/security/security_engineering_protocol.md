@@ -105,6 +105,7 @@ STEP 6 — Completion Check
 |---|---|---|
 | cargo-audit | `cargo audit` | Known CVEs in dependencies |
 | cargo-deny | `cargo deny check` | License violations, banned crates, duplicates |
+| cargo-vet | `cargo vet` | Dependency trust chain (hard gate; Mozilla trusted imports) |
 | cargo-geiger | `cargo geiger` | Unsafe code inventory |
 
 ### Layer 3 — Dynamic Analysis / Testing (every commit)

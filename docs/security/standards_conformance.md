@@ -72,7 +72,7 @@ Software (PS), Produce Well-Secured Software (PW), Respond to Vulnerabilities (R
 | PS.2 — Protect branches | Protected main branch, PR gates | CI configuration |
 | PS.3 — Archive releases | SBOM, signed releases (Beta+) | `security_assurance.md` §6 |
 | PW.1 — Design best practices | ADRs, threat model, fail-closed rules | `docs/adr/`, `specs/security/` |
-| PW.2 — Verify third-party | cargo audit, cargo deny (gates); cargo vet (informational, Beta gate) | `security_engineering_protocol.md` §3 Layer 2 |
+| PW.2 — Verify third-party | cargo audit, cargo deny, cargo vet (all hard gates on ci-thorough; Mozilla trusted imports) | `security_engineering_protocol.md` §3 Layer 2 |
 | PW.4 — Reuse secure components | RustCrypto ecosystem (ADR-011) | `docs/adr/ADR-011-rustcrypto-ecosystem.md` |
 | PW.5 — Check for vulnerabilities | cargo audit CVE scanning, geiger | Layer 2 tools |
 | PW.6 — Test security | Property tests, fuzz targets, Kani, Miri | Layers 3–8 |

@@ -35,8 +35,8 @@ graph TD
         kernel["OS Kernel CSPRNG\n(getrandom / BCryptGenRandom\n/ CCRandomGenerateBytes)"]
     end
 
-    subgraph pqclib ["PQC Library (TBD)"]
-        mlkem["ml-kem crate\nAudit: PENDING"]
+    subgraph pqclib ["PQC Library (MVP-2)"]
+        mlkem["libcrux-ml-kem (Cryspen)\nAudit: PENDING — see ADR-023"]
     end
 
     subgraph general ["General Dependencies"]
@@ -114,7 +114,7 @@ graph TD
 | `argon2` | T2 | RustCrypto | Argon2id KDF | PHC reference impl in Rust |
 | `rand` / `getrandom` | T2 | rust-random | OS CSPRNG delegation | Widely used; OS entropy sourced |
 | `bech32` | T3 | Bitcoin ecosystem | Recovery secret encoding | BIP-173/350; no security audit |
-| `ml-kem` | T4 | RustCrypto (new) | ML-KEM-768 PQC KEM | **No independent audit (2025-06)** |
+| `libcrux-ml-kem` | T4 | Cryspen (hax→F* verified) | ML-KEM-768 PQC KEM — MVP-2 | **No independent audit; formal verification via hax→F* (see ADR-023)** |
 
 ---
 
@@ -163,9 +163,10 @@ as out-of-scope in `specs/security/threat_model.md §5`.
 ## 7. Known Gaps
 
 ```
-[GAP-01] ml-kem crate has no independent security audit (2025-06)
-         Mitigation: hybrid design, version pinning, audit tracking
-         See: ADR-012, dependency_risk_register.md
+[GAP-01] libcrux-ml-kem has no independent security audit (2025-06)
+         Formal verification via hax→F* covers ML-KEM core; not a substitute for audit
+         Mitigation: hybrid design (X-Wing), version pinning, audit tracking
+         See: ADR-012, ADR-023, dependency_risk_register.md
 
 [GAP-02] tokio has a large transitive dependency surface
          Mitigation: confined to meissnerseal-sync-server only
