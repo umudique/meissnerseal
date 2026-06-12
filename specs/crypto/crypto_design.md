@@ -275,6 +275,13 @@ This converts sync concurrency into a conflict-resolution problem, not an AEAD n
 
 ## 7. Hybrid Key Derivation — Transfer Profile v1
 
+> **NOTE — Superseded by ADR-027 (X-Wing, accepted 2026-06-08).**
+> The bespoke HKDF combiner below (`x_secret || pq_secret → HKDF-Extract`) is
+> replaced by the X-Wing combiner (`xwing.Encapsulate / xwing.Decapsulate`)
+> as specified in ADR-027. This section will be rewritten at MVP-2 when the
+> X-Wing spec and libcrux implementation are integrated. Until then, treat this
+> text as the historical bespoke design; ADR-027 is the authoritative decision.
+
 **Profile:** `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`
 
 See steps 10–13 in Section 3. Full derivation:

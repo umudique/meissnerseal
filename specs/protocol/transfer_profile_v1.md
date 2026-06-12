@@ -47,6 +47,12 @@ pub struct TransferEnvelope {
 
 ## 3. Hybrid Key Derivation
 
+> **NOTE — Superseded by ADR-027 (X-Wing, accepted 2026-06-08).**
+> The bespoke combiner below (`x_secret || pq_secret → HKDF-Extract`) is
+> replaced by the X-Wing combiner as specified in ADR-027. This section will
+> be rewritten at MVP-2. Until then, treat this text as the historical bespoke
+> design; ADR-027 is the authoritative decision.
+
 ```
 x_secret  = X25519(sender_ephemeral_private, recipient_static_public)
 pq_secret = ML-KEM-768.Decapsulate(recipient_mlkem_private, pq_ciphertext)
