@@ -416,10 +416,10 @@ findings:
     cwe: CWE-345
     severity: low
     blocking: false
-    status: in_progress
-    remediation: "BEFORE any consumer trusts table-level metadata (sync/transfer): design table/index authentication — e.g. a table digest bound into record-frame AAD, or a dedicated table MAC, under a new schema_profile. Until then, the table revision_id is advisory only and MUST NOT be trusted for security decisions; the frame revision remains authoritative. PULLED INTO MVP-0 2026-06-09 (HUMAN, Çatal-1 = option A): item operations (add/list/with_item/update/delete) make item enumeration/lookup the first real consumer of the record table, so the table must be authenticated before they ship rather than deferred. Approach to be fixed by an Architect ADR + a vault_format_v1 spec update (table-auth), then implemented alongside the item-record layer. Tracked in ops: ADR-TBLAUTH (decision/spec) -> CORE-ITEM (consumes authenticated table)."
-    verification: ""
-    commit: ""
+    status: resolved
+    remediation: "ADR-029 (MEK-sealed record table): record table encrypted + authenticated under dedicated MEK (AES-256-GCM, table-auth HKDF subkey). SCHEMA_ARCANUM_RECORDS_V2 defined in spec (commit 5897843) and implemented in CORE-8 (commit 05fc067). Two-revision-source ambiguity collapses — consumers may trust the MEK-verified table. ADR-029 §Decision states 'This resolves F-14'."
+    verification: "vault_format_v1.md §5 normative MEK-sealed table definition; ADR-029 §Decision 'resolves F-14'; CORE-8 (05fc067) + CORE-9 item ops (62b754c) operate on MEK-sealed table; cargo test green."
+    commit: "05fc067"
 
   - id: F-16
     kind: consistency
