@@ -153,7 +153,7 @@ as out-of-scope in `specs/security/threat_model.md §5`.
 | CVE scanning | `cargo audit` | Every commit |
 | License and policy | `cargo deny` | Every commit |
 | Unsafe code inventory | `cargo geiger` | Every commit (delta review) |
-| Dependency trust chain | `cargo vet` | Informational (CI non-blocking until audit config bootstrapped; Beta gate) |
+| Dependency trust chain | `cargo vet` | Every commit (ci-thorough hard gate; Mozilla trusted imports; bootstrapped 2026-06-12) |
 | SBOM generation | `cargo-cyclonedx` | Each beta and production release |
 | Cryptographic dep review | Manual | Every version bump |
 | Reproducible builds | Planned | Production release |
