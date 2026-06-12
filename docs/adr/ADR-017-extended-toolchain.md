@@ -98,6 +98,19 @@ Evaluation criteria applied to each candidate:
   guarantee quality, but missing coverage guarantees a gap.
 - Integration: ci-thorough.yml job, LCOV report as artifact
 
+**cargo-vet** — dependency source-code audit chain
+- Rationale: `cargo audit` and `cargo deny` catch known CVEs and license
+  violations reactively. `cargo-vet` is orthogonal: it enforces that every
+  dependency's source code has been reviewed by a trusted party before it
+  enters the build. For a secrets vault, an unreviewed dependency is an
+  unaudited code path with access to plaintext secrets in memory.
+- Bootstrap: `cargo vet init` registers all 140 current deps as exemptions.
+  Mozilla's audit set is imported as a trusted source; deps covered by that
+  set are no longer bare exemptions. New dependencies added after bootstrap
+  must be vetted or explicitly re-exempted.
+- Integration: ci-thorough.yml hard gate (commit 7244de9). `supply-chain/`
+  checked into the repository.
+
 ### Deferred to Beta
 
 **cargo-mutants** — mutation testing
@@ -156,6 +169,7 @@ The tool inventory gains three new layers:
 - Layer 10 — Secret scanning (gitleaks, pre-commit + CI)
 - Layer 11 — Semantic analysis (CodeQL, semgrep)
 - Layer 12 — Supply chain artifacts (cargo-auditable, syft SBOM)
+- Layer 13 — Dependency trust review (cargo-vet, Mozilla trusted imports)
 
 ### Process additions
 
@@ -169,4 +183,4 @@ Each added tool is a CI job or a config file. The net addition is:
 - ci-fast.yml: +3 jobs (yamllint, shellcheck, machete)
 - ci-thorough.yml: +2 jobs (syft, llvm-cov)
 - New workflows: codeql.yml, security-scan.yml
-- Config files: CODEOWNERS, dependabot.yml, .yamllint.yml
+- Config files: CODEOWNERS, dependabot.yml, .yamllint.yml, supply-chain/
