@@ -1,9 +1,15 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-021: CodeQL Deferred — Private Repository Constraint
 
-**Status:** Accepted  
+**Status:** Superseded — see ADR-018 (updated 2026-06-09)  
 **Date:** 2026-06-06  
 **Related:** ADR-017 (extended toolchain), ADR-018 (CI workflow strategy)
+
+> **Note (2026-06-09):** The repository was made public and Code Scanning was
+> enabled in GitHub repository settings. The enabling condition in §Decision
+> item 1 was met. `codeql.yml` trigger was restored to `push: [main]` +
+> weekly schedule. This ADR is retained for historical record; ADR-018 is
+> the current authority on CodeQL trigger strategy.
 
 ---
 
