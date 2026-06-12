@@ -493,7 +493,7 @@ fn live_item_position(loaded: &LoadedVault, item_id: &ItemId) -> Option<usize> {
 /// - `session` was obtained through `vault::unlock`.
 /// - `item.secret` contains plaintext that must be encrypted before
 ///   persistence.
-/// - The target vault uses `SCHEMA_ARCANUM_RECORDS_V2`.
+/// - The target vault uses `SCHEMA_MEISSNER_RECORDS_V2`.
 ///
 /// ## Postconditions
 /// - On success, returns a fresh 128-bit CSPRNG `ItemId` that is also the item

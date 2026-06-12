@@ -24,7 +24,7 @@ use meissnerseal_core::keys::hierarchy::{
 };
 use meissnerseal_core::vault::format::{
     build_aad, open_sealed_record_table_v2, parse_header, parse_kdf_profile_params,
-    ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_ARCANUM_RECORDS_V2,
+    ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_MEISSNER_RECORDS_V2,
 };
 use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key};
 use serde_json::Value;
@@ -210,7 +210,7 @@ fn vault_format_struct_v1_vectors() {
         // Header parses as V2 and round-trips the vault_id.
         let header = parse_header(&blob).unwrap_or_else(|_| panic!("{id}: header must parse"));
         assert_eq!(
-            header.schema_profile, SCHEMA_ARCANUM_RECORDS_V2,
+            header.schema_profile, SCHEMA_MEISSNER_RECORDS_V2,
             "{id}: schema_profile must be V2"
         );
         assert_eq!(

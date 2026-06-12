@@ -13,7 +13,7 @@ use crate::vault::format::{
     build_aad, open_sealed_record_table_v2, parse_header, parse_record_frame, serialize_header,
     serialize_record_frame, serialize_sealed_record_table_v2, serialize_vault_file,
     HeaderKdfParams, RecordFrame, VaultHeader, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
-    RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_ARCANUM_RECORDS_V2,
+    RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_MEISSNER_RECORDS_V2,
 };
 
 // Byte offsets within the 26-byte vault file prefix (vault_format_v1.md §2).
@@ -108,7 +108,7 @@ pub struct UnlockParams {
 /// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
 ///   for the fixed-position WrappedRootKey frame before AAD construction; those
 ///   same IDs are persisted in the §6 frame metadata.
-/// - On success: header `schema_profile` is `SCHEMA_ARCANUM_RECORDS_V2`, the WRK
+/// - On success: header `schema_profile` is `SCHEMA_MEISSNER_RECORDS_V2`, the WRK
 ///   frame starts at `HEADER_MIN_LEN + header_len`, and the MEK-sealed table
 ///   contains no WrappedRootKey entry.
 /// - On success: returns a [`VaultHandle`], never a live [`VaultSession`].
@@ -149,7 +149,7 @@ pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
     let aad = build_aad(
         &vault_id,
         FORMAT_VERSION,
-        SCHEMA_ARCANUM_RECORDS_V2,
+        SCHEMA_MEISSNER_RECORDS_V2,
         1,
         1,
         0,
@@ -362,7 +362,7 @@ fn persist_vault_inner(
         vault_id: *vault_id,
         created_at,
         format_version: FORMAT_VERSION,
-        schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
+        schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
         aead_profile: 1,
         kdf_profile: KDF_ARGON2ID_V1,
         kdf_params: *kdf_params,
@@ -381,7 +381,7 @@ fn persist_vault_inner(
     };
     let frame_bytes = serialize_record_frame(&frame, aad)?;
     let record_table_bytes =
-        serialize_sealed_record_table_v2(&[], metadata_key, vault_id, SCHEMA_ARCANUM_RECORDS_V2)?;
+        serialize_sealed_record_table_v2(&[], metadata_key, vault_id, SCHEMA_MEISSNER_RECORDS_V2)?;
     let vault_bytes = serialize_vault_file(&header_bytes, &record_table_bytes, &frame_bytes)?;
 
     let mut tmp_file = std::fs::OpenOptions::new()
@@ -602,7 +602,7 @@ pub fn lock(session: VaultSession) -> Result<()> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::vault::format::SCHEMA_ARCANUM_RECORDS_V2;
+    use crate::vault::format::SCHEMA_MEISSNER_RECORDS_V2;
     use meissnerseal_crypto::types::AeadKey;
     use meissnerseal_security::secret_lifecycle::SecretBytes;
     use static_assertions::assert_not_impl_any;
@@ -1090,7 +1090,7 @@ mod tests {
         create_test_vault(&path, b"schema-v2-password-never-real");
 
         let header = parsed_header_for_test(&path);
-        assert_eq!(header.schema_profile, SCHEMA_ARCANUM_RECORDS_V2);
+        assert_eq!(header.schema_profile, SCHEMA_MEISSNER_RECORDS_V2);
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);

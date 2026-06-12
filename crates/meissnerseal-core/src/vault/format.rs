@@ -32,7 +32,7 @@ const TAG_KDF_OUTPUT_LEN: u16 = 0x0104;
 const TAG_KDF_ARGON2_VERSION: u16 = 0x0105;
 
 /// Vault file magic bytes.
-pub const MAGIC: &[u8; 8] = b"ARCANUM\x01";
+pub const MAGIC: &[u8; 8] = b"MEISSNER";
 
 /// MVP-0 vault format version.
 pub const FORMAT_VERSION: u16 = 1;
@@ -65,10 +65,10 @@ pub const TAG_HEADER_NONCE: u16 = 0x0007;
 pub const KDF_ARGON2ID_V1: u16 = 0x0001;
 
 /// Pre-release cleartext-table schema profile. MVP-0 readers reject it.
-pub const SCHEMA_ARCANUM_RECORDS_V1: u16 = 0x0001;
+pub const SCHEMA_MEISSNER_RECORDS_V1: u16 = 0x0001;
 
 /// MVP-0 shipping schema profile with fixed WRK frame and MEK-sealed table.
-pub const SCHEMA_ARCANUM_RECORDS_V2: u16 = 0x0002;
+pub const SCHEMA_MEISSNER_RECORDS_V2: u16 = 0x0002;
 
 /// WrappedRootKey record kind. V2 locates this frame by fixed offset, not table.
 pub const RECORD_KIND_WRAPPED_ROOT_KEY: u16 = 0x0002;
@@ -292,7 +292,7 @@ pub fn serialize_prefix(
 /// ## Preconditions
 /// - `header` contains every required MVP-0 header field from
 ///   `vault_format_v1.md` §3.
-/// - `header.schema_profile == SCHEMA_ARCANUM_RECORDS_V2`; V1 is pre-release
+/// - `header.schema_profile == SCHEMA_MEISSNER_RECORDS_V2`; V1 is pre-release
 ///   and must not be emitted by MVP-0 writers.
 /// - `header.kdf_params` is the same KDF profile/parameter set that will be
 ///   used for key derivation and is serializable by
@@ -313,7 +313,7 @@ pub fn serialize_header(header: &VaultHeader) -> Result<Vec<u8>> {
     if header.format_version != FORMAT_VERSION {
         return Err(format_error("unsupported format version"));
     }
-    if header.schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+    if header.schema_profile != SCHEMA_MEISSNER_RECORDS_V2 {
         return Err(format_error("unsupported schema profile"));
     }
     if header.kdf_profile != header.kdf_params.profile_id {
@@ -473,7 +473,7 @@ pub fn serialize_record_table(entries: &[RecordTableEntry]) -> Result<Vec<u8>> {
 /// # Contract
 ///
 /// ## Preconditions
-/// - `schema_profile == SCHEMA_ARCANUM_RECORDS_V2`.
+/// - `schema_profile == SCHEMA_MEISSNER_RECORDS_V2`.
 /// - `metadata_key` is the Metadata Encryption Key derived through
 ///   `meissnerseal-crypto` HKDF subkey derivation (`crypto_design.md` §5).
 /// - `entries` contains only item/device/recovery/audit/tombstone records; it
@@ -553,7 +553,7 @@ pub fn serialize_sealed_record_table_v2(
 ///   by the file prefix: `sealed_table_len:u32le || nonce[24] || ciphertext||tag`.
 /// - `metadata_key` is the MEK derived after authenticating the fixed-position
 ///   WrappedRootKey frame.
-/// - `schema_profile == SCHEMA_ARCANUM_RECORDS_V2`.
+/// - `schema_profile == SCHEMA_MEISSNER_RECORDS_V2`.
 /// - `wrk_frame_offset` is `HEADER_MIN_LEN + header_len`, derived from the fixed
 ///   V2 rule before the table is opened.
 ///
@@ -737,7 +737,7 @@ pub fn sealed_record_table_padded_plaintext_len(entry_count: usize) -> Result<us
 /// # Contract
 ///
 /// ## Preconditions
-/// - `schema_profile == SCHEMA_ARCANUM_RECORDS_V2`.
+/// - `schema_profile == SCHEMA_MEISSNER_RECORDS_V2`.
 ///
 /// ## Postconditions
 /// - On success, returns exactly `vault_id[16] || schema_profile:u16le`.
@@ -746,7 +746,7 @@ pub fn sealed_record_table_padded_plaintext_len(entry_count: usize) -> Result<us
 /// ## Invariants
 /// - Pure deterministic encoding; no cryptographic operation is performed here.
 pub fn build_table_aad_v2(vault_id: &[u8; 16], schema_profile: u16) -> Result<[u8; TABLE_AAD_LEN]> {
-    if schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+    if schema_profile != SCHEMA_MEISSNER_RECORDS_V2 {
         return Err(format_error("unsupported schema profile"));
     }
     let mut aad = [0u8; TABLE_AAD_LEN];
@@ -992,7 +992,7 @@ pub fn serialize_vault_file(header: &[u8], record_table: &[u8], body: &[u8]) -> 
 /// - On success, returns a parsed `VaultHeader`.
 /// - Rejects: wrong magic bytes, unknown critical TLV tags, truncated header,
 ///   trailing garbage.
-/// - Rejects `SCHEMA_ARCANUM_RECORDS_V1`, unknown schema profiles, and newer
+/// - Rejects `SCHEMA_MEISSNER_RECORDS_V1`, unknown schema profiles, and newer
 ///   schema profiles before any record frame or sealed table is opened.
 /// ## Invariants
 /// - Never returns partial output on malformed input.
@@ -1100,7 +1100,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     }
 
     let schema_profile = schema_profile.ok_or_else(|| format_error("missing schema_profile"))?;
-    if schema_profile != SCHEMA_ARCANUM_RECORDS_V2 {
+    if schema_profile != SCHEMA_MEISSNER_RECORDS_V2 {
         return Err(format_error("unsupported schema profile"));
     }
 
@@ -1602,7 +1602,7 @@ mod prop_tests {
                 vault_id,
                 created_at,
                 format_version: FORMAT_VERSION,
-                schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
+                schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
                 aead_profile: 1, // AEAD_XCHACHA20_POLY1305_V1
                 kdf_profile: KDF_ARGON2ID_V1,
                 kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
@@ -1761,7 +1761,7 @@ mod tests {
 
     #[test]
     fn test_magic_bytes_constant() {
-        assert_eq!(MAGIC, b"ARCANUM\x01");
+        assert_eq!(MAGIC, b"MEISSNER");
     }
 
     #[test]
@@ -1834,7 +1834,7 @@ mod tests {
             vault_id: VAULT_ID,
             created_at: 1_725_000_000_000,
             format_version: FORMAT_VERSION,
-            schema_profile: SCHEMA_ARCANUM_RECORDS_V2,
+            schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
             aead_profile: 1,
             kdf_profile: KDF_ARGON2ID_V1,
             kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
@@ -1902,7 +1902,7 @@ mod tests {
     /// frames or tables (ADR-030 §5).
     #[test]
     fn parse_header_rejects_schema_profile_v1() {
-        let header = header_fixture(SCHEMA_ARCANUM_RECORDS_V1);
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V1);
         let bytes = vault_bytes_for_header(&header, 4, 4);
 
         assert!(parse_header(&bytes).is_err());
@@ -1911,7 +1911,7 @@ mod tests {
     /// V2 readers must reject unknown/newer schema profiles fail-closed.
     #[test]
     fn parse_header_rejects_unknown_newer_schema_profile() {
-        let header = header_fixture(SCHEMA_ARCANUM_RECORDS_V2 + 1);
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2 + 1);
         let bytes = vault_bytes_for_header(&header, 4, 4);
 
         assert!(parse_header(&bytes).is_err());
@@ -1920,7 +1920,7 @@ mod tests {
     /// V2 table AAD is exactly vault_id[16] || schema_profile:u16le.
     #[test]
     fn table_aad_v2_is_vault_id_and_schema_only() {
-        let aad = build_table_aad_v2(&VAULT_ID, SCHEMA_ARCANUM_RECORDS_V2);
+        let aad = build_table_aad_v2(&VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2);
 
         assert!(aad.is_ok());
         if let Ok(aad) = aad {
@@ -1928,7 +1928,7 @@ mod tests {
             assert_eq!(&aad[0..16], &VAULT_ID);
             assert_eq!(
                 u16::from_le_bytes([aad[16], aad[17]]),
-                SCHEMA_ARCANUM_RECORDS_V2
+                SCHEMA_MEISSNER_RECORDS_V2
             );
         }
     }
@@ -1998,7 +1998,7 @@ mod tests {
             },
         ];
         let sealed =
-            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_ARCANUM_RECORDS_V2);
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2);
 
         assert!(sealed.is_ok());
         if let Ok(sealed) = sealed {
@@ -2008,7 +2008,7 @@ mod tests {
                 sealed.len(),
                 &key,
                 &VAULT_ID,
-                SCHEMA_ARCANUM_RECORDS_V2,
+                SCHEMA_MEISSNER_RECORDS_V2,
                 HEADER_MIN_LEN + 128,
                 1024,
             );
@@ -2035,7 +2035,7 @@ mod tests {
             frame_len: 80,
         }];
         let sealed =
-            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_ARCANUM_RECORDS_V2);
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2);
 
         assert!(sealed.is_ok());
         if let Ok(mut sealed) = sealed {
@@ -2049,7 +2049,7 @@ mod tests {
                 sealed.len(),
                 &key,
                 &VAULT_ID,
-                SCHEMA_ARCANUM_RECORDS_V2,
+                SCHEMA_MEISSNER_RECORDS_V2,
                 HEADER_MIN_LEN + 128,
                 1024,
             );

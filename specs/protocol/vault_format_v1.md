@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # MeissnerSeal Vault Binary Wire Format v1
 
-**Profile:** `SCHEMA_ARCANUM_RECORDS_V2 = 0x0002`
+**Profile:** `SCHEMA_MEISSNER_RECORDS_V2 = 0x0002`
 **Status:** Specification — MVP-0
 **Fuzz targets:** `fuzz/fuzz_targets/vault_header.rs`, `fuzz/fuzz_targets/encrypted_item.rs`
 **Test vectors:** `test-vectors/vault_format_v1.json`
@@ -24,7 +24,7 @@
 ## 2. File Prefix
 
 ```
-magic[8]         = 0x41 0x52 0x43 0x41 0x4e 0x55 0x4d 0x01   # "ARCANUM\x01"
+magic[8]         = 0x4d 0x45 0x49 0x53 0x53 0x4e 0x45 0x52   # "MEISSNER"
 format_version   = u16le          # MVP-0 = 1
 header_len       = u32le
 record_table_len = u32le
@@ -33,7 +33,7 @@ body_len         = u64le
 
 Total prefix: **26 bytes**
 
-For `SCHEMA_ARCANUM_RECORDS_V2`, `record_table_len` is the byte length of the
+For `SCHEMA_MEISSNER_RECORDS_V2`, `record_table_len` is the byte length of the
 MEK-sealed record-table section defined in §5:
 
 ```
@@ -76,14 +76,14 @@ AEAD_AES_256_GCM_STRICT_V1   = 0x0002
 PQC_NONE                     = 0x0000
 PQC_MLKEM_768_V1             = 0x0001
 PQC_MLKEM_1024_V1            = 0x0002
-SCHEMA_ARCANUM_RECORDS_V1    = 0x0001  # pre-release internal; readers reject
-SCHEMA_ARCANUM_RECORDS_V2    = 0x0002  # MVP-0 shipping format
+SCHEMA_MEISSNER_RECORDS_V1    = 0x0001  # pre-release internal; readers reject
+SCHEMA_MEISSNER_RECORDS_V2    = 0x0002  # MVP-0 shipping format
 ```
 
-`SCHEMA_ARCANUM_RECORDS_V1` is the cleartext-table development layout from
+`SCHEMA_MEISSNER_RECORDS_V1` is the cleartext-table development layout from
 CORE-3..7. Per ADR-030 §5, V1 was never released and must not be accepted by
 MVP-0 readers. The first shipped layout is
-`SCHEMA_ARCANUM_RECORDS_V2 = 0x0002`.
+`SCHEMA_MEISSNER_RECORDS_V2 = 0x0002`.
 
 ---
 
@@ -112,7 +112,7 @@ Salt: `"meissnerseal-argon2id-salt-v1" || vault_id[16]`
 
 ### File Body Layout
 
-For `SCHEMA_ARCANUM_RECORDS_V2`, the body layout is deterministic:
+For `SCHEMA_MEISSNER_RECORDS_V2`, the body layout is deterministic:
 
 ```
 file := prefix[26]
@@ -174,7 +174,7 @@ table_aad = vault_id[16]
          || schema_profile:u16le
 ```
 
-`schema_profile` must be `SCHEMA_ARCANUM_RECORDS_V2 = 0x0002`.
+`schema_profile` must be `SCHEMA_MEISSNER_RECORDS_V2 = 0x0002`.
 
 MVP-0 stores no table freshness value. Table freshness and anti-rollback are out
 of scope for V2 and are deferred to the sync-era design (ADR-029 Correction,
@@ -211,7 +211,7 @@ record_id[16] || record_kind:u16le || revision_id[16]
 | `0x0005` | AuditEvent |
 | `0x0006` | Tombstone |
 
-For `SCHEMA_ARCANUM_RECORDS_V2`, the WrappedRootKey frame is fixed-position and
+For `SCHEMA_MEISSNER_RECORDS_V2`, the WrappedRootKey frame is fixed-position and
 must not require a table entry to be located. The sealed table must not contain a
 WrappedRootKey entry; `record_kind = 0x0002` remains assigned for pre-V2
 development vectors and future migration tooling only. A V2 reader must reject a
@@ -224,7 +224,7 @@ only after successful MEK table authentication.
 
 ### Deterministic Bucketed Padding
 
-Bucketed padding is always on for `SCHEMA_ARCANUM_RECORDS_V2` (ADR-029). The
+Bucketed padding is always on for `SCHEMA_MEISSNER_RECORDS_V2` (ADR-029). The
 sealed table plaintext is padded with zero bytes to the smallest bucket capacity
 that can contain `entry_count`.
 
@@ -271,7 +271,7 @@ No implicit padding. Future padding must be an explicit authenticated field.
 
 ## 7. Associated Data (AAD) v1
 
-Per-record frame AAD is unchanged by `SCHEMA_ARCANUM_RECORDS_V2`. The fixed WRK
+Per-record frame AAD is unchanged by `SCHEMA_MEISSNER_RECORDS_V2`. The fixed WRK
 position and MEK-sealed table change offsets, but the canonical AAD does not
 encode offsets. `schema_profile` is already included and must carry the V2 value
 through unchanged (ADR-030).
@@ -314,7 +314,7 @@ final vault file.
 7. Keep .msv.bak if backup enabled
 ```
 
-On `SCHEMA_ARCANUM_RECORDS_V2` mutation, the whole table is re-sealed under MEK.
+On `SCHEMA_MEISSNER_RECORDS_V2` mutation, the whole table is re-sealed under MEK.
 No item plaintext is touched merely to update table metadata; item record frames
 remain independently encrypted records. Writers must use an atomic final-path
 claim or equivalent no-overwrite primitive before replacing a vault file. Error
@@ -340,7 +340,7 @@ Parsers must reject:
 - header_len / record_table_len / body_len exceeding file size
 - Unknown critical TLV tags
 - Unsupported `schema_profile`
-- `SCHEMA_ARCANUM_RECORDS_V1 = 0x0001`
+- `SCHEMA_MEISSNER_RECORDS_V1 = 0x0001`
 - Unknown or newer `schema_profile` values; never best-effort or partially parse
   them (ADR-030)
 - nonce_len mismatching AEAD profile
@@ -367,5 +367,5 @@ Migration is explicit, whole-vault, crash-safe, and one-directional (ADR-030).
 When migration is offered, the Migration Manager reads a fully supported old
 profile and re-serializes the entire vault under the new profile through the §8
 crash-safe path. Opening a vault must not silently migrate it. No V1-to-V2
-migration ships: `SCHEMA_ARCANUM_RECORDS_V1 = 0x0001` was a pre-release internal
+migration ships: `SCHEMA_MEISSNER_RECORDS_V1 = 0x0001` was a pre-release internal
 development format and no user should possess a V1 vault.

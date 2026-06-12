@@ -439,7 +439,7 @@ def generate_aad_vectors() -> dict:
     aad = build_aad_v1(
         vault_id=vault_id,
         format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
+        schema_profile=SCHEMA_MEISSNER_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=1,
         pqc_profile=0,
@@ -449,7 +449,7 @@ def generate_aad_vectors() -> dict:
     )
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V2_AAD",
+        "profile": "SCHEMA_MEISSNER_RECORDS_V2_AAD",
         "version": 1,
         "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
         "generated_by": "cross_verify.py",
@@ -460,7 +460,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "schema_profile": SCHEMA_MEISSNER_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0,
@@ -479,7 +479,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "schema_profile": SCHEMA_MEISSNER_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0x0001,
@@ -489,7 +489,7 @@ def generate_aad_vectors() -> dict:
                 },
                 "expected": {
                     "aad_hex": to_hex(build_aad_v1(
-                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
+                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_MEISSNER_RECORDS_V2,
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0x0001, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0002)),
@@ -502,7 +502,7 @@ def generate_aad_vectors() -> dict:
                 "inputs": {
                     "vault_id": to_hex(vault_id),
                     "format_version": 1,
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "schema_profile": SCHEMA_MEISSNER_RECORDS_V2,
                     "aead_profile": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile": 1,
                     "pqc_profile": 0,
@@ -512,7 +512,7 @@ def generate_aad_vectors() -> dict:
                 },
                 "expected": {
                     "aad_hex": to_hex(build_aad_v1(
-                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
+                        vault_id=vault_id, format_version=1, schema_profile=SCHEMA_MEISSNER_RECORDS_V2,
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0005)),
@@ -717,8 +717,8 @@ KIND_AUDITEVENT      = 0x0005
 
 # Profiles (vault_format_v1.md §3 enum assignments)
 KDF_ARGON2ID_V1           = 0x0001
-SCHEMA_ARCANUM_RECORDS_V1 = 0x0001
-SCHEMA_ARCANUM_RECORDS_V2 = 0x0002
+SCHEMA_MEISSNER_RECORDS_V1 = 0x0001
+SCHEMA_MEISSNER_RECORDS_V2 = 0x0002
 PQC_NONE                  = 0x0000
 PQC_MLKEM_768_V1          = 0x0001
 
@@ -755,7 +755,7 @@ def generate_wrap_vectors() -> dict:
     wrap_aad = build_aad_v1(
         vault_id=FIX_VAULT_ID,
         format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
+        schema_profile=SCHEMA_MEISSNER_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=KDF_ARGON2ID_V1,
         pqc_profile=PQC_NONE,
@@ -793,7 +793,7 @@ def generate_wrap_vectors() -> dict:
     wrap_aad2 = build_aad_v1(
         vault_id=vault_id2,
         format_version=1,
-        schema_profile=SCHEMA_ARCANUM_RECORDS_V2,
+        schema_profile=SCHEMA_MEISSNER_RECORDS_V2,
         aead_profile=AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile=KDF_ARGON2ID_V1,
         pqc_profile=PQC_NONE,
@@ -915,7 +915,7 @@ def generate_kdf_tlv_vectors() -> dict:
 # D1–D4 — Vault binary format structures  (vault_format_v1.md §2,§3,§5,§6)
 # ─────────────────────────────────────────────────────────────────────────────
 
-MAGIC = bytes([0x41, 0x52, 0x43, 0x41, 0x4e, 0x55, 0x4d, 0x01])  # "ARCANUM\x01"
+MAGIC = b"MEISSNER"  # renamed from b"ARCANUM\x01" at meissnerseal rebrand
 
 
 def header_tlv(tag: int, value: bytes, critical: bool) -> bytes:
@@ -924,10 +924,10 @@ def header_tlv(tag: int, value: bytes, critical: bool) -> bytes:
     return u16le(tag) + bytes([flags]) + u32le(len(value)) + value
 
 
-def table_aad_v2(vault_id: bytes, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> bytes:
+def table_aad_v2(vault_id: bytes, schema_profile: int = SCHEMA_MEISSNER_RECORDS_V2) -> bytes:
     """V2 sealed-table AAD: vault_id[16] || schema_profile:u16le (§5)."""
     assert len(vault_id) == 16
-    assert schema_profile == SCHEMA_ARCANUM_RECORDS_V2
+    assert schema_profile == SCHEMA_MEISSNER_RECORDS_V2
     aad = vault_id + u16le(schema_profile)
     assert len(aad) == 18
     return aad
@@ -996,7 +996,7 @@ def record_frame_v1(record_id: bytes, revision_id: bytes, kind: int, key: bytes,
     return frame, aad, ct_tag
 
 
-def header_v2(created_at_ms: int, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> tuple:
+def header_v2(created_at_ms: int, schema_profile: int = SCHEMA_MEISSNER_RECORDS_V2) -> tuple:
     """Build the V2 header TLV section and parsed TLV metadata (§3)."""
     kdf_param_tlvs = (
         kdf_param_tlv(0x0101, u32le(65536))
@@ -1038,7 +1038,7 @@ def generate_format_struct_vectors() -> dict:
         FIX_AEAD_KEY,
         FIX_AEAD_NONCE,
         wrk_plaintext,
-        SCHEMA_ARCANUM_RECORDS_V2,
+        SCHEMA_MEISSNER_RECORDS_V2,
     )
     wrk_frame_offset = 26 + len(header)
 
@@ -1054,10 +1054,10 @@ def generate_format_struct_vectors() -> dict:
     item2_id = bytes.fromhex("e0e1e2e3e4e5e6e7e8e9eaebecedeeef")
     item2_rev = bytes.fromhex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
     item1_frame, item1_aad, item1_ct_tag = record_frame_v1(
-        item1_id, item1_rev, KIND_ITEM, FIX_AEAD_KEY, bytes.fromhex("1112131415161718191a1b1c1d1e1f202122232425262728"), b"item-one-payload", SCHEMA_ARCANUM_RECORDS_V2
+        item1_id, item1_rev, KIND_ITEM, FIX_AEAD_KEY, bytes.fromhex("1112131415161718191a1b1c1d1e1f202122232425262728"), b"item-one-payload", SCHEMA_MEISSNER_RECORDS_V2
     )
     item2_frame, item2_aad, item2_ct_tag = record_frame_v1(
-        item2_id, item2_rev, KIND_AUDITEVENT, FIX_AEAD_KEY, bytes.fromhex("2122232425262728292a2b2c2d2e2f303132333435363738"), b"item-two-payload-longer", SCHEMA_ARCANUM_RECORDS_V2
+        item2_id, item2_rev, KIND_AUDITEVENT, FIX_AEAD_KEY, bytes.fromhex("2122232425262728292a2b2c2d2e2f303132333435363738"), b"item-two-payload-longer", SCHEMA_MEISSNER_RECORDS_V2
     )
     provisional_empty_table_len = len(empty_table)
     item1_offset = wrk_frame_offset + len(wrk_frame) + provisional_empty_table_len
@@ -1100,7 +1100,7 @@ def generate_format_struct_vectors() -> dict:
     ]
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V2",
+        "profile": "SCHEMA_MEISSNER_RECORDS_V2",
         "version": 2,
         "description": "V2 vault format: fixed-position WrappedRootKey and MEK-sealed record table",
         "generated_by": "cross_verify.py (pynacl/libsodium)",
@@ -1110,7 +1110,7 @@ def generate_format_struct_vectors() -> dict:
                 "description": "V2 layout with WRK at fixed offset and an empty MEK-sealed table (§5)",
                 "inputs": {
                     "vault_id": to_hex(FIX_VAULT_ID),
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "schema_profile": SCHEMA_MEISSNER_RECORDS_V2,
                     "metadata_encryption_key": to_hex(mek),
                     "table_nonce": to_hex(table_nonce_empty),
                     "wrapped_root_key_nonce": to_hex(FIX_AEAD_NONCE),
@@ -1141,7 +1141,7 @@ def generate_format_struct_vectors() -> dict:
                 "description": "V2 sealed table with two item-frame entries, power-of-two padding, and generalized frame offsets (§5/§6)",
                 "inputs": {
                     "vault_id": to_hex(FIX_VAULT_ID),
-                    "schema_profile": SCHEMA_ARCANUM_RECORDS_V2,
+                    "schema_profile": SCHEMA_MEISSNER_RECORDS_V2,
                     "metadata_encryption_key": to_hex(mek),
                     "table_nonce": to_hex(table_nonce_multi),
                     "entry_count": 2,
@@ -1172,7 +1172,7 @@ def generate_format_struct_vectors() -> dict:
 # D6 — Vault format negative fixtures  (vault_format_v1.md §10 reject rules)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_valid_v2_vault(table_section: bytes = None, schema_profile: int = SCHEMA_ARCANUM_RECORDS_V2) -> tuple:
+def _build_valid_v2_vault(table_section: bytes = None, schema_profile: int = SCHEMA_MEISSNER_RECORDS_V2) -> tuple:
     """Build a V2 vault blob with fixed WRK and a caller-provided sealed table."""
     created_at_ms = 1_700_000_000_000
     header, _ = header_v2(created_at_ms, schema_profile=schema_profile)
@@ -1223,7 +1223,7 @@ def generate_format_negative_vectors() -> dict:
     blob, meta = _build_valid_v2_vault()
     cases = []
 
-    blob_v1, _ = _build_valid_v2_vault(schema_profile=SCHEMA_ARCANUM_RECORDS_V1)
+    blob_v1, _ = _build_valid_v2_vault(schema_profile=SCHEMA_MEISSNER_RECORDS_V1)
     cases.append(_neg_case(
         "neg-schema-profile-v1-rejected",
         "§10: pre-release schema_profile V1 is rejected; V2 readers never best-effort parse V1",
@@ -1287,7 +1287,7 @@ def generate_format_negative_vectors() -> dict:
     ))
 
     return {
-        "profile": "SCHEMA_ARCANUM_RECORDS_V2",
+        "profile": "SCHEMA_MEISSNER_RECORDS_V2",
         "version": 2,
         "description": "V2 vault format negative fixtures for MEK-sealed table and schema fail-closed rules",
         "generated_by": "cross_verify.py (pynacl/libsodium)",

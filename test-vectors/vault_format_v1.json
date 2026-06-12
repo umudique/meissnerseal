@@ -1,5 +1,5 @@
 {
-  "profile": "SCHEMA_ARCANUM_RECORDS_V2_AAD",
+  "profile": "SCHEMA_MEISSNER_RECORDS_V2_AAD",
   "version": 1,
   "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
   "generated_by": "cross_verify.py",
