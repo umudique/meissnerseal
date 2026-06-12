@@ -51,7 +51,7 @@ With GitHub connected and CI operational, the project needed a policy for:
 | `ci-fast.yml` | `push: main`, `pull_request: main` | Status-check jobs must run on PRs; push-to-main catch post-merge regressions |
 | `ci-thorough.yml` | `pull_request: main`, nightly schedule | Slow jobs (Miri, coverage, SBOM) run at merge gate and nightly |
 | `security-scan.yml` | `push: main`, `pull_request: main` | Gitleaks and semgrep run at merge gate; main-push catches anything that bypassed |
-| `codeql.yml` | `workflow_dispatch` only | CodeQL requires GitHub Code Scanning to be enabled on the repository. Currently manual-only; intended trigger is `push: main` + weekly schedule once Code Scanning is available. |
+| `codeql.yml` | `push: main`, weekly schedule | CodeQL is too slow for PR-level; catches regressions on main and weekly. |
 
 **Not triggered on `dev` or feature branch pushes.** Work accumulates locally
 with pre-commit enforcement; CI runs once when a PR is opened.
