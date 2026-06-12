@@ -18,7 +18,7 @@ Most secrets managers treat post-quantum as a future retrofit. MeissnerSeal trea
 
 ```
 Passphrase + vault_id
-  →  Argon2id (m=64 MiB, t=3, p=1)
+  →  Argon2id (m=64 MiB, t=3, p=4)
   →  MUK  →  HKDF  →  VKEK
   →  AEAD-unwrap  →  VaultRootKey (stored encrypted in vault header)
   →  HKDF-Expand × 7  →  session subkeys
