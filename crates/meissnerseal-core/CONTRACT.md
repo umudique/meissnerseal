@@ -13,7 +13,8 @@
 ```
 vault::
   create(params: CreateVaultParams) -> Result<VaultHandle>
-  unlock(path, master_secret) -> Result<VaultSession>
+  unlock(params: UnlockParams) -> Result<VaultSession>
+         // UnlockParams { path: PathBuf, password: SecretBytes }
   lock(session: VaultSession) -> Result<()>
 
 item::
