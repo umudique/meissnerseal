@@ -1,13 +1,15 @@
 # Contract: meissnerseal-security
 
 **Version:** 0.1.0
-**API Status:** Stable  
+**API Status:** Unstable — policy, hardware, and side_channel modules are stubs; Stable requires their implementation  
 **Spec authority:** specs/security/security_assurance.md  
 **ADRs:** ADR-004 (handle-and-lease FFI), ADR-014 (noise hierarchy)
 
 ---
 
 ## Public API Surface
+
+### Implemented
 
 ```
 secret_lifecycle::
@@ -18,6 +20,14 @@ secret_lifecycle::
 redaction::
   redacted_debug!(type)    — macro: implement Debug as [REDACTED]
 
+audit_guard::
+  AuditEvent               — event type with no secret fields
+  emit(event: AuditEvent)  — emits structured event to caller pipeline; no direct I/O
+```
+
+### Pending (stub files only)
+
+```
 policy::
   PolicyEngine             — manages session TTL, clipboard timeout, auto-lock
   SessionPolicy { ttl_ms, clipboard_timeout_ms, auto_lock_ms }
@@ -28,9 +38,7 @@ hardware::
   load_device_key(id) -> Result<SecretBytes>
   capability() -> HardwareCapability  — which features are available
 
-audit_guard::
-  AuditEvent               — event type with no secret fields
-  emit(event: AuditEvent)  — emits structured event to caller pipeline; no direct I/O
+side_channel::            — constant-time helpers (pending)
 ```
 
 ---
