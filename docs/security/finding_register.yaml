@@ -1,4 +1,4 @@
-# Arcanum — Finding Register
+# MeissnerSeal — Finding Register
 #
 # Durable audit artifact: every security finding and verification-coverage gap,
 # with finding -> remediation -> verification traceability.
@@ -10,13 +10,13 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-07
+updated: 2026-06-12
 
 findings:
-  # ── arcanum-core code-review findings (Consistency + Security agents) ─────────
+  # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
   - id: F-01
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "Zero revision_id used in AAD — weakens cross-revision binding"
     cwe: CWE-345
@@ -29,7 +29,7 @@ findings:
 
   - id: F-02
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "Zero record_id in create() AAD"
     cwe: CWE-345
@@ -42,7 +42,7 @@ findings:
 
   - id: F-03
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "Hardcoded KDF params instead of header-read params"
     cwe: CWE-1188
@@ -55,7 +55,7 @@ findings:
 
   - id: F-04
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "Unzeroized vrk_bytes [u8;32] stack copy of VaultRootKey"
     cwe: CWE-316
@@ -68,7 +68,7 @@ findings:
 
   - id: F-05
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "pub vault_root_key field exposed raw VRK cross-crate"
     cwe: CWE-732
@@ -81,7 +81,7 @@ findings:
 
   - id: F-06
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "pqc_profile silently defaults to 0 when TAG_PQC_PROFILE absent (downgrade surface)"
     cwe: CWE-754
@@ -94,7 +94,7 @@ findings:
 
   - id: F-07
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "KDF profile parsed with read_u16_prefix (accepts trailing bytes) vs read_tlv_u16 elsewhere"
     cwe: CWE-20
@@ -107,7 +107,7 @@ findings:
 
   - id: F-08
     kind: security_review
-    source: "Security Review Agent — arcanum-core"
+    source: "Security Review Agent — meissnerseal-core"
     date: 2026-06-06
     description: "All fuzz targets were empty stubs — false 'fuzz-tested parsers' assurance"
     cwe: CWE-1025
@@ -335,11 +335,11 @@ findings:
 
   # ── MVP-0 Stable-readiness milestone review (Consistency + Security agents) ───
   # Surfaced 2026-06-08 reviewing feat/mvp0-test-vectors before CORE-STABLE.
-  # All three block marking arcanum-core API Stable until resolved OR formally
+  # All three block marking meissnerseal-core API Stable until resolved OR formally
   # re-scoped in CONTRACT/spec/ADR. See arcanum-ops CORE-STABLE (re-blocked).
   - id: F-09
     kind: security_review
-    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    source: "Milestone review (Consistency + Security agents) — meissnerseal-core"
     date: 2026-06-08
     description: "create() does not serialize/persist a vault file (no temp-file/fsync/rename crash-safe write); returns a session after key derivation only"
     cwe: CWE-693
@@ -352,20 +352,20 @@ findings:
 
   - id: F-10
     kind: security_review
-    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    source: "Milestone review (Consistency + Security agents) — meissnerseal-core"
     date: 2026-06-08
     description: "Session derivation expands 4 HKDF subkeys while crypto_design.md §3 specifies 7 registry subkeys; cross_verify.py SUBKEY_PURPOSES also defines 7 — vector-vs-impl gap"
     cwe: CWE-325
     severity: high
     blocking: true
     status: resolved
-    remediation: "arcanum-ops CORE-2 (ADR-025 Option A): derive_subkeys now derives all 7 registry subkeys via arcanum_crypto derive_subkey; UnlockedKeys exposes all 7; fail-closed (any subkey error -> Err, no partial struct)"
+    remediation: "arcanum-ops CORE-2 (ADR-025 Option A): derive_subkeys now derives all 7 registry subkeys via meissnerseal_crypto derive_subkey; UnlockedKeys exposes all 7; fail-closed (any subkey error -> Err, no partial struct)"
     verification: "all 7 subkeys byte-match vault_kdf_v1.json subkey-derivation case; pairwise distinct (ct_eq); UnlockedKeys completeness asserted; cargo test/clippy -D warnings/audit green 2026-06-08"
     commit: "eab82e7"
 
   - id: F-11
     kind: consistency
-    source: "Milestone review (Consistency + Security agents) — arcanum-core"
+    source: "Milestone review (Consistency + Security agents) — meissnerseal-core"
     date: 2026-06-08
     description: "CONTRACT.md states create() returns VaultHandle and VaultSession comes only via unlock(), but the implementation returns VaultSession from create()"
     cwe: CWE-684
@@ -378,7 +378,7 @@ findings:
 
   - id: F-12
     kind: security_review
-    source: "Milestone re-review GATE-CORE-REV (Security agent) — arcanum-core"
+    source: "Milestone re-review GATE-CORE-REV (Security agent) — meissnerseal-core"
     date: 2026-06-08
     description: "persist_vault TOCTOU: exists()-check then std::fs::rename can clobber a vault created in the window (rename overwrites on Unix); error-path cleanup remove_file(path) can delete a concurrently-created target it does not own — violates 'never overwrite' (G-01/G-06)"
     cwe: CWE-367
@@ -391,13 +391,13 @@ findings:
     reopened:
       date: 2026-06-09
       by: "GATE-CORE-REV2 (focused Security re-review) — needs_revision"
-      residual: "crates/arcanum-core/src/vault/engine.rs:236-241 | CWE-367 | the error-path remove_file(&tmp_path) is UNCONDITIONAL, not gated by ownership like the target removal. With two concurrent create() calls on the same final path, the loser fails the create_new(true) target claim (AlreadyExists) and then deletes the WINNER's in-flight deterministic sibling temp (path.with_extension(\"arcv.tmp\")); the winner's subsequent rename then fails with ENOENT. Violates the documented 'remove only files this call exclusively created' invariant (persist_vault doc-comment §Postconditions) and denies successful persistence to the winning writer. The target half of F-12 is closed; the temp-cleanup half is not. Remediation tracked as CORE-7; re-verify at GATE-CORE-REV3."
+      residual: "crates/meissnerseal-core/src/vault/engine.rs:236-241 | CWE-367 | the error-path remove_file(&tmp_path) is UNCONDITIONAL, not gated by ownership like the target removal. With two concurrent create() calls on the same final path, the loser fails the create_new(true) target claim (AlreadyExists) and then deletes the WINNER's in-flight deterministic sibling temp (path.with_extension(\"arcv.tmp\")); the winner's subsequent rename then fails with ENOENT. Violates the documented 'remove only files this call exclusively created' invariant (persist_vault doc-comment §Postconditions) and denies successful persistence to the winning writer. The target half of F-12 is closed; the temp-cleanup half is not. Remediation tracked as CORE-7; re-verify at GATE-CORE-REV3."
     residual_resolution: "CORE-7 (Phase-1 RED baseline 9dedac4 + Phase-2 fix 19bfd65), approach B (per-call-unique temp). persist_vault now derives the temp path via unique_tmp_path(path, record_id) = path.with_extension('{hex(record_id)}.msv.tmp') — a same-parent sibling whose uniqueness comes from the existing CSPRNG record_id (no new RNG). The single tmp_path variable drives the temp create_new write, the rename, AND the error-path remove_file, so cleanup can only ever name THIS call's own temp; a losing concurrent writer (which never created its unique temp) cannot delete the winner's in-flight temp. create_new(target) claim, target_claimed-gated target cleanup, and crash-safe ordering all unchanged. record_id in the filename leaks nothing (it is cleartext non-secret metadata already on disk in the record table/frame). GATE-CORE-REV3 (orchestrator-verified, HUMAN-authorized 2026-06-09): re-read the committed code, confirmed cross-deletion structurally impossible, crash-safe order intact, no plaintext in filename/logs; the regression is pinned by test concurrent_loser_does_not_delete_winner_temp which exercised the real cleanup path, was genuinely RED before (31 passed/1 failed) and is GREEN after (32 passed/0 failed). Residual disk-hygiene only (orphan unique temps) tracked as F-15 (deferred)."
     residual_commit: "19bfd65"
 
   - id: F-13
     kind: consistency
-    source: "Milestone re-review GATE-CORE-REV (Consistency + Security agents) — arcanum-core"
+    source: "Milestone re-review GATE-CORE-REV (Consistency + Security agents) — meissnerseal-core"
     date: 2026-06-08
     description: "Record-table entry revision_id[16] (spec vault_format_v1.md §5) is not modeled: RecordTableEntry omits it, serialize_record_table writes zero bytes, parse_record_table skips it. WRK auth binds the FRAME revision_id (so F-01 not reopened), but the on-disk §5 byte-model deviates from spec — unauthenticated/unused table field"
     cwe: CWE-345
@@ -410,7 +410,7 @@ findings:
 
   - id: F-14
     kind: design
-    source: "Derived from F-13 decision (a), GATE-CORE-REV re-review — arcanum-core"
+    source: "Derived from F-13 decision (a), GATE-CORE-REV re-review — meissnerseal-core"
     date: 2026-06-08
     description: "The record table is cleartext (I-03) and unauthenticated; once F-13(a) stores a real revision_id in the table, there are two revision sources — the frame's (AEAD-authenticated, authoritative) and the table's (cleartext, unauthenticated). Harmless in MVP-0 (no consumer trusts the table revision), but a tampered table revision becomes an integrity gap the moment a consumer (sync/transfer reconciliation) relies on it"
     cwe: CWE-345
@@ -425,7 +425,7 @@ findings:
     kind: consistency
     source: "Session consistency check (README §10) after CORE-STABLE — orchestrator, HUMAN-confirmed"
     date: 2026-06-09
-    description: "arcanum-core was marked API Status: Stable (commit fc00bd9) while the crate is NOT MVP-0-complete and its published CONTRACT surface contradicts implementation. (1) Completeness: MVP-0 roadmap scopes item operations (add/list/get backing CLI) + .msexp export/import into arcanum-core, but item/store.rs is an empty stub, no item ops exist, and there is no export path. (2) Published surface: CONTRACT publishes transfer::/device::/recovery:: APIs and guarantees G-03 (DeviceTrustState)/G-04 (receive_envelope) that are unimplemented; transfer/device are post-MVP-0 (sync excluded per roadmap), yet the binary crate-level Stable gate (workflow.md §5) would advertise them to Batch-4 dependents (ffi/cli/sync-server). Root cause: the CORE-STABLE milestone was scoped as 'remediate security findings F-01..F-13' (CORE-1..7), which covered only the vault lifecycle — necessary but NOT sufficient for Stable (= MVP-0 completeness)."
+    description: "meissnerseal-core was marked API Status: Stable (commit fc00bd9) while the crate is NOT MVP-0-complete and its published CONTRACT surface contradicts implementation. (1) Completeness: MVP-0 roadmap scopes item operations (add/list/get backing CLI) + .msexp export/import into meissnerseal-core, but item/store.rs is an empty stub, no item ops exist, and there is no export path. (2) Published surface: CONTRACT publishes transfer::/device::/recovery:: APIs and guarantees G-03 (DeviceTrustState)/G-04 (receive_envelope) that are unimplemented; transfer/device are post-MVP-0 (sync excluded per roadmap), yet the binary crate-level Stable gate (workflow.md §5) would advertise them to Batch-4 dependents (ffi/cli/sync-server). Root cause: the CORE-STABLE milestone was scoped as 'remediate security findings F-01..F-13' (CORE-1..7), which covered only the vault lifecycle — necessary but NOT sufficient for Stable (= MVP-0 completeness)."
     cwe: CWE-1059
     severity: critical
     blocking: true
@@ -436,7 +436,7 @@ findings:
 
   - id: F-15
     kind: design
-    source: "Derived from F-12 residual remediation (CORE-7, B = per-call-unique temp) — arcanum-core"
+    source: "Derived from F-12 residual remediation (CORE-7, B = per-call-unique temp) — meissnerseal-core"
     date: 2026-06-09
     description: "CORE-7 closes F-12's temp-cleanup race by making the persist temp path per-call unique (structural isolation): cleanup can only ever remove this call's own temp, regardless of control flow. The accepted trade-off is that crash-orphaned temp files (vault.<unique>.msv.tmp) are no longer identifiable as stale from their name alone, so they are not auto-reclaimed and may accumulate as disk litter after a crash mid-write."
     cwe: CWE-459
