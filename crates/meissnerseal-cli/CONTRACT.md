@@ -52,7 +52,7 @@ These commands parse correctly but return an error at runtime until wired.
        in production builds.
        Secret input: hidden prompt (rpassword), --stdin flag, or file descriptor.
 
-[G-02] meissnerseal list and meissnerseal get --list never print secret field values.
+[G-02] meissnerseal list never prints secret field values.
        Only item_id, item_type, and label are shown.
 
 [G-03] meissnerseal export produces an encrypted .msexp bundle by default.
