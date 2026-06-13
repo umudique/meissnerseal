@@ -10,6 +10,10 @@
 ## Public API Surface (CLI commands — MVP-0)
 
 ```
+Global:
+  --stdin                            — read all secret prompts from stdin,
+                                       one secret per line
+
 meissnerseal init <PATH>              — create new vault
 meissnerseal add --label L --kind K --vault PATH
                                  — add item (secret value via hidden prompt)
