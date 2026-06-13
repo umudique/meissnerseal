@@ -9,7 +9,7 @@ use zeroize::Zeroize;
 use crate::{
     error::{CoreError, Result},
     item::model::{ItemId, ItemKind, ItemSummary, PlainItem, PlainItemView},
-    vault::engine::{persist_vault_mutation_v2, record_frame_len_at, VaultSession},
+    vault::engine::{persist_vault_mutation_v2, record_frame_len_at, Unlocked, Vault},
     vault::format::{
         build_aad, open_sealed_record_table_v2, parse_header, parse_item_record_frame_envelope,
         parse_record_frame, sealed_record_table_padded_plaintext_len,
@@ -85,7 +85,7 @@ fn id_hex(id: &[u8; 16]) -> String {
 }
 
 /// Read the vault file, parse the header, and open the MEK-sealed table.
-fn load_vault(session: &VaultSession) -> Result<LoadedVault> {
+fn load_vault(session: &Vault<Unlocked>) -> Result<LoadedVault> {
     let bytes = std::fs::read(session.path())?;
     let header = parse_header(&bytes)?;
     let header_len = read_prefix_u32(&bytes, PREFIX_HEADER_LEN_OFFSET)?;
@@ -306,7 +306,7 @@ fn existing_frame_bytes(loaded: &LoadedVault, entry: &RecordTableEntry) -> Resul
 
 /// Authenticate and decrypt one live item entry into owned, short-lived plaintext.
 fn read_item(
-    session: &VaultSession,
+    session: &Vault<Unlocked>,
     loaded: &LoadedVault,
     entry: &RecordTableEntry,
 ) -> Result<DecodedItem> {
@@ -361,7 +361,7 @@ fn read_item(
 /// Re-seal the table over `records`, recompute frame offsets, and rewrite the
 /// vault through the V2 crash-safe mutation path.
 fn rewrite_vault(
-    session: &VaultSession,
+    session: &Vault<Unlocked>,
     loaded: &LoadedVault,
     records: &[PendingRecord],
 ) -> Result<()> {
@@ -515,7 +515,7 @@ fn live_item_position(loaded: &LoadedVault, item_id: &ItemId) -> Option<usize> {
 ///   disk, logs, or error values.
 /// - Metadata (`label`, `tags`) is encrypted into the item payload where
 ///   possible; the V2 table contains only routing fields.
-pub fn add(session: &VaultSession, item: PlainItem) -> Result<ItemId> {
+pub fn add(session: &Vault<Unlocked>, item: PlainItem) -> Result<ItemId> {
     let loaded = load_vault(session)?;
     let record_id = fresh_id()?;
     let revision_id = fresh_id()?;
@@ -562,7 +562,7 @@ pub fn add(session: &VaultSession, item: PlainItem) -> Result<ItemId> {
 /// ## Invariants
 /// - Does not expose item secret payloads.
 /// - Does not log or format plaintext metadata or secret bytes.
-pub fn list(session: &VaultSession) -> Result<Vec<ItemSummary>> {
+pub fn list(session: &Vault<Unlocked>) -> Result<Vec<ItemSummary>> {
     let loaded = load_vault(session)?;
     let mut summaries = Vec::new();
     for entry in &loaded.entries {
@@ -605,7 +605,7 @@ pub fn list(session: &VaultSession) -> Result<Vec<ItemSummary>> {
 ///   closure (CONTRACT G-02).
 /// - No plaintext item bytes are written to disk, logs, or error values.
 /// - Authentication failure returns `Err` with no partial plaintext output.
-pub fn with_item<F, R>(session: &VaultSession, item_id: ItemId, f: F) -> Result<R>
+pub fn with_item<F, R>(session: &Vault<Unlocked>, item_id: ItemId, f: F) -> Result<R>
 where
     F: FnOnce(&PlainItemView<'_>) -> Result<R>,
 {
@@ -649,7 +649,7 @@ where
 /// ## Invariants
 /// - No old or new plaintext item payload, REK, IKWK, or MEK is logged, printed,
 ///   or written to an error value.
-pub fn update(session: &VaultSession, item_id: ItemId, item: PlainItem) -> Result<()> {
+pub fn update(session: &Vault<Unlocked>, item_id: ItemId, item: PlainItem) -> Result<()> {
     let loaded = load_vault(session)?;
     let position = live_item_position(&loaded, &item_id)
         .ok_or_else(|| CoreError::NotFound(id_hex(&item_id)))?;
@@ -700,7 +700,7 @@ pub fn update(session: &VaultSession, item_id: ItemId, item: PlainItem) -> Resul
 /// - Deletion never exposes or logs the deleted item's plaintext.
 /// - The tombstone is authenticated metadata; no best-effort deletion state is
 ///   returned on failure.
-pub fn delete(session: &VaultSession, item_id: ItemId) -> Result<()> {
+pub fn delete(session: &Vault<Unlocked>, item_id: ItemId) -> Result<()> {
     let loaded = load_vault(session)?;
     let position = match live_item_position(&loaded, &item_id) {
         Some(position) => position,
@@ -744,7 +744,7 @@ mod tests {
     use super::*;
     use crate::{
         item::model::ItemKind,
-        vault::engine::{create, lock, unlock, CreateVaultParams, UnlockParams},
+        vault::engine::{CreateVaultParams, Locked, UnlockParams, Vault},
     };
     use meissnerseal_security::secret_lifecycle::SecretBytes;
 
@@ -763,19 +763,21 @@ mod tests {
         path
     }
 
-    fn unlocked_session(label: &str) -> (std::path::PathBuf, VaultSession) {
+    fn unlocked_session(label: &str) -> (std::path::PathBuf, Vault<Unlocked>) {
         let path = unique_temp_vault_path(label);
         let _ = std::fs::remove_file(&path);
-        create(CreateVaultParams {
+        Vault::<Locked>::create(CreateVaultParams {
             path: path.clone(),
             password: SecretBytes::new(PASSWORD.to_vec()),
         })
         .expect("create item test vault");
-        let session = unlock(UnlockParams {
-            path: path.clone(),
-            password: SecretBytes::new(PASSWORD.to_vec()),
-        })
-        .expect("unlock item test vault");
+        let session = Vault::<Locked>::open(path.clone())
+            .expect("open locked vault")
+            .unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(PASSWORD.to_vec()),
+            })
+            .expect("unlock item test vault");
         (path, session)
     }
 
@@ -788,8 +790,8 @@ mod tests {
         }
     }
 
-    fn cleanup(path: &std::path::Path, session: VaultSession) {
-        let _ = lock(session);
+    fn cleanup(path: &std::path::Path, session: Vault<Unlocked>) {
+        let _ = session.lock();
         let _ = std::fs::remove_file(path);
     }
 
@@ -862,12 +864,13 @@ mod tests {
 
         let item_id = add(&session, plain_item("persistent", b"survives"))
             .expect("Phase 2: add must persist encrypted item");
-        lock(session).expect("lock item test session");
-        let session = unlock(UnlockParams {
-            path: path.clone(),
-            password: SecretBytes::new(PASSWORD.to_vec()),
-        })
-        .expect("unlock item test vault after add");
+        let locked = session.lock();
+        let session = locked
+            .unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(PASSWORD.to_vec()),
+            })
+            .expect("unlock item test vault after add");
         let observed = with_item(&session, item_id, |view| {
             view.secret.with_secret(|secret| Ok(secret.len()))
         })

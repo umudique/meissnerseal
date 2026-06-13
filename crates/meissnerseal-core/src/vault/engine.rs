@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Vault engine: create, unlock, and lock vault sessions.
+//! Vault engine: create, unlock, and lock vault typestates.
 
-use std::{fmt::Write as FmtWrite, io::Write};
+use std::{fmt::Write as FmtWrite, io::Write, marker::PhantomData};
 
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 
@@ -20,62 +20,55 @@ use crate::vault::format::{
 const HEADER_LEN_OFFSET: usize = 10;
 const RECORD_TABLE_LEN_OFFSET: usize = 14;
 
-/// Opaque handle to an unlocked vault session.
+/// Locked vault state.
 ///
-/// # Security invariants
+/// # Contract
 ///
-/// - Never constructed directly by callers.
-///   Obtained exclusively through [`unlock`].
-/// - Does **not** implement `Clone`, `PartialEq`, or `Debug` — contains secret
-///   key material.
-/// - Consuming ownership via [`lock`] ensures the caller cannot use the session
-///   afterwards; enforced by the Rust type system.
+/// ## Invariants
+/// - Carries no key material.
+/// - Can be obtained from [`Vault::<Locked>::create`] or [`Vault::<Locked>::open`].
+pub struct Locked;
+
+/// Unlocked vault state.
+///
+/// # Contract
+///
+/// ## Invariants
+/// - Contains exactly one [`UnlockedKeys`] set.
+/// - Does **not** implement `Clone`, `PartialEq`, or `Debug`.
 /// - Key material is zeroized on drop via `ZeroizeOnDrop` on [`UnlockedKeys`]
 ///   fields.
-pub struct VaultSession {
-    // ZeroizeOnDrop key material carried through the session lifetime so memory
-    // is cleared when lock() drops the session. Read only by item operations in
-    // the same crate via the pub(crate) `keys()` accessor.
+pub struct Unlocked {
     keys: UnlockedKeys,
-
-    // Filesystem path of the vault this session unlocked. Item operations read
-    // and rewrite this file through the V2 crash-safe mutation path; it carries
-    // no secret material.
-    path: std::path::PathBuf,
 }
 
-impl VaultSession {
-    /// Borrow the session's derived key hierarchy (crate-internal item ops only).
-    pub(crate) fn keys(&self) -> &UnlockedKeys {
-        &self.keys
-    }
+/// Vault value parameterized by lock state.
+///
+/// # Contract
+///
+/// ## Invariants
+/// - `Vault<Locked>` contains only non-secret routing metadata.
+/// - `Vault<Unlocked>` is the only vault type that carries live key material.
+/// - Item/export operations accept `&Vault<Unlocked>` only; attempts to call
+///   them on `Vault<Locked>` fail at compile time.
+pub struct Vault<S> {
+    path: std::path::PathBuf,
+    state: S,
+    _state: PhantomData<S>,
+}
 
-    /// Borrow the path of the unlocked vault file (crate-internal item ops only).
-    pub(crate) fn path(&self) -> &std::path::Path {
+impl<S> Vault<S> {
+    /// Borrow the path of the vault file.
+    pub fn path(&self) -> &std::path::Path {
         &self.path
     }
 }
 
-/// Non-secret handle for a created vault on disk.
-///
-/// # Contract
-///
-/// ## Preconditions
-/// - Constructed only after a vault file has been durably created at `path`.
-///
-/// ## Postconditions
-/// - Identifies the locked vault file that can later be opened with [`unlock`].
-/// - Contains no key material and no plaintext secrets.
-///
-/// ## Invariants
-/// - This is intentionally `Debug`: unlike [`VaultSession`], it carries only
-///   non-secret routing metadata.
-/// - Holding a `VaultHandle` does not imply live key material is resident; a
-///   live [`VaultSession`] is obtainable only through [`unlock`] (CONTRACT P-01).
-#[derive(Debug)]
-pub struct VaultHandle {
-    /// Filesystem path of the persisted vault file.
-    pub path: std::path::PathBuf,
+impl Vault<Unlocked> {
+    /// Borrow the unlocked vault's derived key hierarchy (crate-internal item ops only).
+    pub(crate) fn keys(&self) -> &UnlockedKeys {
+        &self.state.keys
+    }
 }
 
 /// Parameters for creating a new vault.
@@ -94,92 +87,148 @@ pub struct UnlockParams {
     pub password: SecretBytes,
 }
 
-/// Create a new locked vault at the given path and return a non-secret handle.
-///
-/// # Contract
-///
-/// ## Preconditions
-/// - `params.path` must not already exist — this function never overwrites.
-/// - `params.password` must be non-empty.
-///
-/// ## Postconditions
-/// - On success: key hierarchy is derived only long enough to wrap and persist
-///   the VaultRootKey, then dropped/zeroized before this function returns.
-/// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
-///   for the fixed-position WrappedRootKey frame before AAD construction; those
-///   same IDs are persisted in the §6 frame metadata.
-/// - On success: header `schema_profile` is `SCHEMA_MEISSNER_RECORDS_V2`, the WRK
-///   frame starts at `HEADER_MIN_LEN + header_len`, and the MEK-sealed table
-///   contains no WrappedRootKey entry.
-/// - On success: returns a [`VaultHandle`], never a live [`VaultSession`].
-/// - On failure: `Err` is returned and no partial file remains on disk.
-///
-/// ## Invariants
-/// - Write strategy: serialize → encrypt → temp file → fsync → rename → fsync
-///   parent (CONTRACT G-01).
-/// - The MEK-sealed table is sealed with `meissnerseal-crypto` AEAD under the
-///   `metadata_key` produced by the key hierarchy; meissnerseal-core never implements
-///   cryptography directly.
-/// - Never writes plaintext key material to disk.
-/// - Never returns partial output on cryptographic failure (CONTRACT G-06).
-/// - A live [`VaultSession`] is obtainable only through [`unlock`] (CONTRACT
-///   P-01), preserving the single session-birth chokepoint for future
-///   sync/transfer/device/recovery and hardware re-auth layers.
-pub fn create(params: CreateVaultParams) -> Result<VaultHandle> {
-    // Validate preconditions.
-    params.password.with_secret(|b| -> Result<()> {
-        if b.is_empty() {
-            return Err(CoreError::InvalidState("empty password".into()));
+impl Vault<Locked> {
+    /// Create a new locked vault at the given path.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `params.path` must not already exist — this function never overwrites.
+    /// - `params.password` must be non-empty.
+    ///
+    /// ## Postconditions
+    /// - On success: key hierarchy is derived only long enough to wrap and persist
+    ///   the VaultRootKey, then dropped/zeroized before this function returns.
+    /// - On success: a fresh CSPRNG `record_id` and `revision_id` are generated
+    ///   for the fixed-position WrappedRootKey frame before AAD construction; those
+    ///   same IDs are persisted in the §6 frame metadata.
+    /// - On success: header `schema_profile` is `SCHEMA_MEISSNER_RECORDS_V2`, the WRK
+    ///   frame starts at `HEADER_MIN_LEN + header_len`, and the MEK-sealed table
+    ///   contains no WrappedRootKey entry.
+    /// - On success: returns a [`Vault<Locked>`], never a live [`Vault<Unlocked>`].
+    /// - On failure: `Err` is returned and no partial file remains on disk.
+    ///
+    /// ## Invariants
+    /// - Write strategy: serialize → encrypt → temp file → fsync → rename → fsync
+    ///   parent (CONTRACT G-01).
+    /// - The MEK-sealed table is sealed with `meissnerseal-crypto` AEAD under the
+    ///   `metadata_key` produced by the key hierarchy; meissnerseal-core never implements
+    ///   cryptography directly.
+    /// - Never writes plaintext key material to disk.
+    /// - Never returns partial output on cryptographic failure (CONTRACT G-06).
+    /// - A live [`Vault<Unlocked>`] is obtainable only through [`Vault<Locked>::unlock`]
+    ///   (CONTRACT P-01), preserving the single session-birth chokepoint for future
+    ///   sync/transfer/device/recovery and hardware re-auth layers.
+    pub fn create(params: CreateVaultParams) -> Result<Self> {
+        // Validate preconditions.
+        params.password.with_secret(|b| -> Result<()> {
+            if b.is_empty() {
+                return Err(CoreError::InvalidState("empty password".into()));
+            }
+            Ok(())
+        })?;
+
+        // Generate vault_id and header_nonce from OS CSPRNG.
+        let vault_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
+            .try_into()
+            .map_err(|_| CoreError::Crypto)?;
+        let record_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
+            .try_into()
+            .map_err(|_| CoreError::Crypto)?;
+        let revision_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
+            .try_into()
+            .map_err(|_| CoreError::Crypto)?;
+        let header_nonce = meissnerseal_crypto::rng::random_nonce_xchacha20();
+
+        let aad = build_aad(
+            &vault_id,
+            FORMAT_VERSION,
+            SCHEMA_MEISSNER_RECORDS_V2,
+            1,
+            1,
+            0,
+            &record_id,
+            &revision_id,
+            RECORD_KIND_WRAPPED_ROOT_KEY,
+        );
+
+        // Derive key hierarchy and wrap the VaultRootKey.
+        let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
+        let (keys, wrk_ciphertext, wrk_nonce) = params.password.with_secret(|pw| {
+            create_session_keys(pw, &vault_id, &header_nonce, &kdf_params, &aad)
+        })?;
+
+        persist_vault(
+            &params.path,
+            &vault_id,
+            &header_nonce,
+            &kdf_params,
+            &record_id,
+            &revision_id,
+            &wrk_ciphertext,
+            &wrk_nonce,
+            &aad,
+            &keys.metadata_key,
+        )?;
+
+        drop(keys);
+
+        Ok(Self {
+            path: params.path,
+            state: Locked,
+            _state: PhantomData,
+        })
+    }
+
+    /// Open an existing vault path as locked metadata only.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `path` identifies the vault file the caller intends to unlock.
+    ///
+    /// ## Postconditions
+    /// - Returns a [`Vault<Locked>`] carrying no key material.
+    ///
+    /// ## Invariants
+    /// - Does not parse, decrypt, derive keys, or touch plaintext.
+    pub fn open(path: impl Into<std::path::PathBuf>) -> Result<Self> {
+        Ok(Self {
+            path: path.into(),
+            state: Locked,
+            _state: PhantomData,
+        })
+    }
+
+    /// Unlock an existing vault file and return a vault with decrypted key material.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `params.path` must exist and be a valid vault file: correct magic bytes,
+    ///   supported format version, authenticated header, and a parseable
+    ///   `WrappedRootKey` record.
+    /// - `params.path` must equal this locked vault's path.
+    /// - `params.password` must be non-empty.
+    ///
+    /// ## Postconditions
+    /// - On success: returns a [`Vault<Unlocked>`] with all subkeys derived and ready.
+    /// - On authentication failure: returns `Err` — no key material is exposed or
+    ///   partially returned.
+    ///
+    /// ## Invariants
+    /// - Never returns a partial `Vault<Unlocked>` on decryption or AEAD failure
+    ///   (CONTRACT G-06).
+    /// - Rejects: wrong magic bytes, unknown critical TLV tags, truncated data,
+    ///   and any AEAD authentication failure.
+    pub fn unlock(self, params: UnlockParams) -> Result<Vault<Unlocked>> {
+        if params.path != self.path {
+            return Err(CoreError::InvalidState(
+                "unlock path does not match locked vault".into(),
+            ));
         }
-        Ok(())
-    })?;
-
-    // Generate vault_id and header_nonce from OS CSPRNG.
-    let vault_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
-        .try_into()
-        .map_err(|_| CoreError::Crypto)?;
-    let record_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
-        .try_into()
-        .map_err(|_| CoreError::Crypto)?;
-    let revision_id: [u8; 16] = meissnerseal_crypto::rng::random_bytes(16)
-        .try_into()
-        .map_err(|_| CoreError::Crypto)?;
-    let header_nonce = meissnerseal_crypto::rng::random_nonce_xchacha20();
-
-    let aad = build_aad(
-        &vault_id,
-        FORMAT_VERSION,
-        SCHEMA_MEISSNER_RECORDS_V2,
-        1,
-        1,
-        0,
-        &record_id,
-        &revision_id,
-        RECORD_KIND_WRAPPED_ROOT_KEY,
-    );
-
-    // Derive key hierarchy and wrap the VaultRootKey.
-    let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
-    let (keys, wrk_ciphertext, wrk_nonce) = params
-        .password
-        .with_secret(|pw| create_session_keys(pw, &vault_id, &header_nonce, &kdf_params, &aad))?;
-
-    persist_vault(
-        &params.path,
-        &vault_id,
-        &header_nonce,
-        &kdf_params,
-        &record_id,
-        &revision_id,
-        &wrk_ciphertext,
-        &wrk_nonce,
-        &aad,
-        &keys.metadata_key,
-    )?;
-
-    drop(keys);
-
-    Ok(VaultHandle { path: params.path })
+        unlock_impl(params)
+    }
 }
 
 /// Persist a newly-created vault with the crash-safe strategy from
@@ -463,7 +512,7 @@ fn read_u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(array))
 }
 
-/// Unlock an existing vault file and return a session with decrypted key material.
+/// Unlock implementation shared by the typestate transition.
 ///
 /// # Contract
 ///
@@ -474,16 +523,16 @@ fn read_u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
 /// - `params.password` must be non-empty.
 ///
 /// ## Postconditions
-/// - On success: returns a [`VaultSession`] with all subkeys derived and ready.
+/// - On success: returns a [`Vault<Unlocked>`] with all subkeys derived and ready.
 /// - On authentication failure: returns `Err` — no key material is exposed or
 ///   partially returned.
 ///
 /// ## Invariants
-/// - Never returns a partial `VaultSession` on decryption or AEAD failure
+/// - Never returns a partial `Vault<Unlocked>` on decryption or AEAD failure
 ///   (CONTRACT G-06).
 /// - Rejects: wrong magic bytes, unknown critical TLV tags, truncated data,
 ///   and any AEAD authentication failure.
-pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
+fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
     // Validate preconditions.
     params.password.with_secret(|b| -> Result<()> {
         if b.is_empty() {
@@ -570,32 +619,58 @@ pub fn unlock(params: UnlockParams) -> Result<VaultSession> {
         bytes.len(),
     )?;
 
-    Ok(VaultSession {
-        keys,
+    Ok(Vault {
         path: params.path,
+        state: Unlocked { keys },
+        _state: PhantomData,
     })
 }
 
-/// Lock a vault session, consuming it and zeroizing all key material.
-///
-/// # Contract
-///
-/// ## Preconditions
-/// - `session` was obtained through [`unlock`].
-///
-/// ## Postconditions
-/// - The [`UnlockedKeys`] held in `session` is dropped; all 32-byte key fields
-///   are zeroized via `ZeroizeOnDrop` on `meissnerseal_crypto::types::Key<32>`.
-///
-/// ## Invariants
-/// - Consuming ownership via `session: VaultSession` ensures the caller cannot
-///   reference the session after this call — enforced by the Rust type system,
-///   not by a runtime check.
-pub fn lock(session: VaultSession) -> Result<()> {
-    // Explicit drop documents intent; ZeroizeOnDrop on UnlockedKeys fields
-    // clears memory automatically.
-    drop(session);
-    Ok(())
+impl Vault<Unlocked> {
+    /// Lock a vault, consuming it and zeroizing all key material.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `self` was obtained through [`Vault<Locked>::unlock`].
+    ///
+    /// ## Postconditions
+    /// - The [`UnlockedKeys`] held in `self` is dropped; all 32-byte key fields
+    ///   are zeroized via `ZeroizeOnDrop` on `meissnerseal_crypto::types::Key<32>`.
+    /// - Returns a [`Vault<Locked>`] containing the same path and no key material.
+    ///
+    /// ## Invariants
+    /// - Consuming ownership via `self` ensures the caller cannot reference the
+    ///   unlocked vault after this call — enforced by the Rust type system,
+    ///   not by a runtime check.
+    pub fn lock(self) -> Vault<Locked> {
+        let path = self.path;
+        drop(self.state);
+        Vault {
+            path,
+            state: Locked,
+            _state: PhantomData,
+        }
+    }
+}
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn locked_vault_has_no_key_material_storage() {
+        let vault = Vault::<Locked> {
+            path: std::path::PathBuf::new(),
+            state: Locked,
+            _state: PhantomData,
+        };
+
+        assert_eq!(
+            std::mem::size_of_val(&vault),
+            std::mem::size_of::<std::path::PathBuf>()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -680,7 +755,7 @@ mod tests {
             &bytes,
             record_table_offset,
             record_table_len,
-            &session.keys.metadata_key,
+            &session.keys().metadata_key,
             &header.vault_id,
             header.schema_profile,
             wrk_frame_offset,
@@ -714,18 +789,35 @@ mod tests {
         let tmp_path = tmp_path_for(path);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&tmp_path);
-        let handle = create(CreateVaultParams {
+        let locked = create(CreateVaultParams {
             path: path.to_path_buf(),
             password: SecretBytes::new(password.to_vec()),
         })
         .expect("create fixture");
-        assert_eq!(handle.path, path);
+        assert_eq!(locked.path(), path);
     }
 
-    // Compile-time gate: VaultSession must never implement Debug.
+    fn create(params: CreateVaultParams) -> Result<Vault<Locked>> {
+        Vault::<Locked>::create(params)
+    }
+
+    fn unlock(params: UnlockParams) -> Result<Vault<Unlocked>> {
+        Vault::<Locked>::open(params.path.clone())?.unlock(params)
+    }
+
+    fn lock(vault: Vault<Unlocked>) -> Result<()> {
+        let _locked = vault.lock();
+        Ok(())
+    }
+
+    // Compile-time gate: Vault<Unlocked> must never implement Debug.
     // If Debug is derived, key material can appear in log output.
-    // Adding #[derive(Debug)] to VaultSession breaks this assertion at compile time.
-    assert_not_impl_any!(VaultSession: std::fmt::Debug);
+    // Adding #[derive(Debug)] to Vault<Unlocked> breaks this assertion at compile time.
+    assert_not_impl_any!(Vault<Unlocked>: std::fmt::Debug);
+    assert_not_impl_any!(Vault<Locked>: UnlockedVaultOps);
+
+    trait UnlockedVaultOps {}
+    impl UnlockedVaultOps for Vault<Unlocked> {}
 
     /// `create()` rejects an empty password without producing any key material.
     #[test]
@@ -747,8 +839,8 @@ mod tests {
         assert!(unlock(params).is_err());
     }
 
-    /// `create()` succeeds with a valid password and returns only a handle;
-    /// the live session is obtained through `unlock()` and then locked.
+    /// `create()` succeeds with a valid password and returns only a locked vault;
+    /// the unlocked vault is obtained through `unlock()` and then locked again.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn test_create_and_lock() {
@@ -761,10 +853,10 @@ mod tests {
             path: path.clone(),
             password: SecretBytes::new(b"test-password-never-real".to_vec()),
         };
-        let handle = create(params).expect("create must return handle");
-        assert_eq!(handle.path, path);
+        let locked = create(params).expect("create must return locked vault");
+        assert_eq!(locked.path(), path);
         let session = unlock(UnlockParams {
-            path: handle.path.clone(),
+            path: locked.path().to_path_buf(),
             password: SecretBytes::new(b"test-password-never-real".to_vec()),
         })
         .expect("unlock must return session");
@@ -791,7 +883,7 @@ mod tests {
         });
         assert!(create_result.is_ok());
         if let Ok(handle) = create_result {
-            assert_eq!(handle.path, path);
+            assert_eq!(handle.path(), path);
         }
 
         let unlock_result = unlock(UnlockParams {
@@ -990,8 +1082,8 @@ mod tests {
         });
 
         assert!(result.is_ok());
-        if let Ok(handle) = result {
-            assert_eq!(handle.path, path);
+        if let Ok(locked) = result {
+            assert_eq!(locked.path(), path);
         }
         assert!(path.exists());
         assert!(!tmp_path.exists());
@@ -1000,27 +1092,27 @@ mod tests {
         let _ = std::fs::remove_file(&tmp_path);
     }
 
-    /// `create()` returns a non-secret handle, not a live session; opening the
-    /// created vault requires an explicit `unlock()` call.
+    /// `create()` returns a non-secret locked vault, not an unlocked vault;
+    /// opening the created vault requires an explicit `unlock()` call.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn create_returns_handle_not_session() {
-        let path = unique_temp_vault_path("handle-only");
+    fn create_returns_locked_vault_not_unlocked_vault() {
+        let path = unique_temp_vault_path("locked-only");
         let tmp_path = tmp_path_for(&path);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
 
-        let handle = create(CreateVaultParams {
+        let locked = create(CreateVaultParams {
             path: path.clone(),
-            password: SecretBytes::new(b"handle-only-password-never-real".to_vec()),
+            password: SecretBytes::new(b"locked-only-password-never-real".to_vec()),
         })
-        .expect("create must return handle");
-        assert_eq!(handle.path, path);
-        assert!(handle.path.exists());
+        .expect("create must return locked vault");
+        assert_eq!(locked.path(), path);
+        assert!(locked.path().exists());
 
         let session = unlock(UnlockParams {
-            path: handle.path.clone(),
-            password: SecretBytes::new(b"handle-only-password-never-real".to_vec()),
+            path: locked.path().to_path_buf(),
+            password: SecretBytes::new(b"locked-only-password-never-real".to_vec()),
         })
         .expect("unlock must return session");
         lock(session).expect("lock must succeed");

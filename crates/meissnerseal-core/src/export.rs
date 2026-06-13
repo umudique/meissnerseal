@@ -16,7 +16,7 @@ use crate::{
         model::{ItemId, ItemKind, PlainItem},
         with_item,
     },
-    vault::engine::VaultSession,
+    vault::engine::{Unlocked, Vault},
     vault::format::{
         parse_header, parse_kdf_profile_params, serialize_kdf_profile_params, HeaderKdfParams,
     },
@@ -50,7 +50,7 @@ const MIN_BUNDLE_LEN: usize = MAGIC_LEN
 ///
 /// ## Preconditions
 /// - `session` was obtained through `vault::unlock`; callers cannot construct a
-///   live [`VaultSession`] directly.
+///   live [`Vault<Unlocked>`] directly.
 /// - `passphrase` must be non-empty secret material supplied by the user for
 ///   this export bundle. It is independent from the vault master password and
 ///   from vault-internal HKDF subkeys.
@@ -81,7 +81,7 @@ const MIN_BUNDLE_LEN: usize = MAGIC_LEN
 /// - Export never writes plaintext item bytes, labels, tags, export
 ///   passphrase, derived export key bytes, or vault key material to disk, logs,
 ///   audit events, or error values.
-pub fn export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>> {
+pub fn export(session: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>> {
     if passphrase.is_empty() {
         return Err(CoreError::InvalidState("empty export passphrase".into()));
     }
@@ -145,7 +145,7 @@ pub fn export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>> {
 ///   plaintext JSON/CSV.
 /// - Import never logs, audits, formats, or returns plaintext item contents,
 ///   the export passphrase, or derived key material.
-pub fn import(session: &VaultSession, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>> {
+pub fn import(session: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>> {
     if passphrase.is_empty() {
         return Err(CoreError::InvalidState("empty export passphrase".into()));
     }
@@ -189,7 +189,7 @@ struct ParsedBundle<'a> {
     ciphertext_and_tag: &'a [u8],
 }
 
-fn session_vault_id(session: &VaultSession) -> Result<[u8; 16]> {
+fn session_vault_id(session: &Vault<Unlocked>) -> Result<[u8; 16]> {
     let bytes = std::fs::read(session.path())?;
     Ok(parse_header(&bytes)?.vault_id)
 }
@@ -323,7 +323,7 @@ fn parse_bundle(bundle: &[u8]) -> Result<ParsedBundle<'_>> {
     })
 }
 
-fn serialize_live_item_set(session: &VaultSession) -> Result<Vec<u8>> {
+fn serialize_live_item_set(session: &Vault<Unlocked>) -> Result<Vec<u8>> {
     let summaries = list(session)?;
     let mut out = Vec::new();
     out.extend_from_slice(
@@ -458,7 +458,7 @@ mod tests {
     use super::*;
     use crate::{
         item::{add, list, with_item, ItemKind, PlainItem},
-        vault::engine::{create, lock, unlock, CreateVaultParams, UnlockParams},
+        vault::engine::{CreateVaultParams, Locked, UnlockParams, Vault},
     };
     use meissnerseal_security::secret_lifecycle::SecretBytes;
 
@@ -479,19 +479,21 @@ mod tests {
         path
     }
 
-    fn unlocked_session(label: &str) -> (std::path::PathBuf, VaultSession) {
+    fn unlocked_session(label: &str) -> (std::path::PathBuf, Vault<Unlocked>) {
         let path = unique_temp_vault_path(label);
         let _ = std::fs::remove_file(&path);
-        create(CreateVaultParams {
+        Vault::<Locked>::create(CreateVaultParams {
             path: path.clone(),
             password: SecretBytes::new(PASSWORD.to_vec()),
         })
         .expect("create export test vault");
-        let session = unlock(UnlockParams {
-            path: path.clone(),
-            password: SecretBytes::new(PASSWORD.to_vec()),
-        })
-        .expect("unlock export test vault");
+        let session = Vault::<Locked>::open(path.clone())
+            .expect("open locked vault")
+            .unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(PASSWORD.to_vec()),
+            })
+            .expect("unlock export test vault");
         (path, session)
     }
 
@@ -504,8 +506,8 @@ mod tests {
         }
     }
 
-    fn cleanup(path: &std::path::Path, session: VaultSession) {
-        let _ = lock(session);
+    fn cleanup(path: &std::path::Path, session: Vault<Unlocked>) {
+        let _ = session.lock();
         let _ = std::fs::remove_file(path);
     }
 
@@ -534,7 +536,11 @@ mod tests {
         out
     }
 
-    fn assert_imported_item(session: &VaultSession, expected_label: &str, expected_secret: &[u8]) {
+    fn assert_imported_item(
+        session: &Vault<Unlocked>,
+        expected_label: &str,
+        expected_secret: &[u8],
+    ) {
         let summaries = list(session).expect("imported item must be listed");
         let imported = summaries
             .iter()

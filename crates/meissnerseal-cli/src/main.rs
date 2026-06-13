@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use meissnerseal_core::{
     error::{CoreError, Result},
     item::{self, ItemKind, ItemSummary, PlainItem},
-    vault::engine::{self as vault, CreateVaultParams, UnlockParams, VaultSession},
+    vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use std::{io::Write, path::PathBuf};
@@ -144,11 +144,11 @@ fn init_vault(path: PathBuf, stdout: &mut dyn Write) -> Result<()> {
     }
 
     confirm.zeroize();
-    let handle = vault::create(CreateVaultParams {
+    let locked = Vault::<Locked>::create(CreateVaultParams {
         path,
         password: SecretBytes::new(password.into_bytes()),
     })?;
-    writeln!(stdout, "Created vault: {}", handle.path.display())?;
+    writeln!(stdout, "Created vault: {}", locked.path().display())?;
     Ok(())
 }
 
@@ -275,8 +275,8 @@ fn list_vault(vault_path: PathBuf, password: Vec<u8>) -> Result<String> {
     Ok(render_item_summaries(&summaries))
 }
 
-fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<VaultSession> {
-    vault::unlock(UnlockParams {
+fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<Vault<Unlocked>> {
+    Vault::<Locked>::open(vault_path.clone())?.unlock(UnlockParams {
         path: vault_path,
         password: SecretBytes::new(password),
     })
@@ -571,7 +571,7 @@ mod tests {
     }
 
     fn create_test_vault(path: &Path) {
-        vault::create(CreateVaultParams {
+        Vault::<Locked>::create(CreateVaultParams {
             path: path.to_path_buf(),
             password: SecretBytes::new(PASSWORD.to_vec()),
         })

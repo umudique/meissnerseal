@@ -4,7 +4,7 @@
 **API Status:** Unstable — per ADR-025, Stable requires F-01/F-02/F-03/F-09/F-10/F-11 resolved and re-reviewed  
 **Spec authority:** specs/protocol/vault_format_v1.md, transfer_profile_v1.md,
                    sync_profile_v1.md, recovery_kit_v1.md  
-**ADRs:** ADR-001 through ADR-010, ADR-025 (implement-not-rescope), ADR-026 (create returns VaultHandle)
+**ADRs:** ADR-001 through ADR-010, ADR-025 (implement-not-rescope), ADR-026 (locked create result), ADR-033 (vault typestate)
 
 ---
 
@@ -12,22 +12,23 @@
 
 ```
 vault::
-  create(params: CreateVaultParams) -> Result<VaultHandle>
-  unlock(params: UnlockParams) -> Result<VaultSession>
+  Vault<Locked>::create(params: CreateVaultParams) -> Result<Vault<Locked>>
+  Vault<Locked>::open(path) -> Result<Vault<Locked>>
+  Vault<Locked>::unlock(self, params: UnlockParams) -> Result<Vault<Unlocked>>
          // UnlockParams { path: PathBuf, password: SecretBytes }
-  lock(session: VaultSession) -> Result<()>
+  Vault<Unlocked>::lock(self) -> Vault<Locked>
 
 item::
-  add(session: &VaultSession, item: PlainItem) -> Result<ItemId>
-  with_item<F, R>(session, item_id, f: F) -> Result<R>
+  add(vault: &Vault<Unlocked>, item: PlainItem) -> Result<ItemId>
+  with_item<F, R>(vault, item_id, f: F) -> Result<R>
     // F: FnOnce(&PlainItemView<'_>) -> Result<R>
-  update(session, item_id, item: PlainItem) -> Result<()>
-  delete(session, item_id) -> Result<()>
-  list(session) -> Result<Vec<ItemSummary>>
+  update(vault, item_id, item: PlainItem) -> Result<()>
+  delete(vault, item_id) -> Result<()>
+  list(vault) -> Result<Vec<ItemSummary>>
 
 export::
-  export(session: &VaultSession, passphrase: &[u8]) -> Result<Vec<u8>>
-  import(session: &VaultSession, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
+  export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
+  import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
 ```
 
@@ -115,8 +116,9 @@ recovery::  [MVP-1 — ADR-010]
 ## Preconditions
 
 ```
-[P-01] VaultSession must be obtained through vault::unlock only.
-       Callers must not construct VaultSession directly.
+[P-01] Vault<Unlocked> must be obtained through Vault<Locked>::unlock only.
+       Callers must not construct Vault<Unlocked> directly. Vault<Locked>
+       carries no key material and cannot be passed to item/export operations.
 
 [P-02] AAD passed to internal encryption calls must use the canonical
        construction from specs/protocol/vault_format_v1.md §7.

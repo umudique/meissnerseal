@@ -138,7 +138,7 @@ pub fn derive_master_unlock_key_with_header_params(
 ///   ciphertext from the `WrappedRootKey` record frame.
 /// - `wrapped_root_key_nonce` is the 24-byte AEAD nonce stored in the
 ///   `WrappedRootKey` record frame.
-/// - `aad` is the canonical 74-byte AAD for the `WrappedRootKey` record,
+/// - `aad` is the canonical 79-byte AAD for the `WrappedRootKey` record,
 ///   constructed per `vault_format_v1.md` §7 with `record_kind = 0x0002`.
 ///
 /// ## Postconditions
@@ -206,7 +206,7 @@ pub fn derive_session_keys(
 ///   header (not reused from any prior vault).
 /// - `kdf_params` is the explicit KDF parameter set that will be serialized into
 ///   the new vault header.
-/// - `aad` is the canonical 74-byte AAD for the `WrappedRootKey` record,
+/// - `aad` is the canonical 79-byte AAD for the `WrappedRootKey` record,
 ///   constructed per `vault_format_v1.md` §7 with `record_kind = 0x0002`.
 ///
 /// ## Postconditions
@@ -457,8 +457,8 @@ mod proofs {
             "wrapped_root_key_nonce is exactly 24 bytes",
         );
         kani::assert(
-            aad.len() == 74,
-            "aad is exactly 74 bytes per vault_format_v1.md §7",
+            aad.len() == 79,
+            "aad is exactly 79 bytes per vault_format_v1.md §7",
         );
     }
 }
