@@ -222,6 +222,11 @@ fn export_command(
 ) -> Result<()> {
     let password = prompt_password("Master password: ", stdin)?;
     let passphrase = prompt_password("Export passphrase: ", stdin)?;
+    if passphrase.len() < 12 {
+        return Err(CoreError::InvalidState(
+            "export passphrase must be at least 12 characters (P-02)".into(),
+        ));
+    }
     export_bundle(
         vault,
         password.into_bytes(),
