@@ -251,11 +251,11 @@ fn add_item(vault: &Path, label: &str) -> String {
 fn run_cli<const N: usize>(args: [&str; N], stdin_lines: &[&[u8]]) -> Output {
     // These are process-level E2E tests. Passwords are sent only through stdin;
     // production argv never receives secret values.
-    // MEISSNERSEAL_STDIN_PASSWORD tells the binary to read passwords from stdin
-    // instead of /dev/tty (unavailable in spawned subprocesses).
+    // The public --stdin flag tells the binary to read prompts sequentially
+    // from stdin instead of /dev/tty (unavailable in spawned subprocesses).
     let mut child = Command::new(env!("CARGO_BIN_EXE_meissnerseal"))
+        .arg("--stdin")
         .args(args)
-        .env("MEISSNERSEAL_STDIN_PASSWORD", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
