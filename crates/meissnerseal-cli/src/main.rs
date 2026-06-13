@@ -19,6 +19,12 @@ use zeroize::Zeroize;
     // Use --stdin, interactive prompt, or file descriptor input.
 )]
 struct Cli {
+    #[arg(
+        long,
+        global = true,
+        help = "Read all secret prompts from stdin (one per line) instead of /dev/tty"
+    )]
+    stdin: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -114,13 +120,14 @@ fn main() {
 }
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
+    let stdin = cli.stdin;
     match cli.command {
-        Commands::Init { path } => init_vault(path, stdout),
-        Commands::Add { label, kind, vault } => add_command(label, kind, vault, stdout),
-        Commands::List { vault } => list_command(vault, stdout),
-        Commands::Get { item_id, vault } => get_command(item_id, vault, stdout),
-        Commands::Export { output, vault } => export_command(output, vault, stdout),
-        Commands::Import { input, vault } => import_command(input, vault, stdout),
+        Commands::Init { path } => init_vault(path, stdin, stdout),
+        Commands::Add { label, kind, vault } => add_command(label, kind, vault, stdin, stdout),
+        Commands::List { vault } => list_command(vault, stdin, stdout),
+        Commands::Get { item_id, vault } => get_command(item_id, vault, stdin, stdout),
+        Commands::Export { output, vault } => export_command(output, vault, stdin, stdout),
+        Commands::Import { input, vault } => import_command(input, vault, stdin, stdout),
         Commands::Lock => {
             writeln!(stdout, "Vault is locked.")?;
             Ok(())
@@ -131,9 +138,9 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
     }
 }
 
-fn init_vault(path: PathBuf, stdout: &mut dyn Write) -> Result<()> {
-    let mut password = prompt_password("Master password: ")?;
-    let mut confirm = prompt_password("Confirm: ")?;
+fn init_vault(path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
+    let mut password = prompt_password("Master password: ", stdin)?;
+    let mut confirm = prompt_password("Confirm: ", stdin)?;
 
     if password != confirm {
         password.zeroize();
@@ -152,10 +159,16 @@ fn init_vault(path: PathBuf, stdout: &mut dyn Write) -> Result<()> {
     Ok(())
 }
 
-fn add_command(label: String, kind: String, vault: PathBuf, stdout: &mut dyn Write) -> Result<()> {
+fn add_command(
+    label: String,
+    kind: String,
+    vault: PathBuf,
+    stdin: bool,
+    stdout: &mut dyn Write,
+) -> Result<()> {
     let kind = parse_item_kind(&kind)?;
-    let password = prompt_password("Master password: ")?;
-    let secret = prompt_password("Secret value: ")?;
+    let password = prompt_password("Master password: ", stdin)?;
+    let secret = prompt_password("Secret value: ", stdin)?;
     let item = PlainItem {
         kind,
         label,
@@ -177,9 +190,9 @@ fn add_item(
     Ok(())
 }
 
-fn get_command(item_id: String, vault: PathBuf, stdout: &mut dyn Write) -> Result<()> {
+fn get_command(item_id: String, vault: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
     let id = hex_decode_id(&item_id)?;
-    let password = prompt_password("Master password: ")?;
+    let password = prompt_password("Master password: ", stdin)?;
     get_item(vault, password.into_bytes(), id, stdout)
 }
 
@@ -201,9 +214,14 @@ fn get_item(
     })
 }
 
-fn export_command(output: PathBuf, vault: PathBuf, stdout: &mut dyn Write) -> Result<()> {
-    let password = prompt_password("Master password: ")?;
-    let passphrase = prompt_password("Export passphrase: ")?;
+fn export_command(
+    output: PathBuf,
+    vault: PathBuf,
+    stdin: bool,
+    stdout: &mut dyn Write,
+) -> Result<()> {
+    let password = prompt_password("Master password: ", stdin)?;
+    let passphrase = prompt_password("Export passphrase: ", stdin)?;
     export_bundle(
         vault,
         password.into_bytes(),
@@ -231,9 +249,14 @@ fn export_bundle(
     Ok(())
 }
 
-fn import_command(input: PathBuf, vault: PathBuf, stdout: &mut dyn Write) -> Result<()> {
-    let password = prompt_password("Master password: ")?;
-    let passphrase = prompt_password("Import passphrase: ")?;
+fn import_command(
+    input: PathBuf,
+    vault: PathBuf,
+    stdin: bool,
+    stdout: &mut dyn Write,
+) -> Result<()> {
+    let password = prompt_password("Master password: ", stdin)?;
+    let passphrase = prompt_password("Import passphrase: ", stdin)?;
     import_bundle(
         vault,
         password.into_bytes(),
@@ -262,8 +285,8 @@ fn import_bundle(
     Ok(())
 }
 
-fn list_command(vault_path: PathBuf, stdout: &mut dyn Write) -> Result<()> {
-    let password = prompt_password("Master password: ")?;
+fn list_command(vault_path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
+    let password = prompt_password("Master password: ", stdin)?;
     let output = list_vault(vault_path, password.into_bytes())?;
     write!(stdout, "{output}")?;
     Ok(())
@@ -282,20 +305,27 @@ fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<Vault<Unlock
     })
 }
 
-fn prompt_password(prompt: &str) -> std::io::Result<String> {
+fn prompt_password(prompt: &str, from_stdin: bool) -> std::io::Result<String> {
     // When MEISSNERSEAL_STDIN_PASSWORD is set the binary reads from stdin
     // instead of /dev/tty. Used only by the integration-test harness, which
     // spawns the binary as a subprocess with piped stdin. Never set this in
     // production; doing so reduces the isolation between the password prompt
     // and any piped input.
     if std::env::var("MEISSNERSEAL_STDIN_PASSWORD").is_ok() {
-        use std::io::BufRead;
-        let _ = prompt;
-        let mut line = String::new();
-        std::io::stdin().lock().read_line(&mut line)?;
-        return Ok(line.trim_end_matches('\n').to_string());
+        return read_password_from_stdin(prompt);
+    }
+    if from_stdin {
+        return read_password_from_stdin(prompt);
     }
     rpassword::prompt_password(prompt)
+}
+
+fn read_password_from_stdin(prompt: &str) -> std::io::Result<String> {
+    use std::io::BufRead;
+    let _ = prompt;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim_end_matches('\n').to_string())
 }
 
 fn parse_item_kind(kind: &str) -> Result<ItemKind> {
@@ -430,6 +460,25 @@ mod tests {
             "plaintext-secret-never-real",
         ]);
         assert!(flagged.is_err());
+    }
+
+    #[test]
+    fn stdin_global_flag_parses_before_add() {
+        let cli = Cli::try_parse_from([
+            "meissnerseal",
+            "--stdin",
+            "add",
+            "--label",
+            "x",
+            "--kind",
+            "password",
+            "--vault",
+            "/tmp/v.msv",
+        ])
+        .expect("--stdin must parse as a global flag before add");
+
+        assert!(cli.stdin);
+        assert!(matches!(cli.command, Commands::Add { .. }));
     }
 
     #[test]
