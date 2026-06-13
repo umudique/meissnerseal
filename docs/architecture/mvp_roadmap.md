@@ -40,7 +40,7 @@ The strongest early demo is:
 
 **Included:**
 - Rust workspace, `meissnerseal-core`, `meissnerseal-crypto` crates
-- Local vault file format (`ARCANUM_FORMAT_V1`)
+- Local vault file format (`MEISSNER_FORMAT_V1`)
 - Master password unlock with `KDF_ARGON2ID_V1`
 - AEAD encryption with `AEAD_XCHACHA20_POLY1305_V1`
 - Item types: Password, SeedPhrase, SshPrivateKey, ApiToken, SecureNote

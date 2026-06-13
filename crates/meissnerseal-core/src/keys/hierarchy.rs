@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Key hierarchy derivation for Arcanum vault sessions.
+//! Key hierarchy derivation for MeissnerSeal vault sessions.
 //!
 //! Implements the key derivation chain specified in
 //! `specs/crypto/crypto_design.md` §3, steps 1–6.

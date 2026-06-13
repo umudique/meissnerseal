@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arcanum test vector cross-verification.
+MeissnerSeal test vector cross-verification.
 
 Independently computes expected cryptographic outputs using standard
 Python libraries. The Rust implementation is correct when it reproduces

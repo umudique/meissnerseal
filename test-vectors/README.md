@@ -32,7 +32,7 @@ the reference implementation and at least one independent calculation
 | File | Profile | MVP Phase |
 |---|---|---|
 | `vault_kdf_v1.json` | KDF_ARGON2ID_V1 | MVP-0 |
-| `vault_format_v1.json` | SCHEMA_ARCANUM_RECORDS_V1 | MVP-0 |
+| `vault_format_v1.json` | SCHEMA_MEISSNER_RECORDS_V2 | MVP-0 |
 | `transfer_hybrid_v1.json` | TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 | MVP-2 |
 | `sync_envelope_v1.json` | sync envelope AEAD | MVP-3 |
 | `recovery_kit_v1.json` | QVRK_RECOVERY_SECRET_V1 | MVP-1 |

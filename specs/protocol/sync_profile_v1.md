@@ -98,7 +98,7 @@ X-MeissnerSeal-Body-SHA256: <hex-encoded-sha256-body-digest>
 ### Canonical Request String (signed)
 
 ```
-ARCANUM-SYNC-REQUEST-V1\n
+MEISSNERSEAL-SYNC-REQUEST-V1\n
 \n
 {method}\n
 \n

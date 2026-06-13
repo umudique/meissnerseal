@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-/// Magic bytes for the encrypted Arcanum export container.
+/// Magic bytes for the encrypted MeissnerSeal export container.
 ///
 /// The value is public format metadata, not secret material.
 pub const ARCEXP_MAGIC: [u8; 8] = *b"ARCEXP\x01\0";

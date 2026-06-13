@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Key derivation functions for Arcanum vault cryptography.
+//! Key derivation functions for MeissnerSeal vault cryptography.
 //!
 //! Phase 1 contains API contracts, compile-time test vector references, and
 //! formal verification harness skeletons only. Function bodies are intentionally
