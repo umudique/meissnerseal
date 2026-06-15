@@ -10,7 +10,9 @@
 
 ## Context
 
-MeissnerSeal is developed with AI agent assistance (Claude Code). Agents accelerate
+MeissnerSeal is being developed with the help of AI tooling. Every change is
+reviewed and approved by the human author — agents assist, but engineering
+judgement and accountability are never delegated. Agents accelerate
 implementation but introduce a class of risks specific to security-critical
 software:
 
