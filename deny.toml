@@ -78,6 +78,15 @@ skip = [
     { name = "windows-sys", version = "0.59" },
     # wit-bindgen 0.51 (older toolchain) vs 0.57 (newer toolchain)
     { name = "wit-bindgen", version = "0.51" },
+    # ml-kem 0.3.2 uses the new RustCrypto trait generation (digest 0.11,
+    # rand_core 0.10, crypto-common 0.2); existing crates (argon2, chacha20poly1305,
+    # aes-gcm, hkdf, sha2) use the prior generation. No resolution possible
+    # without upgrading the entire crypto stack. Skip the old versions.
+    { name = "block-buffer",   version = "0.10" },
+    { name = "cpufeatures",    version = "0.2"  },
+    { name = "crypto-common",  version = "0.1"  },
+    { name = "digest",         version = "0.10" },
+    { name = "rand_core",      version = "0.6"  },
 ]
 skip-tree = []
 
