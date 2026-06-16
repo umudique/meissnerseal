@@ -3,7 +3,7 @@
 **Version:** 0.1.0
 **API Status:** Unstable  
 **Spec authority:** specs/crypto/crypto_design.md §7, specs/protocol/transfer_profile_v1.md  
-**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk)
+**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend)
 
 ---
 
@@ -38,8 +38,12 @@ hybrid:: derive_transfer_key(
        Classical: X25519 ephemeral. PQC: ML-KEM-768. KDF: HKDF-SHA256.
        Transcript hash: SHA-256 (32 bytes).
 
-[G-02] Missing or invalid PQC ciphertext causes decapsulation to return Err.
-       There is no classical-only fallback in hybrid mode.
+[G-02] ML-KEM decapsulation uses FIPS 203 §6.3 implicit rejection: a tampered
+       same-length ciphertext returns Ok with a pseudorandom shared secret, not
+       Err. This prevents decryption oracles. The two parties will derive
+       different keys and the transfer will fail at the AEAD layer.
+       Missing PQC ciphertext in the hybrid envelope causes rejection at the
+       hybrid layer (receive_transfer_key). There is no classical-only fallback.
 
 [G-03] Profile mismatch (wrong algorithm ID in transcript) causes rejection
        before any key material is derived.
@@ -72,14 +76,15 @@ hybrid:: derive_transfer_key(
 ## ML-KEM Library Audit Status
 
 ```
-Library:      [TO BE SELECTED BEFORE MVP-2]
-Version:      [PINNED]
-Audit status: [NO INDEPENDENT AUDIT AS OF 2025-06]
-Risk level:   Medium — see ADR-012 for mitigations
+Library:      ml-kem (RustCrypto)
+Version:      0.3.2 (pinned in Cargo.lock)
+Audit status: No independent audit as of 2026-06; FIPS 203 target;
+              constant-time via subtle; wide deployment/community review
+Risk level:   Medium — see ADR-034, ADR-012
 Tracking:     docs/ops/dependency_risk_register.md
 ```
 
-This field must be updated before MVP-2 ships.
+This field must be updated with the pinned Cargo.lock version before MVP-2 ships.
 
 ---
 
