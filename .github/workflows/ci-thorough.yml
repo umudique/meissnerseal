@@ -6,8 +6,8 @@ name: CI Thorough
 on:
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "0 2 * * *"   # 02:00 UTC daily
+  # schedule:
+  #   - cron: "0 2 * * *"   # 02:00 UTC daily — disabled temporarily
   workflow_dispatch:        # allow manual trigger
 
 permissions:
@@ -44,6 +44,7 @@ jobs:
       - name: miri test — ${{ matrix.crate }}
         env:
           MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+          PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
   # ─── Fuzz: Build and smoke run ─────────────────────────────────────────────
@@ -232,12 +233,12 @@ jobs:
         with:
           key: semver-checks
       - name: Fetch main for baseline
-        run: git fetch origin main:main
+        run: git fetch origin main
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked
       - name: semver-checks — meissnerseal-core
         # meissnerseal-core is not published to crates.io; compare against main branch.
-        run: cargo semver-checks --package meissnerseal-core --baseline-rev main
+        run: cargo semver-checks --package meissnerseal-core --baseline-rev origin/main
 
   # ─── Cargo vet ─────────────────────────────────────────────────────────────
   # Dependency trust chain review. Hard gate — all deps must be audited or
