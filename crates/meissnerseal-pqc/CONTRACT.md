@@ -3,7 +3,7 @@
 **Version:** 0.1.0
 **API Status:** Unstable  
 **Spec authority:** specs/crypto/crypto_design.md §7, specs/protocol/transfer_profile_v1.md  
-**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend)
+**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend), ADR-036 (ML-KEM-768 parameter set)
 
 ---
 
