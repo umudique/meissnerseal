@@ -3,8 +3,8 @@
 
 **Status:** Accepted
 **Date:** 2026-06-09
-**Related:** ADR-012 (ML-KEM risk / hybrid logic), ADR-023 (libcrux backend),
-             ADR-027 (X-Wing), transfer_profile_v1.md §6, crypto_design.md §8
+**Related:** ADR-012 (ML-KEM risk / hybrid logic), ADR-034 (RustCrypto backend),
+             ADR-035 (UG combiner), transfer_profile_v1.md §6, crypto_design.md §8
 
 ---
 
@@ -34,10 +34,11 @@ Ed25519*. Adding a PQ signature later would break the `DeviceIdentity` format �
 there is no agility slot.
 
 **Why not ML-DSA-only when we migrate.** The ML-DSA *algorithm* (FIPS 204) is
-strong, but the verified *implementation* (libcrux-ml-dsa) is **less mature than
-libcrux-ml-kem**: libcrux's flagship verification was ML-KEM, the Symbolic
-Software (2026-02) review cited in ADR-023 did not cover the ML-DSA core, and the
-dependency risk register has no ML-DSA entry. Because signatures have no HNDL
+strong, but the *implementation* audit posture is weak across all available crates:
+RustCrypto `ml-dsa` has no independent security audit as of 2026-06; the
+alternative formally-verified backend (`libcrux-ml-dsa`) is excluded for governance
+reasons (ADR-034 §2–3) and carries RUSTSEC-2026-0077 and RUSTSEC-2026-0126. The
+dependency risk register has no ML-DSA entry yet. Because signatures have no HNDL
 urgency, we can wait for that audit posture to mature rather than rush.
 
 ---
@@ -56,8 +57,8 @@ urgency, we can wait for that audit posture to mature rather than rush.
 3. **Fill the slot as a hybrid, not a replacement.** When PQ signatures are added,
    use **Ed25519 + ML-DSA hybrid** (valid if either holds), not ML-DSA alone — the
    classical floor guards against an immature ML-DSA *implementation* defect,
-   exactly mirroring ADR-012's KEM-hybrid reasoning. Backend: libcrux-ml-dsa
-   (ADR-023), gated on its verification/audit maturity at integration time.
+   exactly mirroring ADR-012's KEM-hybrid reasoning. Backend: RustCrypto `ml-dsa`
+   (ADR-034 ecosystem), gated on its audit maturity at integration time.
 
 ---
 
@@ -85,5 +86,5 @@ low-frequency, high-assurance signing (e.g. release signing) separately.
   pre-ADR-023 ML-KEM entry (it still names the RustCrypto `ml-kem` crate as TBD).
 - Release-artifact signing (crypto_design.md §8 "Future") is a separate decision;
   this ADR covers device/pairing/revocation signatures only.
-- Revisit when libcrux-ml-dsa verification matures or an independent ML-DSA
-  implementation audit is published.
+- Revisit when RustCrypto `ml-dsa` receives an independent security audit, or if
+  an alternative ML-DSA implementation with stronger audit posture becomes available.

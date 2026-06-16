@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-027: Adopt X-Wing as the Hybrid KEM Combiner
 
-**Status:** Accepted
+**Status:** Superseded by ADR-035
 **Date:** 2026-06-09
 **Related:** ADR-007 (SHA-256 transcript), ADR-012 (ML-KEM risk), ADR-023
              (libcrux ML-KEM backend), crypto_design.md §7, transfer_profile_v1.md §3–4
