@@ -22,42 +22,23 @@ Review all dependencies monthly during active development.
 
 ---
 
-## PQC Dependencies (Critical — Selection Pending)
+## PQC Dependencies (Critical)
 
 | Crate | Purpose | Risk Level | Audit Status | Decision |
 |---|---|---|---|---|
-| TBD | ML-KEM-768 key encapsulation | Critical | **No independent audit (2025-06)** | Pending — see ADR-012 |
+| `ml-kem` (RustCrypto) | ML-KEM-768 key encapsulation | Critical | No independent audit (2026-06); FIPS 203 compliant; constant-time via `subtle`; wide deployment; no known advisories | Selected 2026-06-16 — ADR-034; version pinned in `Cargo.lock` at integration time |
+| `ml-dsa` (RustCrypto) | ML-DSA-65 digital signatures | Critical | No independent audit (2026-06); FIPS 204 compliant; RustCrypto ecosystem | Provisional — ADR-028 (hybrid agility slot; not yet integrated; integration gated on audit maturity) |
 
-### ML-KEM Crate Selection
+**ML-KEM risk notes:** No independent security audit as of 2026-06. The two High residual risks
+from ADR-012 (audit gap, side-channel) remain at their original values — ADR-034 explicitly does
+not upgrade them. Mitigations: hybrid design (X25519 + ML-KEM, ADR-035) means classical security
+holds independently; Kani harnesses required at the `meissnerseal-pqc` API boundary (PQC-1).
+See [ADR-034](../adr/ADR-034-rustcrypto-mlkem-backend.md) for full rationale.
 
-**Status:** Not yet selected. Must be selected and documented before MVP-2.
-
-**Risk summary:** See [ADR-012](../adr/ADR-012-mlkem-risk.md) for full analysis.
-Key points:
-- NIST FIPS 203 standard is finalized — specification risk is low
-- RustCrypto `ml-kem` crate has no independent security audit as of 2025-06
-- Hybrid design (X25519 + ML-KEM) means classical security holds even if ML-KEM fails
-- Version must be pinned in Cargo.lock; version bumps require manual review
-
-**Selection criteria (must satisfy all):**
-- Based on final NIST FIPS 203, not draft versions
-- Constant-time implementation with documented evidence or claims
-- Pure Rust preferred; C FFI acceptable only with narrow, well-audited binding
-- Active maintenance with a security disclosure process
-- Passes `cargo audit` with no known advisories at time of selection
-
-**Candidates to evaluate before MVP-2:**
-
-| Candidate | Ecosystem | CT Claims | Audit | Notes |
-|---|---|---|---|---|
-| `ml-kem` (RustCrypto) | RustCrypto | Documented | None (2025-06) | Most likely choice; consistent with ADR-011 |
-| `pqcrypto-kyber` | pqcrypto | C FFI (liboqs) | Partial | C dependency; liboqs is more mature |
-| `oqs` (liboqs Rust) | Open Quantum Safe | C FFI | NIST process review | Broader scope; larger FFI surface |
-
-**Update this row when a crate is selected:**
-```
-| <crate> | ML-KEM-768 | Critical | <audit status> | Selected <date>; version <x.y.z> pinned |
-```
+**ML-DSA risk notes:** No independent audit. `libcrux-ml-dsa` (formally-verified alternative)
+excluded — RUSTSEC-2026-0077, RUSTSEC-2026-0126, and silent-disclosure behavior (ADR-034 §2–3).
+The Ed25519+ML-DSA hybrid (ADR-028 §3) means classical Ed25519 remains the floor at integration
+time. Integration deferred until audit posture improves.
 
 ---
 
