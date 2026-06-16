@@ -33,6 +33,11 @@ jobs:
           - meissnerseal-pqc
           - meissnerseal-security
           - meissnerseal-ffi
+        include:
+          # meissnerseal-crypto uses proptest which calls getcwd() at runtime.
+          # Disable isolation only for this crate; all others keep strict mode.
+          - crate: meissnerseal-crypto
+            extra_miriflags: " -Zmiri-disable-isolation"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@5b842231ba77f5c045dba54ac5560fed2db780e2 # nightly
@@ -43,7 +48,7 @@ jobs:
           key: miri-${{ matrix.crate }}
       - name: miri test — ${{ matrix.crate }}
         env:
-          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check${{ matrix.extra_miriflags }}"
           PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
