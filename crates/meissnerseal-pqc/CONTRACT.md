@@ -13,7 +13,11 @@
 mlkem::  keypair() -> (MlKemPublicKey, MlKemPrivateKey)
          encapsulate(public_key) -> (MlKemCiphertext, SharedSecret)
          decapsulate(private_key, ciphertext) -> Result<SharedSecret>
+```
 
+## Planned API Surface (PQC-2 — not yet implemented)
+
+```
 hybrid:: derive_transfer_key(
            sender_ephemeral_private: X25519PrivateKey,
            recipient_classical_public: X25519PublicKey,
@@ -34,7 +38,8 @@ hybrid:: derive_transfer_key(
 ## Guarantees
 
 ```
-[G-01] Hybrid derivation follows TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 exactly.
+[G-01] [Planned — PQC-2] Hybrid derivation will follow
+       TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 exactly.
        Classical: X25519 ephemeral. PQC: ML-KEM-768. KDF: HKDF-SHA256.
        Transcript hash: SHA-256 (32 bytes).
 
@@ -91,13 +96,14 @@ This field must be updated with the pinned Cargo.lock version before MVP-2 ships
 ## Preconditions
 
 ```
-[P-01] transcript_hash passed to receive_transfer_key must be computed over
-       all required fields per specs/protocol/transfer_profile_v1.md §4.
+[P-01] MlKemPublicKey must be the full 1184-byte ML-KEM-768 public key.
 
-[P-02] MlKemPublicKey must be the full 1184-byte ML-KEM-768 public key.
+[P-02] [Planned — PQC-2] transcript_hash passed to receive_transfer_key
+       must be computed over all required fields per
+       specs/protocol/transfer_profile_v1.md §4.
 
-[P-03] X25519 ephemeral key must be freshly generated per transfer.
-       Reusing ephemeral keys breaks forward secrecy.
+[P-03] [Planned — PQC-2] X25519 ephemeral key must be freshly generated
+       per transfer. Reusing ephemeral keys breaks forward secrecy.
 ```
 
 ---
@@ -106,6 +112,8 @@ This field must be updated with the pinned Cargo.lock version before MVP-2 ships
 
 ```
 [I-01] This crate never logs or exposes key material.
-[I-02] This crate never falls back to classical-only mode silently.
-[I-03] Hybrid derivation parameters match the profile ID in the envelope.
+[I-02] [Planned — PQC-2] This crate never falls back to classical-only
+       mode silently.
+[I-03] [Planned — PQC-2] Hybrid derivation parameters match the profile
+       ID in the envelope.
 ```
