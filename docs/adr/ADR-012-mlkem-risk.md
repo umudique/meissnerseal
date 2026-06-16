@@ -12,6 +12,8 @@
 ## Context
 
 MeissnerSeal's hybrid transfer protocol requires ML-KEM-768 (NIST FIPS 203).
+The rationale for choosing ML-KEM-768 over ML-KEM-512 and ML-KEM-1024 is in
+**ADR-036**.
 Unlike the classical RustCrypto crates (ADR-011), the ML-KEM Rust ecosystem
 is newer and has less accumulated audit history.
 
