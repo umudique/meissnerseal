@@ -49,7 +49,8 @@ pub fn keypair() -> Result<(MlKemPublicKey, MlKemPrivateKey)> {
     let (private_key, public_key) = MlKem768::generate_keypair();
     let public_key = key_from_slice(public_key.to_bytes().as_slice())?;
     #[allow(deprecated)]
-    let private_key = key_from_slice(private_key.to_expanded_bytes().as_slice())?;
+    let expanded = Zeroizing::new(private_key.to_expanded_bytes());
+    let private_key = key_from_slice(expanded.as_slice())?;
     Ok((public_key, private_key))
 }
 
@@ -78,8 +79,8 @@ pub fn encapsulate(public_key: &MlKemPublicKey) -> Result<(MlKemCiphertext, Shar
     let public_key = EncapsulationKey768::new(array_ref_from_slice(public_key.as_slice())?)
         .map_err(|_| MlKemError::BackendUnavailable)?;
     let (ciphertext, shared_secret) = public_key.encapsulate();
-
     let ciphertext = key_from_slice(ciphertext.as_slice())?;
+    let shared_secret = Zeroizing::new(shared_secret);
     let shared_secret = key_from_slice(shared_secret.as_slice())?;
 
     Ok((ciphertext, shared_secret))
@@ -121,8 +122,7 @@ pub fn decapsulate(
     .map_err(|_| MlKemError::BackendUnavailable)?;
 
     let ciphertext = array_ref_from_slice(ciphertext.as_slice())?;
-    let shared_secret = private_key.decapsulate(ciphertext);
-
+    let shared_secret = Zeroizing::new(private_key.decapsulate(ciphertext));
     key_from_slice(shared_secret.as_slice())
 }
 
