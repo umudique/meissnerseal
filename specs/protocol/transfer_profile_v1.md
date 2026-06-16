@@ -47,27 +47,33 @@ pub struct TransferEnvelope {
 
 ## 3. Hybrid Key Derivation
 
-> **NOTE — Superseded by ADR-027 (X-Wing, accepted 2026-06-08).**
-> The bespoke combiner below (`x_secret || pq_secret → HKDF-Extract`) is
-> replaced by the X-Wing combiner as specified in ADR-027. This section will
-> be rewritten at MVP-2. Until then, treat this text as the historical bespoke
-> design; ADR-027 is the authoritative decision.
+The profile uses the UG hash-everything combiner (ADR-035, `draft-irtf-cfrg-hybrid-kems`).
+Both shared secrets, the classical ephemeral ciphertext, the classical recipient public key,
+and the PQC ciphertext are all bound into the KDF input. No C2PRI assumption is required.
 
 ```
-x_secret  = X25519(sender_ephemeral_private, recipient_static_public)
-pq_secret = ML-KEM-768.Decapsulate(recipient_mlkem_private, pq_ciphertext)
+x_secret  = X25519(sender_ephemeral_private, recipient_classical_public_key)    # 32 bytes
+pq_secret = ML-KEM-768.Decapsulate(recipient_mlkem_private, pqc_ciphertext)     # 32 bytes
 
-hybrid_secret = HKDF-SHA256-Extract(
-  salt = transcript_hash_sha256,
-  ikm  = x_secret || pq_secret
-)
+hybrid_prk = HKDF-SHA256-Extract(
+  salt = transcript_hash,                          # 32 bytes — see §4
+  ikm  = pq_secret                                # 32 bytes  ML-KEM shared secret
+         || x_secret                               # 32 bytes  X25519 shared secret
+         || classical_ephemeral_public_key         # 32 bytes  ct_X25519: sender ephemeral pk
+         || recipient_classical_public_key          # 32 bytes  pk_X25519: recipient static pk
+         || pqc_ciphertext                         # 1088 bytes ct_ML_KEM
+)                                                  # ikm: 1216 bytes total
 
 transfer_key = HKDF-SHA256-Expand(
-  prk    = hybrid_secret,
-  info   = "meissnerseal-transfer-v1",
-  length = 32
+  prk    = hybrid_prk,
+  info   = b"meissnerseal-transfer-v1",            # 24 bytes, ASCII
+  length = 32                                      # 256-bit Transfer Payload Key (TPK)
 )
 ```
+
+`pk_ML_KEM` (recipient ML-KEM encapsulation key) is bound at the protocol level:
+the sender fetches it from an authenticated `DeviceIdentity` whose public key
+fingerprints are signed at pairing. The combiner does not repeat it.
 
 ---
 
@@ -77,19 +83,20 @@ The transcript hash binds all protocol parameters to prevent downgrade attacks:
 
 ```
 transcript_input =
-    "meissnerseal-transfer-transcript-v1"
- || transfer_profile_id : u16le
- || sender_device_id[16]
- || sender_classical_ephemeral_public_key[32]
- || recipient_device_id[16]   (or recipient_public_key[32] if anonymous)
- || pqc_ciphertext_len : u32le
- || pqc_ciphertext
- || classical_algorithm_id : u16le    (X25519 = 0x0001)
- || pqc_algorithm_id : u16le          (ML-KEM-768 = 0x0001)
- || envelope_id[16]
- || expires_at : i64le (0 if none)
+    b"meissnerseal-transfer-transcript-v1"    # 35 bytes, ASCII
+    || transfer_profile_id : u16le
+    || sender_device_id[16]
+    || classical_ephemeral_public_key[32]
+    || recipient_device_id[16]               # or recipient_classical_public_key[32]
+                                             # if anonymous
+    || pqc_ciphertext_len : u32le
+    || pqc_ciphertext
+    || classical_algorithm_id : u16le        # X25519 = 0x0001
+    || pqc_algorithm_id : u16le              # ML-KEM-768 = 0x0001
+    || envelope_id[16]
+    || expires_at : i64le                    # 0 if none
 
-transcript_hash = SHA256(transcript_input)
+transcript_hash = SHA256(transcript_input)   # 32 bytes
 ```
 
 Any mismatch between computed and stored transcript_hash must reject
@@ -121,7 +128,6 @@ pub enum DeviceTrustState {
     PendingOutbound,
     Verified,
     Approved,
-    Approved,
     Revoked,
     Expired,
 }
@@ -135,9 +141,21 @@ pub struct DeviceIdentity {
     pub display_name: String,
     pub classical_public_key: X25519PublicKey,
     pub pqc_public_key: MlKemPublicKey,
-    pub signing_public_key: Option<Ed25519PublicKey>,
+    pub signing_public_key: Option<AlgorithmTaggedSigningKey>,  // ADR-028: agility slot
     pub created_at: Timestamp,
     pub trust_state: DeviceTrustState,
+}
+
+/// Algorithm-tagged signing key. The algorithm_id is carried in authenticated
+/// pairing and revocation event content for downgrade resistance (ADR-028 §2).
+pub struct AlgorithmTaggedSigningKey {
+    pub algorithm_id: SigningAlgorithmId,  // u16, authenticated
+    pub key_bytes: Vec<u8>,               // encoding defined per algorithm_id
+}
+
+pub enum SigningAlgorithmId {
+    Ed25519 = 0x0001,
+    // Future: Ed25519MlDsa65Hybrid = 0x0002 (ADR-028 §3, gated on ml-dsa audit)
 }
 ```
 
