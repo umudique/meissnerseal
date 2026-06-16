@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-023: Verified ML-KEM Backend (libcrux) for the PQC Layer
 
-**Status:** Accepted
+**Status:** Superseded by ADR-034
 **Date:** 2026-06-08
 **Related:** ADR-011 (RustCrypto ecosystem), ADR-012 (ML-KEM risk), ADR-015
              (mathematical verification), ADR-020 (dependency gate)
