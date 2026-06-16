@@ -4,9 +4,12 @@
 # with finding -> remediation -> verification traceability.
 # Maps to NIST SSDF RV.1/RV.2/RV.3 (see docs/security/standards_conformance.md §3).
 #
-# kind:     security_review | coverage_gap
-# status:   open | resolved | accepted | deferred | rejected
-# blocking: true if it blocks the named gate (e.g. an API Status: Stable mark)
+# kind:      security_review | coverage_gap | consistency | design
+# status:    open | resolved | accepted | deferred | rejected
+# component: crate or subsystem the finding belongs to (e.g. meissnerseal-pqc)
+# blocking:  true if it blocks a named gate
+# blocks:    human-readable gate description when blocking: true
+#            (e.g. "meissnerseal-pqc API Status: Stable")
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
@@ -472,12 +475,14 @@ findings:
   # ── PQC-1 Security Review findings (meissnerseal-pqc ML-KEM-768) ─────────────
   - id: F-18
     kind: security_review
+    component: meissnerseal-pqc
     source: "Security Review Agent Round 1 — meissnerseal-pqc"
     date: 2026-06-16
     description: "key_from_slice copies secret material into [u8; N] on the stack without zeroizing; Key::from_bytes consumes the raw array leaving a live plaintext copy until the stack frame is reclaimed"
     cwe: CWE-226
     severity: medium
     blocking: true
+    blocks: "meissnerseal-pqc API Status: Stable"
     status: resolved
     remediation: "Wrap [u8; N] in Zeroizing::new before passing to Key::from_bytes so the stack copy is wiped on drop"
     verification: "commit 1dbc673: Zeroizing<[u8; N]> introduced in key_from_slice; Miri 5/5 green (413s)"
@@ -485,12 +490,14 @@ findings:
 
   - id: F-19
     kind: security_review
+    component: meissnerseal-pqc
     source: "Security Review Agent Round 2 — meissnerseal-pqc"
     date: 2026-06-16
     description: "Three backend-produced secret temporaries not zeroized: (1) keypair() to_expanded_bytes() -> Array<u8, U2400> private-key copy; (2) encapsulate() SharedKey = Array<u8, U32>; (3) decapsulate() SharedKey = Array<u8, U32>. All live unzeroized until stack frame reclaim"
     cwe: CWE-226
     severity: medium
     blocking: true
+    blocks: "meissnerseal-pqc API Status: Stable"
     status: resolved
     remediation: "Wrap each backend temporary in Zeroizing::new(); Array<u8, U>: Zeroize confirmed via hybrid-array 0.4 (T: Zeroize bound, u8 satisfies it)"
     verification: "commit 3e2c643: Zeroizing::new wraps expanded in keypair(), shared_secret in encapsulate() and decapsulate(); cargo test 5/5 green"
