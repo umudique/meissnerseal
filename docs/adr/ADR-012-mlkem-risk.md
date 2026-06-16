@@ -4,10 +4,10 @@
 **Date:** 2025-06
 **Status:** Accepted
 
-> **Update 2026-06-08.** The ML-KEM backend choice is now **libcrux-ml-kem**
-> (formally verified, hax→F*), not the RustCrypto `ml-kem` crate — see **ADR-023**.
-> This downgrades the "audit gap" and "side-channel" High rows below at MVP-2.
-> The hybrid composition and the X25519-only fallback clause remain in force.
+> **Update 2026-06-16.** ADR-023 (libcrux-ml-kem) was superseded by **ADR-034**,
+> which adopts RustCrypto `ml-kem` as the backend. ADR-023 was never implemented.
+> The risk rows below remain valid for the RustCrypto backend. The hybrid
+> composition and the X25519-only fallback clause remain in force.
 
 ## Context
 

@@ -10,6 +10,7 @@ use ml_kem::ExpandedKeyEncoding;
 use ml_kem::{
     array::Array, Decapsulate, Encapsulate, EncapsulationKey768, Kem, KeyExport, MlKem768,
 };
+use zeroize::Zeroizing;
 
 pub type MlKemPublicKey = Key<1184>;
 pub type MlKemPrivateKey = Key<2400>;
@@ -129,7 +130,10 @@ fn key_from_slice<const N: usize>(slice: &[u8]) -> Result<Key<N>> {
     let bytes: [u8; N] = slice
         .try_into()
         .map_err(|_| MlKemError::BackendUnavailable)?;
-    Ok(Key::from_bytes(bytes))
+    // Wrap in Zeroizing before passing to Key::from_bytes so the stack copy
+    // of secret material (private key, shared secret) is wiped on drop.
+    let bytes = Zeroizing::new(bytes);
+    Ok(Key::from_bytes(*bytes))
 }
 
 fn array_ref_from_slice<U>(slice: &[u8]) -> Result<&Array<u8, U>>
