@@ -78,6 +78,25 @@ hybrid:: derive_transfer_key(
 
 ---
 
+## Verification Status
+
+```
+cargo test:    5/5 pass
+Miri:          5/5 pass (2026-06-17, -Zmiri-strict-provenance
+               -Zmiri-symbolic-alignment-check)
+Kani:          4/4 harnesses pass (length/type/zeroize boundary)
+               Note: ML-KEM NTT loops and large Key<N> zeroize drops
+               exceed practical unwind budgets — see proofs module
+Fuzz:          Not applicable — no parser surface in mlkem::
+Test vectors:  PENDING — NIST FIPS 203 ML-KEM-768 KAT vectors not yet
+               written (security_engineering_protocol.md §STEP 3 Path A).
+               decapsulate() is testable deterministically; keypair() and
+               encapsulate() require seed injection not exposed in this
+               wrapper. Tracked as F-20.
+```
+
+---
+
 ## ML-KEM Library Audit Status
 
 ```
