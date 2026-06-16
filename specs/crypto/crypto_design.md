@@ -107,12 +107,17 @@ Each Item Revision
   └─[9]─ XChaCha20-Poly1305(key=IKWK, nonce=random_192bit, aad=wrap_aad)
           └─ Wrapped REK  [stored alongside encrypted payload in record frame]
 
-Transfer
-  └─[10]─ X25519(sender_ephemeral_private, recipient_static_public) → x_secret (32 bytes)
-  └─[11]─ ML-KEM-768.Decapsulate(recipient_mlkem_private, pq_ciphertext) → pq_secret (32 bytes)
-  └─[12]─ HKDF-SHA256-Extract(salt=transcript_hash_sha256, ikm=x_secret||pq_secret)
+Transfer  [UG combiner — ADR-035; see §7 for full spec]
+  └─[10]─ X25519(sender_ephemeral_private, recipient_classical_public_key) → x_secret (32 bytes)
+  └─[11]─ ML-KEM-768.Decapsulate(recipient_mlkem_private, pqc_ciphertext) → pq_secret (32 bytes)
+  └─[12]─ HKDF-SHA256-Extract(
+           salt = transcript_hash,                           (32 bytes, §7)
+           ikm  = pq_secret || x_secret
+                  || classical_ephemeral_public_key          (32 bytes, ct_X25519)
+                  || recipient_classical_public_key           (32 bytes, pk_X25519)
+                  || pqc_ciphertext)                         (1088 bytes, ct_ML_KEM)
            └─ hybrid_prk
-  └─[13]─ HKDF-SHA256-Expand(hybrid_prk, info="meissnerseal-transfer-v1", length=32)
+  └─[13]─ HKDF-SHA256-Expand(hybrid_prk, info=b"meissnerseal-transfer-v1", length=32)
            └─ Transfer Payload Key (TPK, 32 bytes)
 ```
 
@@ -275,32 +280,58 @@ This converts sync concurrency into a conflict-resolution problem, not an AEAD n
 
 ## 7. Hybrid Key Derivation — Transfer Profile v1
 
-> **NOTE — Superseded by ADR-027 (X-Wing, accepted 2026-06-08).**
-> The bespoke HKDF combiner below (`x_secret || pq_secret → HKDF-Extract`) is
-> replaced by the X-Wing combiner (`xwing.Encapsulate / xwing.Decapsulate`)
-> as specified in ADR-027. This section will be rewritten at MVP-2 when the
-> X-Wing spec and libcrux implementation are integrated. Until then, treat this
-> text as the historical bespoke design; ADR-027 is the authoritative decision.
+**Profile:** `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`  
+**Combiner:** UG hash-everything (ADR-035, `draft-irtf-cfrg-hybrid-kems`)  
+**Backend:** RustCrypto `ml-kem` (ADR-034), `x25519-dalek` (ADR-011), `hkdf` (in tree)
 
-**Profile:** `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`
+### 7.1 Transcript Hash (Downgrade Binding)
 
-See steps 10–13 in Section 3. Full derivation:
+Canonical definition: `specs/protocol/transfer_profile_v1.md §4`.
+
+The transcript hash is SHA-256 over a fixed encoding of all protocol parameters
+(profile ID, algorithm IDs, device IDs, ephemeral public key, PQC ciphertext,
+envelope ID, expiry). It is used as the HKDF salt in §7.2, binding downgrade
+resistance directly into the key derivation.
+
+### 7.2 Hybrid Key Derivation
 
 ```
-x_secret     = X25519(sender_ephemeral_private, recipient_static_public)  # 32 bytes
-pq_secret    = ML-KEM-768.Decapsulate(recipient_mlkem_private, pq_ciphertext)  # 32 bytes
+# Step 1: Component shared secrets
+x_secret  = X25519(sender_ephemeral_private, recipient_classical_public_key)    # 32 bytes
+pq_secret = ML-KEM-768.Decapsulate(recipient_mlkem_private, pqc_ciphertext)     # 32 bytes
 
-hybrid_prk   = HKDF-SHA256-Extract(
-  salt = transcript_hash_sha256,   # 32 bytes — see transfer_profile_v1.md
-  ikm  = x_secret || pq_secret    # 64 bytes
-)
+# Step 2: UG combiner — hash everything (ADR-035)
+hybrid_prk = HKDF-SHA256-Extract(
+  salt = transcript_hash,                          # 32 bytes (§7.1)
+  ikm  = pq_secret                                # 32 bytes  ML-KEM shared secret
+         || x_secret                               # 32 bytes  X25519 shared secret
+         || classical_ephemeral_public_key         # 32 bytes  ct_X25519
+         || recipient_classical_public_key          # 32 bytes  pk_X25519
+         || pqc_ciphertext                         # 1088 bytes ct_ML_KEM
+)                                                  # ikm: 1216 bytes total
 
+# Step 3: Expand to Transfer Payload Key
 transfer_key = HKDF-SHA256-Expand(
   prk    = hybrid_prk,
-  info   = b"meissnerseal-transfer-v1",
-  length = 32
+  info   = b"meissnerseal-transfer-v1",            # 24 bytes, ASCII
+  length = 32                                      # 256-bit TPK
 )
 ```
+
+### 7.3 Binding Properties
+
+| Input | Role | Bound by |
+|---|---|---|
+| `pq_secret` | ML-KEM shared secret | KDF ikm |
+| `x_secret` | X25519 shared secret | KDF ikm |
+| `classical_ephemeral_public_key` | ct_X25519: sender ephemeral pk | KDF ikm |
+| `recipient_classical_public_key` | pk_X25519: recipient static pk | KDF ikm |
+| `pqc_ciphertext` | ct_ML_KEM: ML-KEM ciphertext | KDF ikm |
+| `pk_ML_KEM` | recipient ML-KEM encapsulation key | Protocol level: authenticated DeviceIdentity |
+| Profile ID, algorithm IDs, envelope_id, expires_at | Downgrade binding | transcript_hash (KDF salt) |
+
+`pk_ML_KEM` is not repeated in the combiner because the sender always fetches
+it from an authenticated `DeviceIdentity` (fingerprints signed at pairing time).
 
 **HKDF-SHA384 note:** Reserved for `TRANSFER_HYBRID_X25519_MLKEM1024_SHA384_V2`.
 Must not appear in v1 envelope format. Profile mismatch → reject.
