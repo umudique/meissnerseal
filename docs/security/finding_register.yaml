@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-16
+updated: 2026-06-17
 
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
@@ -502,3 +502,18 @@ findings:
     remediation: "Wrap each backend temporary in Zeroizing::new(); Array<u8, U>: Zeroize confirmed via hybrid-array 0.4 (T: Zeroize bound, u8 satisfies it)"
     verification: "commit 3e2c643: Zeroizing::new wraps expanded in keypair(), shared_secret in encapsulate() and decapsulate(); cargo test 5/5 green"
     commit: "3e2c643"
+
+  - id: F-20
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "PQC-1 post-merge review — security_engineering_protocol.md §STEP 3 Path A"
+    date: 2026-06-17
+    description: "No NIST FIPS 203 ML-KEM-768 KAT test vectors written. security_engineering_protocol.md §STEP 3 Path A requires test vectors to exist before implementation and cross-verification with Python or SageMath. keypair() and encapsulate() use OS-CSPRNG (non-deterministic); decapsulate() is deterministic and testable against known (dk, c) -> K vectors."
+    cwe: null
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-pqc test-vector completeness gate (security_engineering_protocol.md §STEP 3)"
+    status: open
+    remediation: "Generate NIST ML-KEM-768 KAT vectors; write Python cross-verification script; add Rust consumer in test-vectors/; test decapsulate() against known (dk, c) -> K answers."
+    verification: ""
+    commit: ""
