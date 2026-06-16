@@ -5,8 +5,8 @@ name: CodeQL
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: "0 3 * * 1"  # every Monday 03:00 UTC
+  # schedule:
+  #   - cron: "0 3 * * 1"  # every Monday 03:00 UTC — disabled temporarily
   workflow_dispatch:
 
 permissions:
