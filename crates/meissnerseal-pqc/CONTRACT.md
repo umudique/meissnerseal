@@ -88,11 +88,11 @@ Kani:          4/4 harnesses pass (length/type/zeroize boundary)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module
 Fuzz:          Not applicable — no parser surface in mlkem::
-Test vectors:  PENDING — NIST FIPS 203 ML-KEM-768 KAT vectors not yet
-               written (security_engineering_protocol.md §STEP 3 Path A).
-               decapsulate() is testable deterministically; keypair() and
-               encapsulate() require seed injection not exposed in this
-               wrapper. Tracked as F-20.
+Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
+               internalProjection.json commit 65370b8).
+               test-vectors/mlkem_768_kat_v1.json; nist_kat_decapsulate
+               test; Python mlkem_cross_verify.py NIST source check.
+               F-20 resolved (commit f4dc008).
 ```
 
 ---
