@@ -1,5 +1,15 @@
 {
   "schema": "mlkem-768-kat-v1",
+  "description": "NIST FIPS 203 ML-KEM-768 known-answer test vectors (AFT). Fields: ek=encapsulation key (1184 B), dk=decapsulation key FIPS 203 §5.3 expanded format (2400 B), c=ciphertext (1088 B), k=shared secret (32 B), m=encapsulation randomness (32 B).",
+  "source": {
+    "name": "NIST ACVP-Server",
+    "repository": "https://github.com/usnistgov/ACVP-Server",
+    "file": "gen-val/json-files/ML-KEM-encapDecap-FIPS203/internalProjection.json",
+    "commit": "65370b861b96efd30dfe0daae607bde26a78a5c8",
+    "algorithm": "ML-KEM-768",
+    "testType": "AFT",
+    "tcIds": [26, 27, 28]
+  },
   "vectors": [
     {
       "tcId": 26,
