@@ -150,6 +150,16 @@ mod tests {
     use zeroize::Zeroize;
     use zeroize::Zeroizing;
 
+    fn from_hex(s: &str) -> Vec<u8> {
+        s.as_bytes()
+            .chunks(2)
+            .map(|pair| {
+                let hex = std::str::from_utf8(pair).expect("valid utf8");
+                u8::from_str_radix(hex, 16).expect("valid hex")
+            })
+            .collect()
+    }
+
     #[test]
     fn keypair_sizes_correct() {
         let (public_key, private_key) = keypair().expect("Phase 2 keypair succeeds");
@@ -200,6 +210,53 @@ mod tests {
         assert_eq!(secret.as_slice().len(), 32);
         secret.zeroize();
         assert!(secret.as_slice().iter().all(|byte| *byte == 0));
+    }
+
+    // NIST FIPS 203 ML-KEM-768 Known-Answer Tests (F-20)
+    // Source: NIST ACVP-Server ML-KEM-encapDecap-FIPS203/internalProjection.json
+    // commit 65370b8, tcIds 26-28, ML-KEM-768 AFT vectors.
+    // dk field is the 2400-byte FIPS 203 §5.3 expanded format (dk_PKE || ek || H(ek) || z).
+    // Verifies: decapsulate(dk, c) == k for all three vectors.
+
+    const KAT: &str = include_str!("../../../test-vectors/mlkem_768_kat_v1.json");
+
+    fn parse_kat_field<'a>(json: &'a str, field: &str, after_tc_id: usize) -> &'a str {
+        let marker = format!("\"tcId\": {after_tc_id}");
+        let after_tc = json.split_once(&marker).expect("tcId not found").1;
+        let key = format!("\"{field}\": \"");
+        after_tc
+            .split_once(&key)
+            .expect("field not found")
+            .1
+            .split_once('"')
+            .expect("closing quote")
+            .0
+    }
+
+    #[test]
+    fn nist_kat_decapsulate() {
+        // Vectors tcId 26, 27, 28 from NIST ACVP internalProjection.json.
+        for tc_id in [26usize, 27, 28] {
+            let dk_hex = parse_kat_field(KAT, "dk", tc_id);
+            let c_hex = parse_kat_field(KAT, "c", tc_id);
+            let k_hex = parse_kat_field(KAT, "k", tc_id);
+
+            let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("dk 2400 bytes");
+            let c_bytes: [u8; 1088] = from_hex(c_hex).try_into().expect("c 1088 bytes");
+            let k_bytes: [u8; 32] = from_hex(k_hex).try_into().expect("k 32 bytes");
+
+            let private_key = MlKemPrivateKey::from_bytes(dk_bytes);
+            let ciphertext = MlKemCiphertext::from_bytes(c_bytes);
+
+            let shared_secret =
+                decapsulate(&private_key, &ciphertext).expect("NIST KAT decapsulate succeeds");
+
+            assert_eq!(
+                shared_secret.as_slice(),
+                k_bytes.as_slice(),
+                "tcId {tc_id}: decapsulate output does not match NIST known answer"
+            );
+        }
     }
 }
 
