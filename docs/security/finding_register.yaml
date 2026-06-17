@@ -511,9 +511,9 @@ findings:
     description: "No NIST FIPS 203 ML-KEM-768 KAT test vectors written. security_engineering_protocol.md §STEP 3 Path A requires test vectors to exist before implementation and cross-verification with Python or SageMath. keypair() and encapsulate() use OS-CSPRNG (non-deterministic); decapsulate() is deterministic and testable against known (dk, c) -> K vectors."
     cwe: null
     severity: medium
-    blocking: true
-    blocks: "meissnerseal-pqc test-vector completeness gate (security_engineering_protocol.md §STEP 3)"
-    status: open
-    remediation: "Generate NIST ML-KEM-768 KAT vectors; write Python cross-verification script; add Rust consumer in test-vectors/; test decapsulate() against known (dk, c) -> K answers."
-    verification: ""
-    commit: ""
+    blocking: false
+    blocks: ""
+    status: resolved
+    remediation: "3 NIST ACVP ML-KEM-768 AFT vectors (tcIds 26-28, internalProjection.json commit 65370b8) saved to test-vectors/mlkem_768_kat_v1.json. Rust nist_kat_decapsulate test verifies decapsulate(dk, c) == k for all three. Python mlkem_cross_verify.py re-fetches live NIST source and confirms byte-for-byte match."
+    verification: "cargo test -p meissnerseal-pqc: 6/6 pass including nist_kat_decapsulate; python3 mlkem_cross_verify.py: 3 vectors PASS (2026-06-17)"
+    commit: "f4dc008"
