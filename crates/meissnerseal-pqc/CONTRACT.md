@@ -3,7 +3,7 @@
 **Version:** 0.1.0
 **API Status:** Stable  
 **Spec authority:** specs/crypto/crypto_design.md §7, specs/protocol/transfer_profile_v1.md  
-**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend), ADR-036 (ML-KEM-768 parameter set)
+**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend), ADR-035 (UG combiner hybrid KEM), ADR-036 (ML-KEM-768 parameter set)
 
 ---
 
@@ -13,23 +13,25 @@
 mlkem::  keypair() -> (MlKemPublicKey, MlKemPrivateKey)
          encapsulate(public_key) -> (MlKemCiphertext, SharedSecret)
          decapsulate(private_key, ciphertext) -> Result<SharedSecret>
-```
 
-## Planned API Surface (PQC-2 — not yet implemented)
+hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
 
-```
-hybrid:: derive_transfer_key(
-           sender_ephemeral_private: X25519PrivateKey,
-           recipient_classical_public: X25519PublicKey,
-           recipient_pqc_public: MlKemPublicKey,
-         ) -> Result<(MlKemCiphertext, TransferKey)>
+         derive_transfer_key(
+           sender_ephemeral_private: &X25519PrivateKey,
+           sender_ephemeral_public: &X25519PublicKey,
+           recipient_classical_public: &X25519PublicKey,
+           pqc_ciphertext: &MlKemCiphertext,
+           pqc_shared_secret: &SharedSecret,
+           transcript_hash: &[u8; 32],
+         ) -> Result<TransferKey>
 
          receive_transfer_key(
-           recipient_classical_private: X25519PrivateKey,
-           recipient_pqc_private: MlKemPrivateKey,
-           classical_ephemeral_public: X25519PublicKey,
-           pqc_ciphertext: MlKemCiphertext,
-           transcript_hash: [u8; 32],
+           recipient_classical_private: &X25519PrivateKey,
+           recipient_classical_public: &X25519PublicKey,
+           sender_ephemeral_public: &X25519PublicKey,
+           pqc_ciphertext: &MlKemCiphertext,
+           pqc_private_key: &MlKemPrivateKey,
+           transcript_hash: &[u8; 32],
          ) -> Result<TransferKey>
 ```
 
@@ -38,7 +40,7 @@ hybrid:: derive_transfer_key(
 ## Guarantees
 
 ```
-[G-01] [Planned — PQC-2] Hybrid derivation will follow
+[G-01] Hybrid derivation follows
        TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 exactly.
        Classical: X25519 ephemeral. PQC: ML-KEM-768. KDF: HKDF-SHA256.
        Transcript hash: SHA-256 (32 bytes).
@@ -81,10 +83,11 @@ hybrid:: derive_transfer_key(
 ## Verification Status
 
 ```
-cargo test:    5/5 pass
-Miri:          5/5 pass (2026-06-17, -Zmiri-strict-provenance
-               -Zmiri-symbolic-alignment-check)
-Kani:          4/4 harnesses pass (length/type/zeroize boundary)
+cargo test:    10/10 pass for mlkem:: + hybrid::, including NIST ML-KEM
+               KATs and ADR-035 transfer-hybrid KATs
+Miri:          5/5 pass for mlkem:: (2026-06-17, -Zmiri-strict-provenance
+               -Zmiri-symbolic-alignment-check); hybrid:: pending Miri run
+Kani:          6 harnesses defined (length/type/zeroize boundary)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module
 Fuzz:          Not applicable — no parser surface in mlkem::
@@ -93,6 +96,10 @@ Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                test-vectors/mlkem_768_kat_v1.json; nist_kat_decapsulate
                test; Python mlkem_cross_verify.py NIST source check.
                F-20 resolved (commit f4dc008).
+               2/2 pass — ADR-035 UG hybrid combiner vectors in
+               test-vectors/transfer_hybrid_v1.json; Python
+               transfer_hybrid_cross_verify.py recomputes real X25519 and
+               HKDF-SHA256.
 ```
 
 ---
@@ -117,12 +124,12 @@ This field must be updated with the pinned Cargo.lock version before MVP-2 ships
 ```
 [P-01] MlKemPublicKey must be the full 1184-byte ML-KEM-768 public key.
 
-[P-02] [Planned — PQC-2] transcript_hash passed to receive_transfer_key
+[P-02] transcript_hash passed to derive_transfer_key and receive_transfer_key
        must be computed over all required fields per
        specs/protocol/transfer_profile_v1.md §4.
 
-[P-03] [Planned — PQC-2] X25519 ephemeral key must be freshly generated
-       per transfer. Reusing ephemeral keys breaks forward secrecy.
+[P-03] X25519 ephemeral key must be freshly generated per transfer.
+       Reusing ephemeral keys breaks forward secrecy.
 ```
 
 ---
@@ -131,8 +138,6 @@ This field must be updated with the pinned Cargo.lock version before MVP-2 ships
 
 ```
 [I-01] This crate never logs or exposes key material.
-[I-02] [Planned — PQC-2] This crate never falls back to classical-only
-       mode silently.
-[I-03] [Planned — PQC-2] Hybrid derivation parameters match the profile
-       ID in the envelope.
+[I-02] This crate never falls back to classical-only mode silently.
+[I-03] Hybrid derivation parameters match the profile ID in the envelope.
 ```

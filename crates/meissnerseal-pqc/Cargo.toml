@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 meissnerseal-crypto.workspace = true
 ml-kem.workspace = true
+x25519-dalek.workspace = true
 hkdf.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
