@@ -52,8 +52,12 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
        Missing PQC ciphertext in the hybrid envelope causes rejection at the
        hybrid layer (receive_transfer_key). There is no classical-only fallback.
 
-[G-03] Profile mismatch (wrong algorithm ID in transcript) causes rejection
-       before any key material is derived.
+[G-03] Profile mismatch (wrong algorithm ID in transcript) is bound by the
+       transcript_hash salt: a mismatched profile produces a different
+       transcript_hash, and therefore a different TransferKey that the peer
+       cannot reproduce. Explicit rejection of the mismatch occurs at the
+       envelope layer (XFER-1); this crate derives a key regardless and does
+       not inspect algorithm identifiers directly.
 
 [G-04] All secret key material implements Zeroize + ZeroizeOnDrop.
 
@@ -90,7 +94,7 @@ Miri:          10/10 pass (2026-06-18, mlkem:: + hybrid::,
 Kani:          6 harnesses defined (length/type/zeroize boundary)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module
-Fuzz:          Not applicable — no parser surface in mlkem::
+Fuzz:          Not applicable — no parser surface in mlkem:: or hybrid::
 Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                internalProjection.json commit 65370b8).
                test-vectors/mlkem_768_kat_v1.json; nist_kat_decapsulate
@@ -116,6 +120,21 @@ Tracking:     docs/ops/dependency_risk_register.md
 ```
 
 This field must be updated with the pinned Cargo.lock version before MVP-2 ships.
+
+---
+
+## X25519 Library Audit Status
+
+```
+Library:      x25519-dalek (dalek-cryptography)
+Version:      2.x (pinned in Cargo.lock)
+Audit status: No independent audit as of 2026-06; widely deployed;
+              constant-time scalar multiplication via curve25519-dalek;
+              low-order point rejection NOT enforced by this crate
+              (hybrid security relies on ML-KEM component in that case).
+Risk level:   Low-Medium — established library, no known CVEs
+Tracking:     docs/ops/dependency_risk_register.md
+```
 
 ---
 
