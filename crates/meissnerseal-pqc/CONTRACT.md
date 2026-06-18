@@ -85,8 +85,8 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
 ```
 cargo test:    10/10 pass for mlkem:: + hybrid::, including NIST ML-KEM
                KATs and ADR-035 transfer-hybrid KATs
-Miri:          5/5 pass for mlkem:: (2026-06-17, -Zmiri-strict-provenance
-               -Zmiri-symbolic-alignment-check); hybrid:: pending Miri run
+Miri:          10/10 pass (2026-06-18, mlkem:: + hybrid::,
+               -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check)
 Kani:          6 harnesses defined (length/type/zeroize boundary)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module
