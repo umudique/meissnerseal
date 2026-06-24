@@ -151,6 +151,48 @@ not a substitute for it. Rejected.
 
 ---
 
+## Development and Review Protocol
+
+ProVerif model development follows a two-phase gate, enforced by
+`AGENTS.md §12`.
+
+**Phase 1 — Structure only (human-approved before Phase 2):**
+- Type declarations, channel declarations, free names
+- Function signatures with equational theory
+- Event declarations
+- The four query statements (ADR-037 §2) — stated but not yet proved
+- Process sketches: guard order and event placements, no full bodies
+- proverif is NOT run in Phase 1
+
+The human reviews Phase 1 to confirm: queries correctly express the four
+properties, equational theory looks sound, guard order matches spec §5.
+
+**Phase 2 — Full model and proof:**
+- Complete process bodies
+- proverif run: all four RESULT lines must be `true`
+- No query may be trivially true (see §3 anti-patterns below)
+
+**Formal Review Agent gate (after Phase 2):**
+
+Before FORMAL-1 is marked done, Formal Review Agent evaluates:
+1. Equational theory faithfulness
+2. Query non-triviality
+3. Spec fidelity (transcript fields, guard order)
+4. Adversary model correctness
+5. Coverage completeness (all four spec §8 properties)
+6. Abstraction calibration
+
+Approval must be `approved` or `approved_with_reservations`.
+`needs_revision` or `rejected` returns to Phase 2.
+
+**Anti-patterns that invalidate a query:**
+- Dead code in the else branch that is never reached (query holds vacuously)
+- Over-constrained process that only accepts honest-sender messages
+- Event fired unconditionally before the guard it is meant to witness
+- Private name that is provably unreachable from the net channel
+
+---
+
 ## Consequences
 
 - `specs/formal/transfer_protocol.pv` is the required artifact for

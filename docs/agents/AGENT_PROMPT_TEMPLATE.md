@@ -395,7 +395,13 @@ roles:
       - docs/adr/ADR-005-formal-methods.md
       - docs/adr/ADR-035-ug-combiner-hybrid-kem.md
       - specs/protocol/transfer_profile_v1.md
-    before: ""
+    before: >
+      Phase 1 — write only: type declarations, channel declarations, free
+      names, function signatures with equational theory, event declarations,
+      and the four query statements from ADR-037 §2. Sketch process
+      structure showing event placements and guard order, but no full
+      process bodies. Do NOT run proverif in Phase 1. Human reviews Phase 1
+      before Phase 2 begins.
     checks_override: |
       eval $(opam env) && proverif specs/formal/transfer_protocol.pv
     rules:
@@ -406,6 +412,9 @@ roles:
         senc/sdec with the decryption-inverse axiom.
       - All four queries from ADR-037 §2 must produce "RESULT ... is true."
         A "cannot be proved" or "false" result is a blocking failure.
+      - No query may be trivially true due to dead code, unreachable
+        branches, or over-constrained processes — each query must have a
+        non-trivial proof path.
       - Model exactly TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 — no
         classical-only fallback, no v2 profile.
       - Include a README comment block at the top of the .pv file: scope,
@@ -414,9 +423,65 @@ roles:
       - The model is a design artifact — do not import or reference
         any Rust source file.
     done: >
-      proverif specs/formal/transfer_protocol.pv exits 0; all four RESULT
-      lines are true; the model file has a README comment block; no Rust
-      source was modified.
+      Phase 1 approved by human; proverif specs/formal/transfer_protocol.pv
+      exits 0; all four RESULT lines are true; no query is trivially true;
+      the model file has a README comment block; no Rust source was modified.
+
+  formalreview:
+    kind: evaluator
+    title: Formal Review Agent
+    reads:
+      - docs/adr/ADR-037-proverif-symbolic-scope.md
+      - specs/protocol/transfer_profile_v1.md
+      - the .pv model file under review
+    scope_input_label: Model under review
+    rules:
+      - Every finding cites the specific .pv file location (line or block).
+      - Do not propose fixes — identify and describe the problem only.
+      - A trivially-true query is always Critical regardless of other factors.
+      - Equational theory errors that break the abstraction are Critical.
+      - Do not check ProVerif syntax or formatting.
+    body: |
+      Mandatory scorecard axes (score 0–5 each with brief rationale):
+      - Equational theory faithfulness — do the equations correctly abstract
+        the cryptographic primitives? KEM cancellation equation sound? HKDF
+        modeled as a PRF with the right arguments? AEAD decryption-inverse
+        axiom present and scoped correctly?
+      - Query non-triviality — are all queries genuinely proved, not trivially
+        true due to dead code, unreachable branches, or over-constrained
+        processes? Each query must have a witnessable proof path.
+      - Spec fidelity — do process descriptions match the spec? Transcript
+        hash fields in correct order? Envelope fields present? Guard order
+        (profile → algorithm IDs → transcript hash check) matches spec §5?
+      - Adversary model — is the attacker correctly active (controls net,
+        can intercept/inject/replay/block)? Are all public outputs on net?
+        Are all private values declared [private]?
+      - Coverage completeness — do the queries cover all four spec §8
+        properties? No property left unverified? No property double-counted
+        by the same query?
+      - Abstraction calibration — is the model neither too abstract (proofs
+        hold vacuously) nor too concrete (implementation details bleed in)?
+        Is each primitive abstracted at the right level of granularity?
+
+      Scoring standard: 0 absent/broken · 1 serious deficiency · 2 partial,
+      insufficient · 3 adequate with reservations · 4 strong, minor
+      reservations · 5 excellent, approval-facing.
+
+      Approval vocabulary: approved · approved_with_reservations ·
+      needs_revision · rejected.
+
+      Output format:
+      **Executive Judgment** — brief overall assessment and decision rationale.
+      **Scorecard** — one line per axis: name, score, brief rationale.
+      **Findings** — Primary only (max 5), ordered by severity. Each: .pv
+      location, description, severity (Critical/High/Medium).
+      **Approval Recommendation** — one word from the vocabulary + one sentence.
+      **Residual Risks** — risks remaining after approval; blocking or
+      non-blocking.
+    done: >
+      No repository file modified; scorecard covers all six axes; every
+      finding cites a specific .pv location; approval recommendation uses
+      the correct vocabulary.
 
   consistency:
     kind: evaluator

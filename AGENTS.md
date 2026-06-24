@@ -283,6 +283,7 @@ Test Vector Agent     test-vectors/ only
 Spec Agent            specs/ and docs/ only — no code
 Architect Agent       docs/ and specs/ only — decisions
 Formal Agent          specs/formal/ only — ProVerif .pv model, no code
+Formal Review Agent   read-only evaluator — .pv model soundness, no writes
 Security Review Agent read-only evaluator — no writes
 Consistency Agent     read-only consistency checker — no writes
 ```
@@ -341,7 +342,7 @@ This requires human approval.
 
 ## 12. Phase Gate
 
-Applies to: Crypto Agent, PQC Agent, Core Agent, Security Agent.
+Applies to: Crypto Agent, PQC Agent, Core Agent, Security Agent, Formal Agent.
 Other agents may use a single phase.
 
 **Phase 1 — Test and Precondition only**
@@ -402,6 +403,24 @@ Full crate lifecycle:
 
 MVP-0 complete gate: Consistency Agent runs across the full repository
 (meissnerseal-crypto + meissnerseal-security + meissnerseal-core) before MVP-0 is declared done.
+
+**Formal Agent lifecycle (ProVerif models)**
+
+Phase 1 output: type declarations, free names, equational theory, event
+declarations, four query statements, process sketches with event placements
+but no full bodies. No proverif run in Phase 1.
+
+```
+Phase 1 → human approval
+    ↓
+Phase 2 → full process bodies + proverif (4 RESULT true)
+    ↓
+Formal Review Agent → approved / approved_with_reservations
+    ↓
+Human → mark formal verification task complete
+```
+
+"needs_revision" or "rejected" from Formal Review Agent → Phase 2 repeats.
 
 ---
 
