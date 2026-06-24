@@ -282,7 +282,7 @@ Fuzz Agent            fuzz/fuzz_targets/ only
 Test Vector Agent     test-vectors/ only
 Spec Agent            specs/ and docs/ only — no code
 Architect Agent       docs/ and specs/ only — decisions
-Formal Verification Agent  specs/formal/ only — ProVerif .pv model, no code
+Formal Agent          specs/formal/ only — ProVerif .pv model, no code
 Security Review Agent read-only evaluator — no writes
 Consistency Agent     read-only consistency checker — no writes
 ```

@@ -384,7 +384,7 @@ roles:
 
   formal:
     kind: builder
-    title: Formal Verification Agent
+    title: Formal Agent
     scope_override: >
       Work only inside specs/formal/. Read (but do not modify) specs/protocol/,
       specs/crypto/, and docs/adr/. Do not modify crates/**, fuzz/**,
