@@ -1,0 +1,244 @@
+(*
+  MeissnerSeal Transfer Protocol — ProVerif Symbolic Model
+  Profile:  TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1
+  Spec:     specs/protocol/transfer_profile_v1.md §2–5, §8
+  ADR:      ADR-037 (scope), ADR-035 (UG combiner), ADR-005 (roadmap)
+  Tool:     ProVerif 2.05
+
+  Run:
+    eval $(opam env) && proverif specs/formal/transfer_protocol.pv
+
+  Queries and expected results:
+    Q1 (secrecy):         RESULT not attacker(payload[]) is true.
+    Q2 (authentication):  RESULT inj-event(...) ==> inj-event(...) is true.
+    Q3 (replay):          RESULT event(replayBlocked(eid)) ==>
+                           event(recipientAcceptsEnvelope(eid)) is true.
+    Q4 (downgrade):       RESULT event(guardsPassed(eid,p,xa,pqa)) ==>
+                           p = profile_v1 && xa = x25519_alg_v1 && pqa = mlkem768_alg_v1 is true.
+
+  Scope: Dolev-Yao model only. Does not prove computational hardness,
+  IND-CCA2 reduction, side-channel resistance, or implementation correctness.
+  See ADR-037 §3 for the full list of limitations.
+*)
+
+set attacker = active.
+
+type transfer_key.
+type transcript_hash.
+type x25519_private.
+type x25519_public.
+type mlkem_private.
+type mlkem_public.
+type mlkem_ciphertext.
+type nonce.
+
+free net: channel.
+free payload: bitstring [private].
+
+free version_v1: bitstring.
+free profile_v1: bitstring.
+free x25519_alg_v1: bitstring.
+free mlkem768_alg_v1: bitstring.
+free mlkem768_ct_len: bitstring.
+free transfer_info_v1: bitstring.
+free sender_device_id: bitstring.
+free recipient_device_id: bitstring.
+free expires_at: bitstring.
+
+fun x25519_pub_of(x25519_private): x25519_public.
+fun mlkem_pub_of(mlkem_private): mlkem_public.
+fun x25519_shared_sender(x25519_private, x25519_public): bitstring.
+fun x25519_shared_recipient(x25519_private, x25519_public): bitstring.
+fun mlkem_encapsulate(mlkem_public): mlkem_ciphertext.
+fun mlkem_shared_sender(mlkem_public, mlkem_ciphertext): bitstring.
+fun mlkem_shared_recipient(mlkem_private, mlkem_ciphertext): bitstring.
+
+equation forall sender_eph_priv: x25519_private, recipient_static_priv: x25519_private;
+  x25519_shared_sender(sender_eph_priv, x25519_pub_of(recipient_static_priv)) =
+  x25519_shared_recipient(recipient_static_priv, x25519_pub_of(sender_eph_priv)).
+
+equation forall recipient_mlkem_priv: mlkem_private;
+  mlkem_shared_sender(mlkem_pub_of(recipient_mlkem_priv), mlkem_encapsulate(mlkem_pub_of(recipient_mlkem_priv))) =
+  mlkem_shared_recipient(recipient_mlkem_priv, mlkem_encapsulate(mlkem_pub_of(recipient_mlkem_priv))).
+
+fun transcript(
+  bitstring,
+  bitstring,
+  bitstring,
+  x25519_public,
+  bitstring,
+  mlkem_ciphertext,
+  bitstring,
+  bitstring,
+  bitstring,
+  bitstring
+): transcript_hash.
+
+fun hybrid_ikm(bitstring, bitstring, x25519_public, x25519_public, mlkem_ciphertext): bitstring.
+fun hkdf(transcript_hash, bitstring, bitstring): transfer_key.
+fun aead_encrypt(transfer_key, nonce, bitstring, transcript_hash): bitstring.
+reduc forall k: transfer_key, n: nonce, m: bitstring, aad: transcript_hash;
+  aead_decrypt(k, n, aead_encrypt(k, n, m, aad), aad) = m.
+
+table accepted_envelope(bitstring).
+
+event senderSent(bitstring, transcript_hash, transfer_key).
+event recipientAccepts(bitstring, transcript_hash, transfer_key).
+event senderIssued(bitstring).
+event recipientAcceptsEnvelope(bitstring).
+event replayBlocked(bitstring).
+  (* envelope_id blocked by accepted_envelope table *)
+event guardsPassed(bitstring, bitstring, bitstring, bitstring).
+  (* envelope_id, profile, classical_alg, pqc_alg *)
+
+query attacker(payload).
+query eid: bitstring, th: transcript_hash, k: transfer_key;
+  inj-event(recipientAccepts(eid, th, k)) ==> inj-event(senderSent(eid, th, k)).
+query eid: bitstring;
+  event(replayBlocked(eid)) ==> event(recipientAcceptsEnvelope(eid)).
+query eid: bitstring, p: bitstring, xa: bitstring, pqa: bitstring;
+  event(guardsPassed(eid, p, xa, pqa)) ==>
+    p = profile_v1 && xa = x25519_alg_v1 && pqa = mlkem768_alg_v1.
+
+let Sender(recipient_x25519_pub: x25519_public, recipient_mlkem_pub: mlkem_public) =
+  new envelope_id: bitstring;
+  new sender_eph_priv: x25519_private;
+  new transfer_nonce: nonce;
+  let sender_eph_pub = x25519_pub_of(sender_eph_priv) in
+  let pqc_ct = mlkem_encapsulate(recipient_mlkem_pub) in
+  let th = transcript(
+    profile_v1,
+    sender_device_id,
+    recipient_device_id,
+    sender_eph_pub,
+    mlkem768_ct_len,
+    pqc_ct,
+    x25519_alg_v1,
+    mlkem768_alg_v1,
+    envelope_id,
+    expires_at
+  ) in
+  let x_ss = x25519_shared_sender(sender_eph_priv, recipient_x25519_pub) in
+  let pq_ss = mlkem_shared_sender(recipient_mlkem_pub, pqc_ct) in
+  let ikm = hybrid_ikm(pq_ss, x_ss, sender_eph_pub, recipient_x25519_pub, pqc_ct) in
+  let sender_transfer_key = hkdf(th, ikm, transfer_info_v1) in
+  let ciphertext = aead_encrypt(sender_transfer_key, transfer_nonce, payload, th) in
+  event senderSent(envelope_id, th, sender_transfer_key);
+  event senderIssued(envelope_id);
+  out(net, (
+    version_v1,
+    profile_v1,
+    envelope_id,
+    sender_device_id,
+    recipient_device_id,
+    sender_eph_pub,
+    pqc_ct,
+    th,
+    x25519_alg_v1,
+    mlkem768_alg_v1,
+    transfer_nonce,
+    expires_at,
+    ciphertext
+  )).
+
+let Recipient(
+  recipient_x25519_priv: x25519_private,
+  recipient_mlkem_priv: mlkem_private
+) =
+  in(net, (
+    =version_v1,
+    received_profile: bitstring,
+    envelope_id: bitstring,
+    =sender_device_id,
+    =recipient_device_id,
+    sender_eph_pub: x25519_public,
+    pqc_ct: mlkem_ciphertext,
+    received_th: transcript_hash,
+    received_x_alg: bitstring,
+    received_pqc_alg: bitstring,
+    transfer_nonce: nonce,
+    received_expires_at: bitstring,
+    ciphertext: bitstring
+  ));
+  if received_profile = profile_v1 then
+  if received_x_alg = x25519_alg_v1 then
+  if received_pqc_alg = mlkem768_alg_v1 then
+  let computed_th = transcript(
+    received_profile,
+    sender_device_id,
+    recipient_device_id,
+    sender_eph_pub,
+    mlkem768_ct_len,
+    pqc_ct,
+    received_x_alg,
+    received_pqc_alg,
+    envelope_id,
+    received_expires_at
+  ) in
+  if received_th = computed_th then
+  if received_expires_at = expires_at then
+  event guardsPassed(envelope_id, received_profile, received_x_alg, received_pqc_alg);
+  get accepted_envelope(=envelope_id) in
+  event replayBlocked(envelope_id);
+  0
+  else
+  let x_ss = x25519_shared_recipient(recipient_x25519_priv, sender_eph_pub) in
+  let pq_ss = mlkem_shared_recipient(recipient_mlkem_priv, pqc_ct) in
+  let ikm = hybrid_ikm(
+    pq_ss,
+    x_ss,
+    sender_eph_pub,
+    x25519_pub_of(recipient_x25519_priv),
+    pqc_ct
+  ) in
+  let recipient_transfer_key = hkdf(computed_th, ikm, transfer_info_v1) in
+  let cleartext = aead_decrypt(recipient_transfer_key, transfer_nonce, ciphertext, computed_th) in
+  if cleartext = payload then
+  event recipientAccepts(envelope_id, computed_th, recipient_transfer_key);
+  event recipientAcceptsEnvelope(envelope_id);
+  insert accepted_envelope(envelope_id);
+  (* Bounded replay check: the adversary may replay the just-accepted
+     envelope_id; the populated replay table must stop a second accept. *)
+  in(net, (
+    =version_v1,
+    replay_profile: bitstring,
+    =envelope_id,
+    =sender_device_id,
+    =recipient_device_id,
+    replay_sender_eph_pub: x25519_public,
+    replay_pqc_ct: mlkem_ciphertext,
+    replay_th: transcript_hash,
+    replay_x_alg: bitstring,
+    replay_pqc_alg: bitstring,
+    replay_transfer_nonce: nonce,
+    replay_expires_at: bitstring,
+    replay_ciphertext: bitstring
+  ));
+  if replay_profile = profile_v1 then
+  if replay_x_alg = x25519_alg_v1 then
+  if replay_pqc_alg = mlkem768_alg_v1 then
+  let replay_computed_th = transcript(
+    replay_profile,
+    sender_device_id,
+    recipient_device_id,
+    replay_sender_eph_pub,
+    mlkem768_ct_len,
+    replay_pqc_ct,
+    replay_x_alg,
+    replay_pqc_alg,
+    envelope_id,
+    replay_expires_at
+  ) in
+  if replay_th = replay_computed_th then
+  if replay_expires_at = expires_at then
+  get accepted_envelope(=envelope_id) in
+  event replayBlocked(envelope_id);
+  0.
+
+process
+  new recipient_x25519_priv: x25519_private;
+  new recipient_mlkem_priv: mlkem_private;
+  out(net, x25519_pub_of(recipient_x25519_priv));
+  out(net, mlkem_pub_of(recipient_mlkem_priv));
+  ((!Sender(x25519_pub_of(recipient_x25519_priv), mlkem_pub_of(recipient_mlkem_priv))) |
+   Recipient(recipient_x25519_priv, recipient_mlkem_priv))

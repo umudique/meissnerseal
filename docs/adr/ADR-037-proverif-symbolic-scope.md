@@ -59,8 +59,8 @@ All four must produce `RESULT ... is true.` in the ProVerif output:
 | Property | ProVerif query |
 |---|---|
 | **Secrecy** — transfer payload is secret against a passive or active network adversary | `not attacker(payload[])` |
-| **Authentication** — only the intended recipient can derive the transfer key | `inj-event(recipientAccepts(k)) ==> inj-event(senderSent(k))` |
-| **Replay protection** — a previously accepted envelope_id cannot be reused | injective correspondence on envelope_id |
+| **Authentication** — only the intended recipient can derive the transfer key | `inj-event(recipientAccepts(eid,th,k)) ==> inj-event(senderSent(eid,th,k))` |
+| **Replay protection** — a previously accepted envelope_id cannot be reused | `event(replayBlocked(eid)) ==> event(recipientAcceptsEnvelope(eid))` |
 | **Downgrade resistance** — attacker cannot substitute a weaker transfer_profile_id | protocol step rejects unknown profile; modeled as a guard before key derivation |
 
 ### 3. What the symbolic model does not prove
@@ -76,6 +76,7 @@ prove — and must not be claimed to prove — the following:
 | **Implementation correctness** | The ProVerif model is a design-level artifact. A correct model does not imply a correct Rust implementation. |
 | **Forward secrecy lifetime** | The model verifies key freshness per session but does not reason about long-term key compromise windows. |
 | **Relay server behaviour** | The relay is modeled as an untrusted forwarder. Server-side rate limiting, TTL enforcement, and log hygiene are outside the model. |
+| **Unbounded concurrent replay** | The replay property is proved in a bounded single-session model: one accept followed by one replay attempt. Unbounded concurrent sessions (`!Recipient`) trigger ProVerif table over-approximation that breaks injective correspondence. The `accepted_envelope` table mechanism is witnessed; concurrent replay is complementarily covered by Q2's injectivity over `(eid, th, k)` combined with the freshness of `envelope_id` from `new`. |
 
 These limitations are not defects. They reflect the inherent scope of symbolic
 analysis. The computational security argument is addressed by FORMAL-2
