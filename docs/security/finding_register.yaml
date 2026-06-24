@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-17
+updated: 2026-06-24
 
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
@@ -502,6 +502,129 @@ findings:
     remediation: "Wrap each backend temporary in Zeroizing::new(); Array<u8, U>: Zeroize confirmed via hybrid-array 0.4 (T: Zeroize bound, u8 satisfies it)"
     verification: "commit 3e2c643: Zeroizing::new wraps expanded in keypair(), shared_secret in encapsulate() and decapsulate(); cargo test 5/5 green"
     commit: "3e2c643"
+
+  # ── FORMAL-1 ProVerif symbolic model findings (Formal Review Agent) ─────────
+  - id: F-21
+    kind: coverage_gap
+    component: specs/formal
+    source: "Formal Review Agent round 1 — specs/formal/transfer_protocol.pv"
+    date: 2026-06-24
+    description: >-
+      Q3 replay query trivially true: Recipient not replicated (!Recipient
+      absent), so recipientAcceptsEnvelope fires at most once; injective
+      correspondence held vacuously without exercising the accepted_envelope
+      replay table (ADR-037 anti-pattern: dead witness).
+    cwe: null
+    severity: critical
+    blocking: true
+    blocks: "FORMAL-1 (GATE-MVP2 dependency)"
+    status: resolved
+    remediation: >-
+      Round 3: replaced Q3 injective correspondence with
+      event(replayBlocked(eid)) ==> event(recipientAcceptsEnvelope(eid));
+      added replayBlocked event fired on accepted_envelope table hit; moved
+      recipientAcceptsEnvelope before insert so Q3 is non-trivially witnessed.
+      ADR-037 §2 updated.
+    verification: >-
+      proverif specs/formal/transfer_protocol.pv exit 0;
+      RESULT event(replayBlocked(eid)) ==>
+      event(recipientAcceptsEnvelope(eid)) is true. (2026-06-24)
+    commit: "a0f6f4b"
+
+  - id: F-22
+    kind: coverage_gap
+    component: specs/formal
+    source: "Formal Review Agent round 1 — specs/formal/transfer_protocol.pv"
+    date: 2026-06-24
+    description: >-
+      Q4 downgrade query witnessed only profile_v1 and x25519_alg_v1 guards;
+      mlkem768_alg_v1 guard present in Recipient process but not included in
+      guardsPassed event signature or Q4 assertion — PQC algorithm substitution
+      not formally excluded.
+    cwe: null
+    severity: high
+    blocking: true
+    blocks: "FORMAL-1"
+    status: resolved
+    remediation: >-
+      Round 1: extended guardsPassed to 4 parameters
+      (envelope_id, profile, classical_alg, pqc_alg); Q4 extended to assert
+      pqa = mlkem768_alg_v1; Recipient fires event with received_pqc_alg.
+      ADR-037 §2 updated.
+    verification: >-
+      proverif exit 0; RESULT event(guardsPassed(eid,p,xa,pqa)) ==>
+      p = profile_v1[] && xa = x25519_alg_v1[] && pqa = mlkem768_alg_v1[]
+      is true. (2026-06-24)
+    commit: "a0f6f4b"
+
+  - id: F-23
+    kind: coverage_gap
+    component: specs/formal
+    source: "Formal Review Agent round 1 — specs/formal/transfer_protocol.pv"
+    date: 2026-06-24
+    description: >-
+      expires_at pattern-matched as =expires_at in Recipient in() clause —
+      implicit filter, not an auditable guard modeling spec §5 expiry
+      rejection; a reviewer cannot distinguish intentional check from
+      structural coincidence.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Round 1: received_expires_at: bitstring received from net; explicit guard
+      if received_expires_at = expires_at then added after transcript hash
+      check; transcript computation uses received_expires_at so a substituted
+      expiry also breaks the hash binding.
+    verification: >-
+      proverif exit 0; all 4 RESULT true. Expiry guard visible at
+      transfer_protocol.pv:179. (2026-06-24)
+    commit: "a0f6f4b"
+
+  - id: F-24
+    kind: coverage_gap
+    component: specs/formal
+    source: "Formal Review Agent rounds 2-3 — specs/formal/transfer_protocol.pv"
+    date: 2026-06-24
+    description: >-
+      Unbounded concurrent replay not proved: !Recipient with global
+      accepted_envelope table triggers ProVerif table over-approximation,
+      breaking injective correspondence proofs. Model uses bounded
+      single-session replay (one accept + one inline sequential replay
+      attempt). Q2 injectivity over (eid,th,k) + envelope_id freshness
+      (new) provide complementary symbolic coverage.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: deferred
+    remediation: >-
+      FORMAL-3 (backlog): Tamarin model for transfer protocol replay at
+      Beta milestone. ADR-005 already plans Tamarin for device pairing at
+      Beta; extend scope to include unbounded concurrent replay of transfer
+      envelopes. Documented in ADR-037 §3.
+    verification: ""
+    commit: ""
+
+  - id: F-25
+    kind: coverage_gap
+    component: specs/formal
+    source: "Formal Review Agent — specs/formal/transfer_protocol.pv"
+    date: 2026-06-24
+    description: >-
+      Expiry modeled as symbolic equality (received_expires_at = expires_at)
+      not as a real-time clock comparison. Dolev-Yao symbolic models cannot
+      reason about temporal ordering; real-time expiry enforcement is outside
+      ProVerif scope per ADR-037 §3.
+    cwe: null
+    severity: low
+    blocking: false
+    status: accepted
+    remediation: >-
+      Implementation obligation: XFER-1 CONTRACT.md must require rejection of
+      envelopes where expires_at is in the past per wall clock before key
+      derivation (spec §5). Noted in meissnerseal-ops tasks.yaml XFER-1 notes.
+    verification: "XFER-1 implementation will enforce wall-clock expiry per spec §5."
+    commit: ""
 
   - id: F-20
     kind: coverage_gap
