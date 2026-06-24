@@ -3,6 +3,7 @@
 
 **Date:** 2025-06
 **Status:** Accepted
+**See also:** ADR-037 (ProVerif symbolic model scope and limitations — MVP-2 detail)
 
 ## Context
 
