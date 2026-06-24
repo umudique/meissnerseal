@@ -47,11 +47,12 @@ pub struct TransferEnvelope {
 
 ## 3. Hybrid Key Derivation
 
-> **NOTE — Superseded by ADR-027 (X-Wing, accepted 2026-06-08).**
-> The bespoke combiner below (`x_secret || pq_secret → HKDF-Extract`) is
-> replaced by the X-Wing combiner as specified in ADR-027. This section will
-> be rewritten at MVP-2. Until then, treat this text as the historical bespoke
-> design; ADR-027 is the authoritative decision.
+> **NOTE — Superseded by ADR-035 (UG hash-everything combiner, accepted 2026-06-17).**
+> ADR-027 (X-Wing) was accepted then superseded by ADR-035, which adopted the
+> UG combiner: IKM = ss_ML_KEM ‖ ss_X25519 ‖ ct_X25519 ‖ pk_X25519 ‖ ct_ML_KEM,
+> HKDF-SHA256-Extract with transcript_hash as salt, label "meissnerseal-transfer-v1".
+> The legacy bespoke combiner below is retained for historical context only.
+> ADR-035 and `crates/meissnerseal-pqc/src/hybrid.rs` are authoritative.
 
 ```
 x_secret  = X25519(sender_ephemeral_private, recipient_static_public)
