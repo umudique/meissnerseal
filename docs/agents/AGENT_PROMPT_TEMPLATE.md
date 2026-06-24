@@ -382,6 +382,42 @@ roles:
       No repository file modified; scorecard covers all six axes; every finding
       cites a specific location; approval recommendation uses the correct vocabulary.
 
+  formal:
+    kind: builder
+    title: Formal Verification Agent
+    scope_override: >
+      Work only inside specs/formal/. Read (but do not modify) specs/protocol/,
+      specs/crypto/, and docs/adr/. Do not modify crates/**, fuzz/**,
+      test-vectors/**, or docs/agents/**. The output is a ProVerif model
+      file (.pv), not Rust code.
+    reads:
+      - docs/adr/ADR-037-proverif-symbolic-scope.md
+      - docs/adr/ADR-005-formal-methods.md
+      - docs/adr/ADR-035-ug-combiner-hybrid-kem.md
+      - specs/protocol/transfer_profile_v1.md
+    before: ""
+    checks_override: |
+      eval $(opam env) && proverif specs/formal/transfer_protocol.pv
+    rules:
+      - Model the protocol in the Dolev-Yao (symbolic) model only — no
+        computational assumptions, no reduction arguments.
+      - Treat every cryptographic primitive as an ideal black box: KEM as
+        encap/decap with the cancellation equation, HKDF as a PRF, AEAD as
+        senc/sdec with the decryption-inverse axiom.
+      - All four queries from ADR-037 §2 must produce "RESULT ... is true."
+        A "cannot be proved" or "false" result is a blocking failure.
+      - Model exactly TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1 — no
+        classical-only fallback, no v2 profile.
+      - Include a README comment block at the top of the .pv file: scope,
+        how to run, ProVerif version, and which queries map to which spec §8
+        properties.
+      - The model is a design artifact — do not import or reference
+        any Rust source file.
+    done: >
+      proverif specs/formal/transfer_protocol.pv exits 0; all four RESULT
+      lines are true; the model file has a README comment block; no Rust
+      source was modified.
+
   consistency:
     kind: evaluator
     title: Consistency Agent
