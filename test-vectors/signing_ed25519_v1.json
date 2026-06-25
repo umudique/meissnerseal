@@ -1,0 +1,22 @@
+{
+  "profile": "ED25519_V1",
+  "version": 1,
+  "description": "Algorithm-tagged Ed25519 signing KAT vectors (ADR-028)",
+  "generated_by": "signing_ed25519_cross_verify.py",
+  "cases": [
+    {
+      "case_id": "ed25519-sign-00",
+      "private_key_seed": "0000000000000000000000000000000000000000000000000000000000000000",
+      "public_key": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+      "message": "6d656973736e65727365616c207369676e696e672074657374206d657373616765",
+      "expected_signature": "535be3c981d97bdb8e6db8dfa31375efa53a8e1f422f7b8c270f7baf2478239cf0f78852519ba0562e19261b3bbe4268ce124b34e61167f7c206719200dea808"
+    },
+    {
+      "case_id": "ed25519-sign-01",
+      "private_key_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "public_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "message": "6d656973736e65727365616c207369676e696e67207365636f6e64206d657373616765",
+      "expected_signature": "ecf75f0dd3ad74d3a05316f25f0d1e4702f0e02ae408cfa4dbbd84ac885fd5a79f037829112528e1465c143189166c585c3805ca77839e5b4d0cd287fc80f207"
+    }
+  ]
+}
