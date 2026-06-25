@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Key derivation functions for MeissnerSeal vault cryptography.
 //!
-//! Phase 1 contains API contracts, compile-time test vector references, and
-//! formal verification harness skeletons only. Function bodies are intentionally
-//! left unimplemented until the implementation phase.
+//! Provides Argon2id passphrase hardening and HKDF-SHA256 subkey derivation
+//! for the vault key hierarchy (MUK → VKEK → VRK → session subkeys).
 
 pub mod argon2;
 pub mod hkdf;
