@@ -741,6 +741,29 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-45
+    kind: test_quality
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — KAT JSON parsed with fragile string-split"
+    date: 2026-06-26
+    description: >-
+      parse_kat_field() and helpers parsed KAT JSON with string split, making
+      field ordering assumptions and risking silent wrong-field capture on
+      format changes. Tests are part of the supply chain; ad-hoc parsers
+      in a security crate lower confidence in test correctness.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added serde + serde_json as dev-dependencies (already in workspace,
+      no new supply-chain additions). Replaced all string-split helpers with
+      typed KatFile / KatCase structs via #[derive(Deserialize)]. load_kat()
+      parses the full file; schema mismatches fail at test startup, not
+      mid-test. ed25519_private_key/public_key helpers now use cases[0].
+    verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
+    commit: ""
+
   - id: F-44
     kind: coverage_gap
     component: meissnerseal-pqc

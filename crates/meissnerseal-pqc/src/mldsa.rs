@@ -287,10 +287,30 @@ pub fn verify(public_key: &SigningPublicKey, message: &[u8], signature: &Signatu
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
 
     const SIGNING_ED25519_KAT: &str = include_str!("../../../test-vectors/signing_ed25519_v1.json");
     const MESSAGE: &[u8] = b"meissnerseal signing test message";
     const OTHER_MESSAGE: &[u8] = b"meissnerseal altered signing test message";
+
+    #[derive(Deserialize)]
+    struct KatFile {
+        algorithm_id_u16_le: String,
+        cases: Vec<KatCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct KatCase {
+        case_id: String,
+        private_key_seed: String,
+        public_key: String,
+        message: String,
+        expected_signature: String,
+    }
+
+    fn load_kat() -> KatFile {
+        serde_json::from_str(SIGNING_ED25519_KAT).expect("signing_ed25519_v1.json must be valid")
+    }
 
     fn from_hex(s: &str) -> Vec<u8> {
         s.as_bytes()
@@ -300,41 +320,6 @@ mod tests {
                 u8::from_str_radix(hex, 16).expect("valid hex")
             })
             .collect()
-    }
-
-    fn parse_all_case_ids(json: &str) -> Vec<&str> {
-        let key = "\"case_id\": \"";
-        let mut ids = Vec::new();
-        let mut remaining = json;
-        while let Some((_, after)) = remaining.split_once(key) {
-            let (id, rest) = after.split_once('"').expect("closing quote");
-            ids.push(id);
-            remaining = rest;
-        }
-        ids
-    }
-
-    fn parse_top_level_field<'a>(json: &'a str, field: &str) -> &'a str {
-        let key = format!("\"{field}\": \"");
-        json.split_once(&key)
-            .expect("top-level field not found")
-            .1
-            .split_once('"')
-            .expect("closing quote")
-            .0
-    }
-
-    fn parse_kat_field<'a>(json: &'a str, field: &str, case_id: &str) -> &'a str {
-        let marker = format!("\"case_id\": \"{case_id}\"");
-        let after_case = json.split_once(&marker).expect("case id not found").1;
-        let key = format!("\"{field}\": \"");
-        after_case
-            .split_once(&key)
-            .expect("field not found")
-            .1
-            .split_once('"')
-            .expect("closing quote")
-            .0
     }
 
     #[test]
@@ -406,27 +391,15 @@ mod tests {
 
     #[test]
     fn ed25519_v1_kat_all_cases_match() {
-        let expected_alg_id_le = from_hex(parse_top_level_field(
-            SIGNING_ED25519_KAT,
-            "algorithm_id_u16_le",
-        ));
-        let case_ids = parse_all_case_ids(SIGNING_ED25519_KAT);
-        assert!(!case_ids.is_empty(), "KAT must contain at least one case");
+        let kat = load_kat();
+        let expected_alg_id_le = from_hex(&kat.algorithm_id_u16_le);
+        assert!(!kat.cases.is_empty(), "KAT must contain at least one case");
 
-        for case_id in case_ids {
-            let seed = from_hex(parse_kat_field(
-                SIGNING_ED25519_KAT,
-                "private_key_seed",
-                case_id,
-            ));
-            let public_key_bytes =
-                from_hex(parse_kat_field(SIGNING_ED25519_KAT, "public_key", case_id));
-            let message = from_hex(parse_kat_field(SIGNING_ED25519_KAT, "message", case_id));
-            let expected_sig = from_hex(parse_kat_field(
-                SIGNING_ED25519_KAT,
-                "expected_signature",
-                case_id,
-            ));
+        for case in &kat.cases {
+            let seed = from_hex(&case.private_key_seed);
+            let public_key_bytes = from_hex(&case.public_key);
+            let message = from_hex(&case.message);
+            let expected_sig = from_hex(&case.expected_signature);
 
             let private_key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, seed);
             let public_key = SigningPublicKey::new(SigningAlgorithmId::Ed25519V1, public_key_bytes);
@@ -436,12 +409,14 @@ mod tests {
             assert_eq!(
                 signature.algorithm().to_u16().to_le_bytes(),
                 expected_alg_id_le.as_slice(),
-                "{case_id}: algorithm ID LE mismatch"
+                "{}: algorithm ID LE mismatch",
+                case.case_id
             );
             assert_eq!(
                 signature.as_bytes(),
                 expected_sig.as_slice(),
-                "{case_id}: signature bytes mismatch"
+                "{}: signature bytes mismatch",
+                case.case_id
             );
 
             verify(&public_key, &message, &signature).expect("Ed25519V1 KAT verify must succeed");
@@ -449,24 +424,17 @@ mod tests {
     }
 
     fn ed25519_private_key() -> SigningPrivateKey {
+        let kat = load_kat();
+        let case = kat.cases.first().expect("KAT must have at least one case");
         SigningPrivateKey::new(
             SigningAlgorithmId::Ed25519V1,
-            from_hex(parse_kat_field(
-                SIGNING_ED25519_KAT,
-                "private_key_seed",
-                "ed25519-sign-00",
-            )),
+            from_hex(&case.private_key_seed),
         )
     }
 
     fn ed25519_public_key() -> SigningPublicKey {
-        SigningPublicKey::new(
-            SigningAlgorithmId::Ed25519V1,
-            from_hex(parse_kat_field(
-                SIGNING_ED25519_KAT,
-                "public_key",
-                "ed25519-sign-00",
-            )),
-        )
+        let kat = load_kat();
+        let case = kat.cases.first().expect("KAT must have at least one case");
+        SigningPublicKey::new(SigningAlgorithmId::Ed25519V1, from_hex(&case.public_key))
     }
 }
