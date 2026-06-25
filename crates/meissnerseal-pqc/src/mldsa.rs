@@ -43,6 +43,15 @@ impl SigningAlgorithmId {
             _ => Err(SigningError::UnknownAlgorithm),
         }
     }
+
+    #[must_use]
+    pub const fn to_le_bytes(self) -> [u8; 2] {
+        self.to_u16().to_le_bytes()
+    }
+
+    pub const fn from_le_bytes(bytes: [u8; 2]) -> Result<Self> {
+        Self::from_u16(u16::from_le_bytes(bytes))
+    }
 }
 
 /// Algorithm-tagged signing public key bytes.
@@ -405,6 +414,39 @@ mod tests {
         assert!(matches!(
             verify(&public_key, MESSAGE, &signature),
             Err(SigningError::Unimplemented)
+        ));
+    }
+
+    #[test]
+    fn algorithm_id_le_bytes_ed25519_v1() {
+        assert_eq!(SigningAlgorithmId::Ed25519V1.to_le_bytes(), [0x01, 0x00]);
+        assert!(matches!(
+            SigningAlgorithmId::from_le_bytes([0x01, 0x00]),
+            Ok(SigningAlgorithmId::Ed25519V1)
+        ));
+    }
+
+    #[test]
+    fn algorithm_id_le_bytes_hybrid_v1() {
+        assert_eq!(
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1.to_le_bytes(),
+            [0x02, 0x00]
+        );
+        assert!(matches!(
+            SigningAlgorithmId::from_le_bytes([0x02, 0x00]),
+            Ok(SigningAlgorithmId::Ed25519MlDsa87HybridV1)
+        ));
+    }
+
+    #[test]
+    fn algorithm_id_from_u16_unknown_is_rejected() {
+        assert!(matches!(
+            SigningAlgorithmId::from_u16(0xffff),
+            Err(SigningError::UnknownAlgorithm)
+        ));
+        assert!(matches!(
+            SigningAlgorithmId::from_le_bytes([0xff, 0xff]),
+            Err(SigningError::UnknownAlgorithm)
         ));
     }
 
