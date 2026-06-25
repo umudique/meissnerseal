@@ -839,6 +839,30 @@ findings:
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
 
+  - id: F-38
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — algorithm_id wire encoding not tested"
+    date: 2026-06-25
+    description: >-
+      KAT vectors tested raw Ed25519 sign/verify but did not verify the
+      little-endian u16 wire encoding of the algorithm identifier (0x0001 →
+      [0x01, 0x00]). ADR-028 "algorithm-tagged" implies the LE byte order is
+      load-bearing; downgrade and substitution attacks target exactly this
+      boundary. Full encoded_signature wire KAT (algorithm_id_le || sig_bytes)
+      is deferred to XFER-1 where serialization is implemented.
+    cwe: "CWE-345"
+    severity: high
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added algorithm_id_u16_le field ("0100") to signing_ed25519_v1.json.
+      KAT test now asserts algorithm().to_u16().to_le_bytes() matches the
+      anchored vector. Full wire-format KAT (encoded_signature) deferred to
+      XFER-1 per scope boundary.
+    verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
+    commit: ""
+
   - id: F-37
     kind: api_design
     component: meissnerseal-pqc

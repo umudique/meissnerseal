@@ -294,6 +294,16 @@ mod tests {
             .collect()
     }
 
+    fn parse_top_level_field<'a>(json: &'a str, field: &str) -> &'a str {
+        let key = format!("\"{field}\": \"");
+        json.split_once(&key)
+            .expect("top-level field not found")
+            .1
+            .split_once('"')
+            .expect("closing quote")
+            .0
+    }
+
     fn parse_kat_field<'a>(json: &'a str, field: &str, case_id: &str) -> &'a str {
         let marker = format!("\"case_id\": \"{case_id}\"");
         let after_case = json.split_once(&marker).expect("case id not found").1;
@@ -377,8 +387,17 @@ mod tests {
             "expected_signature",
             "ed25519-sign-00",
         ));
+        let expected_alg_id_le = from_hex(parse_top_level_field(
+            SIGNING_ED25519_KAT,
+            "algorithm_id_u16_le",
+        ));
 
         assert_eq!(signature.algorithm().to_u16(), 0x0001);
+        assert_eq!(
+            signature.algorithm().to_u16().to_le_bytes(),
+            expected_alg_id_le.as_slice(),
+            "Ed25519V1 algorithm ID must be 0x0001 little-endian on the wire"
+        );
         assert_eq!(signature.as_bytes(), expected_signature.as_slice());
     }
 

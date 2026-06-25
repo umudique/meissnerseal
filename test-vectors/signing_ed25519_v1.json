@@ -3,6 +3,7 @@
   "version": 1,
   "description": "Algorithm-tagged Ed25519 signing KAT vectors (ADR-028)",
   "generated_by": "signing_ed25519_cross_verify.py (cross-verifier); values computed independently with PyCA cryptography.hazmat",
+  "algorithm_id_u16_le": "0100",
   "cases": [
     {
       "case_id": "ed25519-sign-00",
