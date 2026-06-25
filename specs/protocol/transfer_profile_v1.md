@@ -194,10 +194,13 @@ encrypted envelopes but has no access to plaintext or keys.
 
 ---
 
-## 8. Security Properties (ProVerif Targets)
+## 8. Security Properties (ProVerif)
 
-The ProVerif model at `specs/formal/transfer_protocol.pv` must verify:
+**Verification status:** 4/4 RESULT true — ProVerif 2.05, commit a0f6f4b, 2026-06-24.
+Scope: bounded single-session model (see ADR-037 §3 for limitations).
+
+The ProVerif model at `specs/formal/transfer_protocol.pv` verifies:
 - Secrecy of transfer payload against passive and active network adversary
 - Authentication: only the intended recipient can decrypt
-- Replay protection: previously accepted envelope_id cannot be reused
+- Replay protection: previously accepted envelope_id cannot be reused (bounded single-session)
 - Downgrade resistance: attacker cannot negotiate a weaker profile

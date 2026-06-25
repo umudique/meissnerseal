@@ -146,11 +146,11 @@ Mathematical verification (Rust-level) — see ADR-015:
 
 Protocol formal verification (design-level):
 
-| Priority | Tool | Scope | Phase | Artifact |
-|---:|---|---|---:|---|
-| Required | ProVerif | Transfer protocol secrecy/authentication | MVP-2 | `transfer_protocol.pv` |
-| Required | TLA+ | Sync state machine, version vectors, conflict preservation | MVP-3 | `sync_state_machine.tla` |
-| Beta target | Tamarin | Device pairing, replay, downgrade, revocation | Beta | `device_pairing.spthy` |
+| Priority | Tool | Scope | Phase | Artifact | Status |
+|---:|---|---|---:|---|---|
+| Required | ProVerif | Transfer protocol secrecy/authentication | MVP-2 | `transfer_protocol.pv` | ✓ Done — 4/4 RESULT true (a0f6f4b) |
+| Required | TLA+ | Sync state machine, version vectors, conflict preservation | MVP-3 | `sync_state_machine.tla` | Planned |
+| Beta target | Tamarin | Device pairing, replay, downgrade, revocation | Beta | `device_pairing.spthy` | Planned |
 
 ---
 
