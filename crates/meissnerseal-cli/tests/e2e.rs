@@ -145,6 +145,49 @@ fn export_then_import_roundtrips_item() {
 }
 
 #[test]
+fn import_rejects_wrong_passphrase() {
+    let temp = TempDir::new().expect("tempdir");
+    let source = temp.path().join("wrong-pass-source.msv");
+    let dest = temp.path().join("wrong-pass-dest.msv");
+    let bundle = temp.path().join("wrong-pass.msexp");
+    init_vault(&source);
+    init_vault(&dest);
+    let _ = add_item(&source, "wrong pass import item");
+
+    let export = run_cli(
+        [
+            "export",
+            "--output",
+            path_str(&bundle),
+            "--vault",
+            path_str(&source),
+        ],
+        &[PASSWORD, EXPORT_PASS],
+    );
+    assert_success(&export);
+
+    let import = run_cli(
+        [
+            "import",
+            "--input",
+            path_str(&bundle),
+            "--vault",
+            path_str(&dest),
+        ],
+        &[PASSWORD, b"wrong-export-passphrase-never-real"],
+    );
+
+    assert!(!import.status.success());
+    assert_no_secret_leak(&import);
+
+    let list = run_cli(["list", path_str(&dest)], &[PASSWORD]);
+    assert_success(&list);
+    let stdout = stdout(&list);
+    assert!(!stdout.contains("wrong pass import item"));
+    assert!(!stdout.contains(SECRET_VALUE));
+}
+
+#[test]
 fn lock_returns_ok() {
     let output = run_cli(["lock"], &[]);
 
@@ -300,7 +343,7 @@ fn list_label_with_newline_does_not_inject() {
     assert_eq!(rows.len(), 1, "list output must contain one row per item");
     let first_row = rows.first().expect("one rendered row");
     assert!(first_row.contains("primary label"));
-    assert!(!first_row.contains('\n'));
+    assert!(first_row.contains("\\n"));
     assert!(!stdout.contains("fake-id\tfake-label\tPassword"));
 }
 
@@ -337,6 +380,7 @@ fn add_rejects_plaintext_secret_argv() {
     );
 
     assert!(!output.status.success());
+    assert_no_secret_leak(&output);
 }
 
 fn init_vault(path: &Path) {
