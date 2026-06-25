@@ -741,6 +741,29 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-47
+    kind: test_quality
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — Python cross-verifier missing schema validation"
+    date: 2026-06-26
+    description: >-
+      signing_ed25519_cross_verify.py checked profile but not version,
+      empty case list, or seed byte length. Schema evolution or a truncated
+      KAT file would pass silently. cryptography.hazmat catches wrong seed
+      length but with a cryptic library error rather than a clear test failure.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added three targeted validations: version == 1 (schema evolution guard),
+      cases non-empty (empty-file silent-pass guard), seed == 32 bytes
+      (explicit error before cryptography raises its own). Public key and
+      signature lengths are derived outputs not inputs; hex validity is caught
+      by fromhex(); case_id uniqueness omitted (file is author-controlled).
+    verification: "python3 signing_ed25519_cross_verify.py: ed25519-sign-00: ok, ed25519-sign-01: ok (2026-06-26)"
+    commit: ""
+
   - id: F-46
     kind: coverage_gap
     component: ci

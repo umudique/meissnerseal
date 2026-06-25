@@ -22,9 +22,15 @@ def main() -> None:
     vectors = json.loads(VECTOR_PATH.read_text(encoding="utf-8"))
     if vectors["profile"] != "ED25519_V1":
         raise SystemExit("unexpected profile")
+    if vectors["version"] != 1:
+        raise SystemExit(f"unexpected version: {vectors['version']}")
+    if not vectors["cases"]:
+        raise SystemExit("KAT file contains no cases")
 
     for case in vectors["cases"]:
         seed = bytes.fromhex(case["private_key_seed"])
+        if len(seed) != 32:
+            raise SystemExit(f"{case['case_id']}: seed must be 32 bytes, got {len(seed)}")
         message = bytes.fromhex(case["message"])
         signing_key = Ed25519PrivateKey.from_private_bytes(seed)
         public_key = signing_key.public_key().public_bytes(
