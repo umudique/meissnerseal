@@ -839,6 +839,32 @@ findings:
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
 
+  - id: F-40
+    kind: design
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — new() constructors accept invalid state"
+    date: 2026-06-25
+    description: >-
+      SigningPublicKey::new, SigningPrivateKey::new, Signature::new accept any
+      byte length for any algorithm, allowing invalid state to be constructed
+      silently. Errors surface later in sign()/verify() via InvalidKey rather
+      than at construction time. Violates "make invalid state unrepresentable."
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    blocks: "DEVICE-1"
+    status: deferred
+    remediation: >-
+      Deferred to DEVICE-1. Security impact is low — sign()/verify() already
+      catch malformed keys via InvalidKey (F-37 fix). Typed constructors
+      (try_new_ed25519([u8; 32]), try_new_ed25519_signature([u8; 64])) should
+      be added when DEVICE-1 defines real callers; the hybrid slot
+      (Ed25519MlDsa87HybridV1) has variable-length keys so API shape should
+      be decided once both variants are implemented. See DEVICE-1 notes in
+      meissnerseal-ops/tasks.yaml.
+    verification: "Pending DEVICE-1 implementation."
+    commit: ""
+
   - id: F-39
     kind: design
     component: meissnerseal-pqc
