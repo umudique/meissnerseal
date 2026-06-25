@@ -151,14 +151,31 @@ fn init_vault(path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> 
     }
 
     confirm.zeroize();
+    let password = string_to_zeroized_vec(password);
     let locked = Vault::<Locked>::create(CreateVaultParams {
         path,
-        password: SecretBytes::new(password.into_bytes()),
+        password: SecretBytes::new(password),
     })?;
     writeln!(stdout, "Created vault: {}", locked.path().display())?;
     Ok(())
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - `label` is non-secret display metadata; secret item bytes must come only
+///   from a hidden prompt or the explicit `--stdin` input path, never argv.
+/// - `vault` points at an existing `.msv` vault and `kind` must name a known
+///   item kind.
+///
+/// ## Postconditions
+/// - On success, writes only the opaque item id to stdout.
+/// - Password and secret prompt buffers are not retained after conversion into
+///   owned secret containers.
+///
+/// ## Invariants
+/// - Never logs or prints the item secret.
+/// - Never accepts a `--secret` command-line argument.
 fn add_command(
     label: String,
     kind: String,
@@ -169,13 +186,15 @@ fn add_command(
     let kind = parse_item_kind(&kind)?;
     let password = prompt_password("Master password: ", stdin)?;
     let secret = prompt_password("Secret value: ", stdin)?;
+    let password = string_to_zeroized_vec(password);
+    let secret = string_to_zeroized_vec(secret);
     let item = PlainItem {
         kind,
         label,
-        secret: SecretBytes::new(secret.into_bytes()),
+        secret: SecretBytes::new(secret),
         tags: Vec::new(),
     };
-    add_item(vault, password.into_bytes(), item, stdout)
+    add_item(vault, password, item, stdout)
 }
 
 fn add_item(
@@ -190,12 +209,40 @@ fn add_item(
     Ok(())
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - `item_id` is the opaque 32-character hexadecimal id from `list`.
+/// - Master password input comes only from a hidden prompt or `--stdin`.
+///
+/// ## Postconditions
+/// - On success, writes the NOTE line before writing raw secret bytes.
+/// - On failure, returns `Err` without printing item secret bytes.
+///
+/// ## Invariants
+/// - The item label is not used for retrieval.
+/// - Password prompt buffers are not retained after unlock.
 fn get_command(item_id: String, vault: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
     let id = hex_decode_id(&item_id)?;
     let password = prompt_password("Master password: ", stdin)?;
-    get_item(vault, password.into_bytes(), id, stdout)
+    let password = string_to_zeroized_vec(password);
+    get_item(vault, password, id, stdout)
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - `id` is an opaque item id decoded from CLI input.
+/// - `password` is caller-owned secret material used only to unlock the vault.
+///
+/// ## Postconditions
+/// - On success, writes the NOTE line and then the exact secret bytes followed
+///   by a newline.
+/// - On failure, returns `Err` without returning partial plaintext.
+///
+/// ## Invariants
+/// - Does not reinterpret, sanitize, or log item secret bytes.
+/// - Does not print labels or metadata in the secret output path.
 fn get_item(
     vault_path: PathBuf,
     password: Vec<u8>,
@@ -208,32 +255,47 @@ fn get_item(
         // plaintext is about to land on stdout (CONTRACT A-02 / G-02).
         writeln!(stdout, "NOTE: secret printed to stdout")?;
         view.secret.with_secret(|secret| {
-            writeln!(stdout, "{}", String::from_utf8_lossy(secret))?;
+            stdout.write_all(secret)?;
+            stdout.write_all(b"\n")?;
             Ok(())
         })
     })
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - Master password and export passphrase input come only from hidden prompts
+///   or `--stdin`, never argv.
+/// - Export passphrase must be at least 12 bytes before export begins.
+///
+/// ## Postconditions
+/// - On success, writes an encrypted `.msexp` bundle and prints only the output
+///   path.
+/// - On validation failure, returns `Err` without writing a bundle.
+///
+/// ## Invariants
+/// - Never prints the export passphrase, master password, item secret, or
+///   bundle bytes.
+/// - Prompt buffers are not retained after validation or export.
 fn export_command(
     output: PathBuf,
     vault: PathBuf,
     stdin: bool,
     stdout: &mut dyn Write,
 ) -> Result<()> {
-    let password = prompt_password("Master password: ", stdin)?;
-    let passphrase = prompt_password("Export passphrase: ", stdin)?;
+    let mut password = prompt_password("Master password: ", stdin)?;
+    let mut passphrase = prompt_password("Export passphrase: ", stdin)?;
     if passphrase.len() < 12 {
+        passphrase.zeroize();
+        password.zeroize();
         return Err(CoreError::InvalidState(
             "export passphrase must be at least 12 characters (P-02)".into(),
         ));
     }
-    export_bundle(
-        vault,
-        password.into_bytes(),
-        passphrase.into_bytes(),
-        output,
-        stdout,
-    )
+    let password = string_to_zeroized_vec(password);
+    let passphrase = string_to_zeroized_vec(passphrase);
+    export_bundle(vault, password, passphrase, output, stdout)
 }
 
 fn export_bundle(
@@ -254,6 +316,20 @@ fn export_bundle(
     Ok(())
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - Master password and import passphrase input come only from hidden prompts
+///   or `--stdin`, never argv.
+/// - `input` points to an encrypted `.msexp` bundle.
+///
+/// ## Postconditions
+/// - On success, prints imported opaque item ids only.
+/// - On any parse, authentication, unlock, or import failure, returns `Err`.
+///
+/// ## Invariants
+/// - Never prints imported plaintext item secrets or the import passphrase.
+/// - Prompt buffers are not retained after import.
 fn import_command(
     input: PathBuf,
     vault: PathBuf,
@@ -262,13 +338,9 @@ fn import_command(
 ) -> Result<()> {
     let password = prompt_password("Master password: ", stdin)?;
     let passphrase = prompt_password("Import passphrase: ", stdin)?;
-    import_bundle(
-        vault,
-        password.into_bytes(),
-        passphrase.into_bytes(),
-        input,
-        stdout,
-    )
+    let password = string_to_zeroized_vec(password);
+    let passphrase = string_to_zeroized_vec(passphrase);
+    import_bundle(vault, password, passphrase, input, stdout)
 }
 
 fn import_bundle(
@@ -290,9 +362,23 @@ fn import_bundle(
     Ok(())
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - Master password input comes only from a hidden prompt or `--stdin`.
+/// - `vault_path` points at an existing `.msv` vault.
+///
+/// ## Postconditions
+/// - On success, writes one summary row per listed item.
+/// - On unlock failure, returns `Err` without printing item data.
+///
+/// ## Invariants
+/// - Summary rows contain item id, escaped label, and item kind only.
+/// - Secret field values are never printed by list.
 fn list_command(vault_path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
     let password = prompt_password("Master password: ", stdin)?;
-    let output = list_vault(vault_path, password.into_bytes())?;
+    let password = string_to_zeroized_vec(password);
+    let output = list_vault(vault_path, password)?;
     write!(stdout, "{output}")?;
     Ok(())
 }
@@ -325,12 +411,29 @@ fn prompt_password(prompt: &str, from_stdin: bool) -> std::io::Result<String> {
     rpassword::prompt_password(prompt)
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - Called only for explicit stdin-based secret input paths.
+///
+/// ## Postconditions
+/// - Reads exactly one line from stdin and strips line terminators.
+/// - Returns I/O errors without falling back to argv or environment data.
+///
+/// ## Invariants
+/// - Never echoes the prompt or secret value to stdout/stderr.
 fn read_password_from_stdin(prompt: &str) -> std::io::Result<String> {
     use std::io::BufRead;
     let _ = prompt;
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
-    Ok(line.trim_end_matches('\n').to_string())
+    Ok(line.trim_end_matches(&['\r', '\n'][..]).to_string())
+}
+
+fn string_to_zeroized_vec(mut value: String) -> Vec<u8> {
+    let bytes = value.as_bytes().to_vec();
+    value.zeroize();
+    bytes
 }
 
 fn parse_item_kind(kind: &str) -> Result<ItemKind> {
@@ -369,12 +472,23 @@ fn hex_decode_id(s: &str) -> Result<[u8; 16]> {
     Ok(id)
 }
 
+/// # Contract
+///
+/// ## Preconditions
+/// - `summaries` contain non-secret metadata returned by the core item list API.
+///
+/// ## Postconditions
+/// - Returns tab-separated rows: `<item_id>\t<label>\t<kind>\n`.
+/// - Labels are rendered so control characters cannot inject fake rows.
+///
+/// ## Invariants
+/// - Never includes item secret field values.
 fn render_item_summaries(summaries: &[ItemSummary]) -> String {
     let mut out = String::new();
     for summary in summaries {
         out.push_str(&hex_id(&summary.id));
         out.push('\t');
-        out.push_str(&summary.label);
+        out.push_str(&summary.label.escape_default().to_string());
         out.push('\t');
         out.push_str(item_kind_name(&summary.kind));
         out.push('\n');

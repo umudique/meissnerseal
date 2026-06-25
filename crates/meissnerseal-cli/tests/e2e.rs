@@ -46,6 +46,7 @@ fn add_then_list_shows_item_without_secret() {
 
     let list = run_cli(["list", path_str(&vault)], &[PASSWORD]);
     assert_success(&list);
+    assert_no_secret_leak(&list);
     let stdout = stdout(&list);
     assert!(stdout.contains("CI token"));
     assert!(stdout.contains("ApiToken"));
@@ -91,6 +92,7 @@ fn export_writes_nonempty_msexp_bundle() {
     );
 
     assert_success(&output);
+    assert_no_secret_leak(&output);
     assert_eq!(
         bundle.extension().and_then(|ext| ext.to_str()),
         Some("msexp")
@@ -181,6 +183,125 @@ fn get_with_wrong_item_id_returns_err() {
     assert!(!output.status.success());
     assert!(!stdout(&output).contains(SECRET_VALUE));
     assert!(!stderr(&output).contains(SECRET_VALUE));
+}
+
+#[test]
+fn export_rejects_short_passphrase() {
+    let temp = TempDir::new().expect("tempdir");
+    let vault = temp.path().join("short-pass-export.msv");
+    let bundle = temp.path().join("short-pass.msexp");
+    init_vault(&vault);
+    let _ = add_item(&vault, "short pass item");
+
+    let output = run_cli(
+        [
+            "export",
+            "--output",
+            path_str(&bundle),
+            "--vault",
+            path_str(&vault),
+        ],
+        &[PASSWORD, b"short"],
+    );
+
+    assert!(!output.status.success());
+    assert_no_secret_leak(&output);
+    assert!(!bundle.exists());
+}
+
+#[test]
+fn wrong_password_returns_err() {
+    let temp = TempDir::new().expect("tempdir");
+    let vault = temp.path().join("wrong-password.msv");
+    init_vault(&vault);
+    let _ = add_item(&vault, "wrong password item");
+
+    let output = run_cli(["list", path_str(&vault)], &[b"wrong-password-never-real"]);
+
+    assert!(!output.status.success());
+    assert_no_secret_leak(&output);
+}
+
+#[test]
+fn add_rejects_secret_flag() {
+    let temp = TempDir::new().expect("tempdir");
+    let vault = temp.path().join("secret-flag-reject.msv");
+    init_vault(&vault);
+
+    let output = run_cli(
+        [
+            "add",
+            "--label",
+            "argv token",
+            "--kind",
+            "api-token",
+            "--vault",
+            path_str(&vault),
+            "--secret",
+            SECRET_VALUE,
+        ],
+        &[],
+    );
+
+    assert!(!output.status.success());
+    assert_no_secret_leak(&output);
+}
+
+#[test]
+fn export_stdout_has_no_secret_leak() {
+    let temp = TempDir::new().expect("tempdir");
+    let vault = temp.path().join("export-no-leak.msv");
+    let bundle = temp.path().join("export-no-leak.msexp");
+    init_vault(&vault);
+    let _ = add_item(&vault, "export no leak item");
+
+    let output = run_cli(
+        [
+            "export",
+            "--output",
+            path_str(&bundle),
+            "--vault",
+            path_str(&vault),
+        ],
+        &[PASSWORD, EXPORT_PASS],
+    );
+
+    assert_success(&output);
+    assert_no_secret_leak(&output);
+    assert!(bundle.exists());
+}
+
+#[test]
+fn list_label_with_newline_does_not_inject() {
+    let temp = TempDir::new().expect("tempdir");
+    let vault = temp.path().join("newline-label.msv");
+    init_vault(&vault);
+    let label = "primary label\nfake-id\tfake-label\tPassword";
+    let add = run_cli(
+        [
+            "add",
+            "--label",
+            label,
+            "--kind",
+            "secure-note",
+            "--vault",
+            path_str(&vault),
+        ],
+        &[PASSWORD, SECRET_VALUE.as_bytes()],
+    );
+    assert_success(&add);
+
+    let list = run_cli(["list", path_str(&vault)], &[PASSWORD]);
+    assert_success(&list);
+    assert_no_secret_leak(&list);
+    let stdout = stdout(&list);
+    let rows: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(rows.len(), 1, "list output must contain one row per item");
+    let first_row = rows.first().expect("one rendered row");
+    assert!(first_row.contains("primary label"));
+    assert!(!first_row.contains('\n'));
+    assert!(!stdout.contains("fake-id\tfake-label\tPassword"));
 }
 
 #[test]
@@ -276,8 +397,20 @@ fn run_cli<const N: usize>(args: [&str; N], stdin_lines: &[&[u8]]) -> Output {
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
-        "command failed: {}",
+        "command failed\nstdout:\n{}\nstderr:\n{}",
+        stdout(output),
         stderr(output)
+    );
+}
+
+fn assert_no_secret_leak(output: &Output) {
+    assert!(
+        !stdout(output).contains(SECRET_VALUE),
+        "stdout leaked the test secret"
+    );
+    assert!(
+        !stderr(output).contains(SECRET_VALUE),
+        "stderr leaked the test secret"
     );
 }
 
