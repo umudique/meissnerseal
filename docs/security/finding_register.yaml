@@ -638,10 +638,10 @@ findings:
     cwe: "CWE-226"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Call passphrase.zeroize() before returning the validation error."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass including export_rejects_short_passphrase (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-27
     kind: security_review
@@ -655,10 +655,10 @@ findings:
     cwe: "CWE-226"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Use password.as_bytes().to_vec() then password.zeroize() before passing bytes downstream."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass including wrong_password_returns_err (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-28
     kind: security_review
@@ -672,10 +672,10 @@ findings:
     cwe: "CWE-226"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Use secret.as_bytes().to_vec() then secret.zeroize() before constructing SecretBytes."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass including add_rejects_secret_flag (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-29
     kind: security_review
@@ -689,10 +689,10 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: "Use trim_end_matches(&['\\r', '\\n'][..]) instead of trim_end_matches('\\n')."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-30
     kind: security_review
@@ -706,10 +706,10 @@ findings:
     cwe: "CWE-116"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Use stdout.write_all(secret) + write_all(b\"\\n\") for binary-safe output."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-31
     kind: security_review
@@ -723,10 +723,10 @@ findings:
     cwe: "CWE-116"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: "Escape label with escape_default() or equivalent before writing to stdout."
-    verification: ""
-    commit: ""
+    verification: "cargo test --workspace: all tests pass including list_label_with_newline_does_not_inject (2026-06-25)"
+    commit: "b46e1d2"
 
   - id: F-20
     kind: coverage_gap
