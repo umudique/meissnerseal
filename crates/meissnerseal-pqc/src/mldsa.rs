@@ -123,11 +123,6 @@ impl SigningPrivateKey {
     pub const fn algorithm(&self) -> SigningAlgorithmId {
         self.algorithm
     }
-
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        self.bytes.as_slice()
-    }
 }
 
 impl core::fmt::Debug for SigningPrivateKey {
@@ -221,7 +216,8 @@ pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature
         SigningAlgorithmId::Ed25519V1 => {
             let seed = Zeroizing::new(
                 private_key
-                    .as_bytes()
+                    .bytes
+                    .as_slice()
                     .try_into()
                     .map_err(|_| SigningError::InvalidKey)?,
             );
@@ -368,7 +364,7 @@ mod tests {
         let private_key = ed25519_private_key();
 
         assert_eq!(private_key.algorithm().to_u16(), 0x0001);
-        assert_eq!(private_key.as_bytes().len(), 32);
+        assert_eq!(private_key.bytes.len(), 32);
         assert!(!format!("{private_key:?}").contains("42"));
     }
 
