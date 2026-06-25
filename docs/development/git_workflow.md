@@ -312,6 +312,12 @@ main                    — always deployable, protected
   the commit history has independent value
 - Never merge directly to main without CI passing and human review
 
+**Doc/spec fixes during feature PR review:**
+- Do NOT add doc/spec-only commits to an open feature branch — this triggers
+  a full CI re-run (Miri ~60 min, Fuzz ~2 min) on a Rust-free change.
+- Open a separate `docs/<desc>` branch instead. `docs/` branches only require
+  `ci-fast` (~5 min); `ci-thorough` is not needed for documentation changes.
+
 ---
 
 ## 14. Practical Reference — Common Mistakes
