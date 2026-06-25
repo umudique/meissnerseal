@@ -806,7 +806,7 @@ findings:
     status: resolved
     remediation: "Remove the MEISSNERSEAL_STDIN_PASSWORD branch from prompt_password(); --stdin flag covers all legitimate test and CI use cases."
     verification: "cargo test --workspace: all tests pass without the env var branch (2026-06-25)"
-    commit: ""
+    commit: "79d25ba"
 
   - id: F-20
     kind: coverage_gap
