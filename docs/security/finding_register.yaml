@@ -839,6 +839,28 @@ findings:
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
 
+  - id: F-37
+    kind: api_design
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — SigningPrivateKey API surface"
+    date: 2026-06-25
+    description: >-
+      SigningPrivateKey::as_bytes() was pub, exposing raw private seed bytes
+      to any caller with a reference. Contradicts the invariant that secret
+      material is never exposed outside the crate. The only internal consumer
+      was sign(), a free function in the same module with direct field access
+      rights.
+    cwe: "CWE-200"
+    severity: high
+    blocking: false
+    status: resolved
+    remediation: >-
+      Removed pub as_bytes() from SigningPrivateKey entirely. sign() now
+      accesses private_key.bytes.as_slice() directly (same-module access).
+      Test updated to access bytes field directly. No external caller existed.
+    verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
+    commit: "5293d5a"
+
   - id: F-20
     kind: coverage_gap
     component: meissnerseal-pqc
