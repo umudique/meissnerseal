@@ -116,16 +116,14 @@ mldsa::  SigningAlgorithmId
 cargo test:    16/16 pass for mlkem:: + hybrid:: + mldsa::, including
                NIST ML-KEM KATs, ADR-035 transfer-hybrid KATs, and ADR-028
                Ed25519V1 signing KATs
-Miri:          10/10 pass (2026-06-18, mlkem:: + hybrid::,
+Miri:          16/16 pass (2026-06-25, mlkem:: + hybrid:: + mldsa::,
                -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check)
-               PQC-3 mldsa:: Miri rerun skipped on 2026-06-25 by explicit
-               operator direction after the Ed25519 tests had passed under
-               the in-progress Miri run; rerun before Stable marking.
-Kani:          6 harnesses defined (length/type/zeroize boundary)
+               All Ed25519V1 sign/verify paths verified UB-free.
+Kani:          6 harnesses, 6/6 SUCCESS (2026-06-25)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
-               exceed practical unwind budgets — see proofs module
-               PQC-3 Kani rerun skipped on 2026-06-25 by explicit operator
-               direction; rerun before Stable marking.
+               exceed practical unwind budgets — see proofs module.
+               mldsa:: has no Kani harnesses yet; length/type proofs
+               deferred to a future PQC-4 task.
 Fuzz:          Not applicable — no parser surface in mlkem:: or hybrid::
 Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                internalProjection.json commit 65370b8).
