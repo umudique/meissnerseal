@@ -36,13 +36,21 @@ Post-MVP-0 sync and transfer envelopes will use X-Wing hybrid KEM (X25519 + ML-K
 Local vault operations only:
 
 ```
-meissnerseal init              # create a new vault
-meissnerseal add <label>       # store a secret
-meissnerseal get <id>          # retrieve a secret
-meissnerseal list              # list items (no secrets printed)
-meissnerseal lock              # explicit lock
-meissnerseal export <file>     # encrypted portable bundle
-meissnerseal import <file>     # restore from bundle
+meissnerseal init <path>                              # create a new vault
+meissnerseal add --label <label> --kind <kind> --vault <path>   # store a secret
+meissnerseal get <item_id> --vault <path>             # retrieve a secret
+meissnerseal list <path>                              # list items (no secrets printed)
+meissnerseal lock                                     # explicit lock
+meissnerseal export --output <file> --vault <path>    # encrypted portable bundle
+meissnerseal import --input <file> --vault <path>     # restore from bundle
+```
+
+Transfer and device commands are wired in MVP-2:
+
+```
+meissnerseal transfer create    # create a transfer envelope
+meissnerseal transfer receive   # receive a transfer envelope
+meissnerseal device pair        # pair with another device
 ```
 
 ---
