@@ -209,6 +209,8 @@ NEVER derive Debug on a type that holds secret material
 NEVER place plaintext secrets in route arguments, global state, or analytics
 NEVER change a dependency version without human approval
 NEVER begin implementation on a crate before its dependencies are Stable
+NEVER create a git commit — produce a completion report and stop.
+  Commits are created by the human after reviewing the output.
 ```
 
 ---
@@ -363,7 +365,32 @@ The agent writes only:
 Run: `cargo test --workspace` — tests must compile, may fail.
 Do not write implementation code in Phase 1.
 
-Human reviews Phase 1 output → approves or requests revision.
+Phase 1 ends with a structured handoff report — do not commit:
+
+```markdown
+## Phase 1 Handoff
+
+**Role:** [agent role]
+**Task:** [task description]
+
+**Contract block (preconditions / postconditions / invariants):**
+[paste the /// # Contract doc comment written for each public fn]
+
+**Tests written (compile, not yet passing):**
+- [test name]: [what property it verifies and why it matters]
+
+**Test vectors:**
+- [file]: [what it anchors — algorithm, encoding, edge case]
+
+**Open questions for human review:**
+- [anything that requires a decision before Phase 2 can begin]
+
+**Scope declaration:**
+- Will modify: [list of files planned for Phase 2]
+- Will NOT touch: [explicit exclusions]
+```
+
+Human reviews Phase 1 handoff → approves or requests revision.
 Implementation does not begin until Phase 1 is approved.
 
 **Phase 2 — Implementation**
@@ -463,14 +490,26 @@ No task is complete without a completion report.
 **CONTRACT.md changes:** [None / describe changes]
 **Spec deviations:** [None / describe and open ADR]
 **Open questions:** [None / list]
+
+**Security findings (for human review — do not self-register):**
+[None / structured list below]
+
+| location | kind | severity | description |
+|---|---|---|---|
+| [file:line] | [security_review \| coverage_gap \| design] | [Critical/High/Medium/Low] | [description] |
+
+If None, omit the table.
 ```
+
+Do not create a git commit. Hand off the completion report to the human.
+The human reviews, may request revisions, then commits with a signed commit.
 
 ---
 
 ## 14. Commit Protocol
 
-Every agent commit must follow `docs/development/git_workflow.md` exactly.
-Key rules summarized here:
+Agents do not commit. When a human commits agent work, the commit must
+follow `docs/development/git_workflow.md` exactly. Key rules summarized here:
 
 ```
 TYPE PREFIXES
