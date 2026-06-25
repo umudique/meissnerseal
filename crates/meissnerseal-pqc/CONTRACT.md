@@ -3,7 +3,7 @@
 **Version:** 0.1.0
 **API Status:** Stable  
 **Spec authority:** specs/crypto/crypto_design.md §7, specs/protocol/transfer_profile_v1.md  
-**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-034 (RustCrypto ml-kem backend), ADR-035 (UG combiner hybrid KEM), ADR-036 (ML-KEM-768 parameter set)
+**ADRs:** ADR-011 (RustCrypto), ADR-012 (ML-KEM risk), ADR-028 (signature crypto-agility), ADR-034 (RustCrypto ml-kem backend), ADR-035 (UG combiner hybrid KEM), ADR-036 (ML-KEM-768 parameter set)
 
 ---
 
@@ -33,6 +33,22 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
            pqc_private_key: &MlKemPrivateKey,
            transcript_hash: &[u8; 32],
          ) -> Result<TransferKey>
+
+mldsa::  SigningAlgorithmId
+           Ed25519V1 = 0x0001
+           Ed25519MlDsa87HybridV1 = 0x0002
+
+         SigningPublicKey { algorithm_id, public_key_bytes }
+         SigningPrivateKey { algorithm_id, private_key_bytes }
+         Signature { algorithm_id, signature_bytes }
+
+         sign(private_key, message) -> Result<Signature>
+         verify(public_key, message, signature) -> Result<()>
+
+         Status: Ed25519V1 implemented with ed25519-dalek after ADR-020
+         approval. Hybrid signing slot is registered but returns
+         Unimplemented until PQ signing audit clears a future PQC-4
+         implementation.
 ```
 
 ---
@@ -63,6 +79,12 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
 
 [G-05] No secret-dependent branches in ML-KEM operations
        (to the extent the underlying library guarantees this).
+
+[G-06] Device signing keys and signatures are algorithm-tagged per ADR-028.
+       Verification rejects algorithm mismatches before primitive-specific
+       verification. Ed25519V1 is the MVP implementation target. The
+       Ed25519+ML-DSA hybrid slot is registered as 0x0002 but fails closed
+       with Unimplemented until a PQ signing audit clears integration.
 ```
 
 ---
@@ -80,6 +102,10 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
 
 [A-04] Does NOT guarantee symbolic security of ML-KEM itself —
        that is guaranteed by NIST FIPS 203 analysis, not this crate.
+
+[A-05] Does NOT implement ML-DSA signing in MVP-2. The hybrid signing
+       algorithm identifier exists only as an agility slot until a future
+       audited backend is approved.
 ```
 
 ---
@@ -87,13 +113,19 @@ hybrid:: x25519_keypair() -> (X25519PrivateKey, X25519PublicKey)
 ## Verification Status
 
 ```
-cargo test:    10/10 pass for mlkem:: + hybrid::, including NIST ML-KEM
-               KATs and ADR-035 transfer-hybrid KATs
+cargo test:    16/16 pass for mlkem:: + hybrid:: + mldsa::, including
+               NIST ML-KEM KATs, ADR-035 transfer-hybrid KATs, and ADR-028
+               Ed25519V1 signing KATs
 Miri:          10/10 pass (2026-06-18, mlkem:: + hybrid::,
                -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check)
+               PQC-3 mldsa:: Miri rerun skipped on 2026-06-25 by explicit
+               operator direction after the Ed25519 tests had passed under
+               the in-progress Miri run; rerun before Stable marking.
 Kani:          6 harnesses defined (length/type/zeroize boundary)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module
+               PQC-3 Kani rerun skipped on 2026-06-25 by explicit operator
+               direction; rerun before Stable marking.
 Fuzz:          Not applicable — no parser surface in mlkem:: or hybrid::
 Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                internalProjection.json commit 65370b8).
@@ -104,6 +136,10 @@ Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                test-vectors/transfer_hybrid_v1.json; Python
                transfer_hybrid_cross_verify.py recomputes real X25519 and
                HKDF-SHA256.
+               2/2 pass — ADR-028 Ed25519V1 signing vectors in
+               test-vectors/signing_ed25519_v1.json; Python
+               signing_ed25519_cross_verify.py recomputes public keys and
+               signatures from fixed seeds.
 ```
 
 ---
@@ -133,6 +169,20 @@ Audit status: No independent audit as of 2026-06; widely deployed;
               low-order point rejection NOT enforced by this crate
               (hybrid security relies on ML-KEM component in that case).
 Risk level:   Low-Medium — established library, no known CVEs
+Tracking:     docs/ops/dependency_risk_register.md
+```
+
+---
+
+## Ed25519 Library Audit Status
+
+```
+Library:      ed25519-dalek (dalek-cryptography)
+Version:      2.2.0 (pinned in Cargo.lock)
+Audit status: Widely deployed Rust Ed25519 implementation; ADR-020
+              dependency addition approved for PQC-3.
+Risk level:   Low-Medium — established classical signature primitive; no HNDL
+              urgency for authenticity per ADR-028
 Tracking:     docs/ops/dependency_risk_register.md
 ```
 
