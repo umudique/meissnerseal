@@ -378,12 +378,18 @@ mod tests {
     }
 
     #[test]
-    fn signing_private_key_is_zeroized_on_drop() {
+    fn signing_private_key_debug_is_redacted() {
         let private_key = ed25519_private_key();
+        let debug_output = format!("{private_key:?}");
+        assert_eq!(debug_output, "SigningPrivateKey([REDACTED])");
+        assert!(!debug_output.contains("00"));
+    }
 
+    #[test]
+    fn signing_private_key_holds_expected_algorithm_and_length() {
+        let private_key = ed25519_private_key();
         assert_eq!(private_key.algorithm().to_u16(), 0x0001);
         assert_eq!(private_key.bytes.len(), 32);
-        assert!(!format!("{private_key:?}").contains("42"));
     }
 
     #[test]

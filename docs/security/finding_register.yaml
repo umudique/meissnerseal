@@ -741,6 +741,31 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-42
+    kind: test_quality
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — misleading ZeroizeOnDrop test name"
+    date: 2026-06-25
+    description: >-
+      signing_private_key_is_zeroized_on_drop tested algorithm ID, byte
+      length, and Debug redaction — not drop-time memory wipe. The name
+      implied a guarantee the test did not verify. Real zeroization comes
+      from Zeroizing<Vec<u8>> on the field; impl ZeroizeOnDrop alone does
+      not produce the wipe. Unsafe memory-probing tests are not warranted.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Split into signing_private_key_debug_is_redacted (asserts exact
+      REDACTED output, no raw bytes visible) and
+      signing_private_key_holds_expected_algorithm_and_length (asserts
+      algorithm ID and key byte count). Zeroization is an implementation
+      invariant guaranteed by Zeroizing<Vec<u8>>, documented in CONTRACT.md
+      [G-04] and the type's doc block.
+    verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-25)"
+    commit: ""
+
   - id: F-41
     kind: error_semantics
     component: meissnerseal-pqc
