@@ -7,7 +7,7 @@ use meissnerseal_core::{
 };
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use std::{io::Write, path::PathBuf};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Parser)]
 #[command(
@@ -164,10 +164,10 @@ fn init_vault(path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> 
     }
 
     confirm.zeroize();
-    let password = string_to_zeroized_vec(password);
+    let mut password = string_to_zeroized_vec(password);
     let locked = Vault::<Locked>::create(CreateVaultParams {
         path,
-        password: SecretBytes::new(password),
+        password: SecretBytes::new(std::mem::take(&mut *password)),
     })?;
     writeln!(stdout, "Created vault: {}", locked.path().display())?;
     Ok(())
@@ -200,11 +200,11 @@ fn add_command(
     let password = prompt_password("Master password: ", stdin)?;
     let secret = prompt_password("Secret value: ", stdin)?;
     let password = string_to_zeroized_vec(password);
-    let secret = string_to_zeroized_vec(secret);
+    let mut secret = string_to_zeroized_vec(secret);
     let item = PlainItem {
         kind,
         label,
-        secret: SecretBytes::new(secret),
+        secret: SecretBytes::new(std::mem::take(&mut *secret)),
         tags: Vec::new(),
     };
     add_item(vault, password, item, stdout)
@@ -212,7 +212,7 @@ fn add_command(
 
 fn add_item(
     vault_path: PathBuf,
-    password: Vec<u8>,
+    password: Zeroizing<Vec<u8>>,
     item: PlainItem,
     stdout: &mut dyn Write,
 ) -> Result<()> {
@@ -258,7 +258,7 @@ fn get_command(item_id: String, vault: PathBuf, stdin: bool, stdout: &mut dyn Wr
 /// - Does not print labels or metadata in the secret output path.
 fn get_item(
     vault_path: PathBuf,
-    password: Vec<u8>,
+    password: Zeroizing<Vec<u8>>,
     id: [u8; 16],
     stdout: &mut dyn Write,
 ) -> Result<()> {
@@ -313,15 +313,13 @@ fn export_command(
 
 fn export_bundle(
     vault_path: PathBuf,
-    password: Vec<u8>,
-    passphrase: Vec<u8>,
+    password: Zeroizing<Vec<u8>>,
+    passphrase: Zeroizing<Vec<u8>>,
     output: PathBuf,
     stdout: &mut dyn Write,
 ) -> Result<()> {
     let session = unlock_session(vault_path, password)?;
-    let mut passphrase = passphrase;
     let bundle = meissnerseal_core::export::export(&session, &passphrase);
-    passphrase.zeroize();
     let bundle = bundle?;
     // Write raw bundle bytes to disk only; never log or print the bytes (G-03).
     std::fs::write(&output, &bundle)?;
@@ -358,16 +356,14 @@ fn import_command(
 
 fn import_bundle(
     vault_path: PathBuf,
-    password: Vec<u8>,
-    passphrase: Vec<u8>,
+    password: Zeroizing<Vec<u8>>,
+    passphrase: Zeroizing<Vec<u8>>,
     input: PathBuf,
     stdout: &mut dyn Write,
 ) -> Result<()> {
     let session = unlock_session(vault_path, password)?;
     let bytes = std::fs::read(&input)?;
-    let mut passphrase = passphrase;
     let ids = meissnerseal_core::export::import(&session, &bytes, &passphrase);
-    passphrase.zeroize();
     // Print imported item IDs only — never item secrets.
     for id in &ids? {
         writeln!(stdout, "{}", hex_id(id))?;
@@ -396,16 +392,19 @@ fn list_command(vault_path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Res
     Ok(())
 }
 
-fn list_vault(vault_path: PathBuf, password: Vec<u8>) -> Result<String> {
+fn list_vault(vault_path: PathBuf, password: Zeroizing<Vec<u8>>) -> Result<String> {
     let session = unlock_session(vault_path, password)?;
     let summaries = item::list(&session)?;
     Ok(render_item_summaries(&summaries))
 }
 
-fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<Vault<Unlocked>> {
+fn unlock_session(
+    vault_path: PathBuf,
+    mut password: Zeroizing<Vec<u8>>,
+) -> Result<Vault<Unlocked>> {
     Vault::<Locked>::open(vault_path.clone())?.unlock(UnlockParams {
         path: vault_path,
-        password: SecretBytes::new(password),
+        password: SecretBytes::new(std::mem::take(&mut *password)),
     })
 }
 
@@ -435,8 +434,8 @@ fn read_password_from_stdin(prompt: &str) -> std::io::Result<String> {
     Ok(line.trim_end_matches(&['\r', '\n'][..]).to_string())
 }
 
-fn string_to_zeroized_vec(mut value: String) -> Vec<u8> {
-    let bytes = value.as_bytes().to_vec();
+fn string_to_zeroized_vec(mut value: String) -> Zeroizing<Vec<u8>> {
+    let bytes = Zeroizing::new(value.as_bytes().to_vec());
     value.zeroize();
     bytes
 }
@@ -614,7 +613,7 @@ mod tests {
         let mut sink = Vec::new();
         add_item(
             path.clone(),
-            PASSWORD.to_vec(),
+            Zeroizing::new(PASSWORD.to_vec()),
             PlainItem {
                 kind: ItemKind::ApiToken,
                 label: "CI token".to_string(),
@@ -625,7 +624,8 @@ mod tests {
         )
         .expect("CLI add path succeeds");
 
-        let listing = list_vault(path.clone(), PASSWORD.to_vec()).expect("CLI list path succeeds");
+        let listing = list_vault(path.clone(), Zeroizing::new(PASSWORD.to_vec()))
+            .expect("CLI list path succeeds");
         assert!(listing.contains("CI token"));
         assert!(listing.contains("ApiToken"));
         assert!(!listing.contains(KNOWN_SECRET));
@@ -643,7 +643,13 @@ mod tests {
         let id = add_known_item(&path, "vault key", KNOWN_SECRET);
 
         let mut sink = Vec::new();
-        get_item(path.clone(), PASSWORD.to_vec(), id, &mut sink).expect("CLI get path succeeds");
+        get_item(
+            path.clone(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            id,
+            &mut sink,
+        )
+        .expect("CLI get path succeeds");
         let output = String::from_utf8(sink).expect("get output is UTF-8");
 
         let note_index = output
@@ -671,8 +677,8 @@ mod tests {
         let mut sink = Vec::new();
         export_bundle(
             path.clone(),
-            PASSWORD.to_vec(),
-            EXPORT_PASSPHRASE.to_vec(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            Zeroizing::new(EXPORT_PASSPHRASE.to_vec()),
             bundle_path.clone(),
             &mut sink,
         )
@@ -699,8 +705,8 @@ mod tests {
 
         export_bundle(
             path.clone(),
-            PASSWORD.to_vec(),
-            EXPORT_PASSPHRASE.to_vec(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            Zeroizing::new(EXPORT_PASSPHRASE.to_vec()),
             bundle_path.clone(),
             &mut Vec::new(),
         )
@@ -709,8 +715,8 @@ mod tests {
         let mut sink = Vec::new();
         import_bundle(
             path.clone(),
-            PASSWORD.to_vec(),
-            EXPORT_PASSPHRASE.to_vec(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            Zeroizing::new(EXPORT_PASSPHRASE.to_vec()),
             bundle_path.clone(),
             &mut sink,
         )
@@ -752,8 +758,8 @@ mod tests {
     }
 
     fn add_known_item(path: &Path, label: &str, secret: &str) -> [u8; 16] {
-        let session =
-            unlock_session(path.to_path_buf(), PASSWORD.to_vec()).expect("unlock test vault");
+        let session = unlock_session(path.to_path_buf(), Zeroizing::new(PASSWORD.to_vec()))
+            .expect("unlock test vault");
         item::add(
             &session,
             PlainItem {
