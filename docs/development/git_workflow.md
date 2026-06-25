@@ -320,7 +320,48 @@ main                    — always deployable, protected
 
 ---
 
-## 14. Practical Reference — Common Mistakes
+## 14. Pull Request Description Standard
+
+### Mandatory (all PRs)
+
+```
+## Summary
+- Bullet list of what changed and why (imperative, technical)
+```
+
+### Code PRs (feat / fix / security / ci) — add as applicable
+
+```
+## Verification
+- Agent review results (Consistency/Security/Formal Review Agent outcome)
+- ProVerif / Kani / Miri results with counts where relevant
+- CI: N/N checks pass
+
+## ADRs                    ← include when PR references or adds ADRs
+- ADR-NNN: <title> (new / updated / cross-referenced)
+
+## Spec authority          ← include when implementation is spec-driven
+<spec files and sections that govern this change>
+
+## Findings                ← include when findings are raised or closed
+| ID | Severity | Kind | Status |
+|---|---|---|---|
+| F-NN | Critical/High/Medium/Low | <description> | Resolved / Deferred / Accepted |
+```
+
+### Docs PRs (docs/)
+
+`## Summary` is sufficient. No Verification, ADRs, or Findings sections needed.
+
+### Rules
+
+- No `## Test plan` — tests must pass before the PR is opened; write results, not intentions
+- No `## Merge note` — merge procedure is in AGENTS.md §14, not the PR body
+- Findings table uses `| ID | Severity | Kind | Status |` format; omit section if no findings
+
+---
+
+## 15. Practical Reference — Common Mistakes
 
 | Mistake | Correct form |
 |---|---|
