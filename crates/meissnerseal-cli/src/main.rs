@@ -410,14 +410,6 @@ fn unlock_session(vault_path: PathBuf, password: Vec<u8>) -> Result<Vault<Unlock
 }
 
 fn prompt_password(prompt: &str, from_stdin: bool) -> std::io::Result<String> {
-    // When MEISSNERSEAL_STDIN_PASSWORD is set the binary reads from stdin
-    // instead of /dev/tty. Used only by the integration-test harness, which
-    // spawns the binary as a subprocess with piped stdin. Never set this in
-    // production; doing so reduces the isolation between the password prompt
-    // and any piped input.
-    if std::env::var("MEISSNERSEAL_STDIN_PASSWORD").is_ok() {
-        return read_password_from_stdin(prompt);
-    }
     if from_stdin {
         return read_password_from_stdin(prompt);
     }
