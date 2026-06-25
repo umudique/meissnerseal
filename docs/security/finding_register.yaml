@@ -741,6 +741,34 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-43
+    kind: dependency_configuration
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — ed25519-dalek SigningKey internal copy zeroization"
+    date: 2026-06-25
+    description: >-
+      sign() creates an ed25519_dalek::SigningKey from the seed bytes.
+      If the "zeroize" feature is not enabled for ed25519-dalek and
+      curve25519-dalek, the internal secret scalar copy inside SigningKey
+      is not wiped on drop, leaving key material in memory after sign()
+      returns. Verified: workspace Cargo.toml enables features =
+      ["rand_core", "zeroize"]; resolved dependency graph confirms
+      ed25519-dalek and curve25519-dalek both have zeroize active.
+    cwe: "CWE-316"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      No code change required — "zeroize" feature already enabled.
+      Added explicit Zeroization section to CONTRACT.md Ed25519 Library
+      Audit Status, marking the feature as MUST-remain-enabled with
+      consequences of removal documented. This prevents accidental removal
+      during dependency updates.
+    verification: >-
+      cargo metadata confirmed: ed25519-dalek activated features = [zeroize],
+      curve25519-dalek activated features = [zeroize] (2026-06-25).
+    commit: ""
+
   - id: F-42
     kind: test_quality
     component: meissnerseal-pqc

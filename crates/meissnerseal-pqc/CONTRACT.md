@@ -191,6 +191,14 @@ Audit status: Widely deployed Rust Ed25519 implementation; ADR-020
 Risk level:   Low-Medium — established classical signature primitive; no HNDL
               urgency for authenticity per ADR-028
 Tracking:     docs/ops/dependency_risk_register.md
+
+Zeroization:  The "zeroize" feature MUST remain enabled (workspace Cargo.toml).
+              It activates ZeroizeOnDrop on ed25519_dalek::SigningKey via
+              curve25519-dalek/zeroize, ensuring the internal secret scalar
+              is wiped on drop. Removing this feature leaves SigningKey
+              internal copies in memory after sign(). Verified active:
+              ed25519-dalek features = [zeroize], curve25519-dalek features
+              = [zeroize] (see F-43 in finding_register.yaml).
 ```
 
 ---
