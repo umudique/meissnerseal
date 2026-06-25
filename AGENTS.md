@@ -138,6 +138,13 @@ PROTOCOL
   [ ] Expired envelopes are rejected
   [ ] Replay protection is enforced
 
+API SURFACE
+  [ ] Secret-bearing types have no public method that returns raw secret bytes
+  [ ] Constructors reject invalid state — no fail-open new() that silently accepts wrong-length input
+  [ ] Wire-level encoding helpers (e.g. to_le_bytes / from_le_bytes) are part of the public API, not caller responsibility
+  [ ] Error variants are specific enough to distinguish failure modes in tests — no catch-all Err for structurally different failures
+  [ ] Every cross-verifier script in test-vectors/ is executed in a CI job
+
 UNSAFE RUST
   [ ] Every unsafe block has a // SAFETY: comment explaining why it is sound
   [ ] No unsafe in meissnerseal-crypto or meissnerseal-pqc without maintainer review

@@ -146,6 +146,9 @@ roles:
       - All operations constant-time — no secret-dependent branches.
       - Fixed-length values use Key<N> from meissnerseal-crypto, never [u8;N] or Vec<u8>.
       - Document the ML-KEM crate's audit status in CONTRACT.md before shipping.
+      - Secret-bearing types expose no public raw-byte accessor; internal consumers use direct field access within the same module.
+      - KAT tests must iterate every case in the vector file; testing only the first case is not sufficient.
+      - Every cross-verifier script must be executed in a CI job; a script that exists but is not wired into CI is not a security control.
     done: >
       Hybrid derivation matches crypto_design.md §7; test vector cross-verified
       with an independent implementation; ML-KEM library selection documented in
@@ -356,12 +359,46 @@ roles:
       - Naming and formatting are never Primary findings.
     body: |
       Mandatory scorecard axes (score 0–5 each with brief rationale):
-      - Cryptographic Soundness — does it match the crypto spec? primitives used correctly?
-      - Boundary Integrity — are crate boundaries / CONTRACT.md scopes respected?
-      - Fail-Closed Behavior — do all error paths return Err without partial output? rejection cases tested?
-      - Secret Lifecycle Compliance — secrets zeroized? Debug redacted? no secrets in logs?
-      - Formal Verification Coverage — code within a formal model where the MVP phase requires it?
-      - Supply Chain Posture — deps audited? cargo audit passes? unsafe deps justified?
+
+      - Primitive Correctness — are the right algorithms selected and parameterised?
+        do primitive calls match the crypto spec (key sizes, nonce sizes, tag sizes)?
+        is constant-time behaviour preserved (no secret-dependent branches or indexing)?
+
+      - Protocol & Transcript Integrity — is domain separation explicit and owned by
+        the correct layer? are all transcript fields bound into the AAD or hash in the
+        correct order? are downgrade, substitution, and replay attacks structurally
+        prevented (not just checked at runtime)?
+
+      - Boundary Integrity — are crate boundaries and CONTRACT.md scopes respected?
+        do callers depend only on documented postconditions, never on internal layout?
+
+      - Fail-Closed Behavior — do all error paths return Err without partial output?
+        are rejection cases (malformed input, wrong length, unknown tag) tested with
+        specific error variants, not just is_err()?
+
+      - Secret Lifecycle Compliance — are secrets held in Zeroizing<_> or equivalent?
+        are ZeroizeOnDrop types correct? is Debug redacted? do no secrets appear in
+        logs, error messages, test output, or panic messages?
+
+      - API Misuse Resistance — does the public API make correct use easy and
+        misuse structurally hard? are secret-bearing types free of public raw-byte
+        accessors? do constructors reject invalid state (no fail-open new())? are
+        wire-encoding helpers part of the API so callers cannot get byte order wrong?
+        are error variants specific enough to distinguish failure modes?
+
+      - Verification Chain Integrity — is every test-vector file anchored to the
+        wire format it represents? is every cross-verifier script executed in a CI
+        job (an unexecuted verifier is not a control)? does the CI job fail closed
+        on verifier error or missing output?
+
+      - Assurance Coverage — are Kani harnesses present for bounded properties
+        (length, no overflow) where the phase requires them? does Miri pass? is
+        there a fuzz target for every parser? are property tests present for
+        behavioral invariants?
+
+      - Supply Chain Posture — do all dependencies appear in Cargo.lock? does
+        cargo audit pass with no vulnerabilities? is every unsafe block justified
+        with a // SAFETY: comment? are new dependencies gated by ADR-020?
 
       Scoring standard: 0 absent/broken · 1 serious deficiency · 2 partial,
       insufficient · 3 adequate with reservations · 4 strong, minor reservations ·
@@ -379,7 +416,7 @@ roles:
       **Approval Recommendation** — one word from the vocabulary + one sentence.
       **Residual Risks** — risks remaining after approval; blocking or non-blocking.
     done: >
-      No repository file modified; scorecard covers all six axes; every finding
+      No repository file modified; scorecard covers all nine axes; every finding
       cites a specific location; approval recommendation uses the correct vocabulary.
 
   formal:
@@ -493,6 +530,7 @@ roles:
     scope_input_label: Check scope
     rules:
       - "Check: spec → implementation behavior; ADR → CONTRACT.md honored; test vector reproduced; every security-relevant error path returns Err; documented pre/postconditions enforced."
+      - "Check: for every file in test-vectors/, confirm that a CI job in .github/workflows/ executes the corresponding cross-verifier script. A cross-verifier that is not wired into CI is a gap, not a control."
       - "Do NOT check: naming/style; decisions already in ADRs; performance; non-security doc formatting."
     body: |
       Severity tiers:
