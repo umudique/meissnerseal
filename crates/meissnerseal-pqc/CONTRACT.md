@@ -47,11 +47,12 @@ mldsa::  SigningAlgorithmId
          SigningAlgorithmId::from_u16(u16) -> Result<SigningAlgorithmId>
 
          SigningError (load-bearing variants — changes are breaking):
-           UnknownAlgorithm  — from_u16 received an unregistered algorithm ID
-           Unimplemented     — algorithm slot registered but not yet active
-           AlgorithmMismatch — key and signature carry different algorithm IDs
-           InvalidKey        — key or public key bytes are malformed/wrong length
-           VerificationFailed — signature did not verify under the given key
+           UnknownAlgorithm   — from_u16 received an unregistered algorithm ID
+           Unimplemented      — algorithm slot registered but not yet active
+           AlgorithmMismatch  — key and signature carry different algorithm IDs
+           InvalidKey         — key or public key bytes are malformed/wrong length
+           MalformedSignature — signature bytes are wrong length or structurally invalid
+           VerificationFailed — signature is well-formed but does not verify
 
          Status: Ed25519V1 implemented with ed25519-dalek after ADR-020
          approval. Hybrid signing slot is registered but returns

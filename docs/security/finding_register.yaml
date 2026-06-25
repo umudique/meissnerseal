@@ -740,6 +740,21 @@ findings:
       can never contain '\n'. The test passes vacuously and does not verify that the
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
+
+  - id: F-41
+    kind: error_semantics
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — VerificationFailed on malformed signature bytes"
+    date: 2026-06-25
+    description: >-
+      verify() returned VerificationFailed for both structurally malformed
+      signature bytes (wrong length) and cryptographic verification failure.
+      These are semantically distinct: a malformed signature is a parse error,
+      not a verification failure. Conflating them degrades incident triage and
+      telemetry quality — a signing-path InvalidKey already distinguished
+      key-material errors after F-1; the same discipline was missing for
+      signature bytes.
+    cwe: "CWE-703"
     severity: medium
     blocking: false
     status: resolved
@@ -838,6 +853,14 @@ findings:
       import_bundle) now propagates Zeroizing<Vec<u8>>. std::mem::take
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
+
+      Added MalformedSignature variant to SigningError. verify() now returns
+      MalformedSignature when signature bytes cannot be parsed to [u8; 64],
+      and VerificationFailed only when the well-formed signature does not
+      verify cryptographically. CONTRACT.md API surface and verify() doc
+      block updated.
+    verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
+    commit: ""
 
   - id: F-40
     kind: design

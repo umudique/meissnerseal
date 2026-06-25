@@ -188,6 +188,8 @@ pub enum SigningError {
     AlgorithmMismatch,
     #[error("invalid or malformed key material")]
     InvalidKey,
+    #[error("signature bytes are malformed or wrong length")]
+    MalformedSignature,
     #[error("signature verification failed")]
     VerificationFailed,
 }
@@ -249,7 +251,9 @@ pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature
 ///   algorithm and matching public key.
 /// - Returns `Err(AlgorithmMismatch)` when key and signature tags differ.
 /// - Returns `Err(Unimplemented)` for the hybrid slot until PQC-4.
-/// - Returns `Err(VerificationFailed)` for invalid Ed25519 signatures.
+/// - Returns `Err(MalformedSignature)` when signature bytes are wrong length.
+/// - Returns `Err(VerificationFailed)` when the signature is well-formed but
+///   does not verify under the given key and message.
 ///
 /// ## Invariants
 /// - Does not infer algorithms from byte lengths.
@@ -267,7 +271,7 @@ pub fn verify(public_key: &SigningPublicKey, message: &[u8], signature: &Signatu
             let signature_bytes: &[u8; 64] = signature
                 .as_bytes()
                 .try_into()
-                .map_err(|_| SigningError::VerificationFailed)?;
+                .map_err(|_| SigningError::MalformedSignature)?;
             let verifying_key =
                 VerifyingKey::from_bytes(public_bytes).map_err(|_| SigningError::InvalidKey)?;
             let ed25519_signature = ed25519_dalek::Signature::from_bytes(signature_bytes);
