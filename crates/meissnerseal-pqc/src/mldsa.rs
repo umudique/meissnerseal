@@ -191,6 +191,8 @@ pub enum SigningError {
     Unimplemented,
     #[error("signing key or signature algorithm mismatch")]
     AlgorithmMismatch,
+    #[error("invalid or malformed key material")]
+    InvalidKey,
     #[error("signature verification failed")]
     VerificationFailed,
 }
@@ -221,7 +223,7 @@ pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature
                 private_key
                     .as_bytes()
                     .try_into()
-                    .map_err(|_| SigningError::VerificationFailed)?,
+                    .map_err(|_| SigningError::InvalidKey)?,
             );
             let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
             let signature = signing_key.sign(message);
@@ -261,13 +263,13 @@ pub fn verify(public_key: &SigningPublicKey, message: &[u8], signature: &Signatu
             let public_bytes: &[u8; 32] = public_key
                 .as_bytes()
                 .try_into()
-                .map_err(|_| SigningError::VerificationFailed)?;
+                .map_err(|_| SigningError::InvalidKey)?;
             let signature_bytes: &[u8; 64] = signature
                 .as_bytes()
                 .try_into()
                 .map_err(|_| SigningError::VerificationFailed)?;
-            let verifying_key = VerifyingKey::from_bytes(public_bytes)
-                .map_err(|_| SigningError::VerificationFailed)?;
+            let verifying_key =
+                VerifyingKey::from_bytes(public_bytes).map_err(|_| SigningError::InvalidKey)?;
             let ed25519_signature = ed25519_dalek::Signature::from_bytes(signature_bytes);
             verifying_key
                 .verify_strict(message, &ed25519_signature)
@@ -345,6 +347,18 @@ mod tests {
 
         assert!(matches!(
             sign(&private_key, MESSAGE),
+            Err(SigningError::Unimplemented)
+        ));
+    }
+
+    #[test]
+    fn hybrid_slot_verify_returns_unimplemented() {
+        let public_key =
+            SigningPublicKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 128]);
+        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 64]);
+
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
             Err(SigningError::Unimplemented)
         ));
     }
