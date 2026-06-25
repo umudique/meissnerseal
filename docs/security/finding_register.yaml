@@ -788,6 +788,26 @@ findings:
     verification: "Covered by import_rejects_wrong_passphrase: wrong export passphrase returns non-zero and imports no item."
     commit: "31179dd"
 
+  - id: F-35
+    kind: security_review
+    component: meissnerseal-cli
+    source: "Internal review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      MEISSNERSEAL_STDIN_PASSWORD environment variable bypass present in
+      production binary. prompt_password() checks this env var and routes
+      password input to stdin when set, bypassing rpassword's /dev/tty
+      isolation. E2E tests use --stdin flag exclusively and never set this
+      variable; the bypass is dead code in the test harness and an undocumented
+      secret-isolation hole in production.
+    cwe: "CWE-15"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: "Remove the MEISSNERSEAL_STDIN_PASSWORD branch from prompt_password(); --stdin flag covers all legitimate test and CI use cases."
+    verification: "cargo test --workspace: all tests pass without the env var branch (2026-06-25)"
+    commit: ""
+
   - id: F-20
     kind: coverage_gap
     component: meissnerseal-pqc
