@@ -741,6 +741,29 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-44
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — Rust KAT only covers case 00"
+    date: 2026-06-26
+    description: >-
+      signing_ed25519_v1.json contains two KAT cases but the Rust unit test
+      only used ed25519-sign-00. The Python cross-verifier covered both, but
+      the Rust implementation's correctness for case 01 was untested. New
+      cases added to the JSON would silently not be exercised by Rust tests.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Replaced ed25519_v1_kat_vector_matches_expected_signature with
+      ed25519_v1_kat_all_cases_match, which calls parse_all_case_ids() to
+      discover all cases in the JSON and iterates sign + verify + algorithm
+      ID LE assertion for each. New cases in the JSON are automatically
+      covered without test changes.
+    verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
+    commit: ""
+
   - id: F-43
     kind: dependency_configuration
     component: meissnerseal-pqc
