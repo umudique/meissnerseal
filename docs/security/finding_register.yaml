@@ -742,13 +742,13 @@ findings:
     cwe: null
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Rewrite assertion to verify: (1) output has exactly one data row (rows.len() == 1),
       meaning the newline in the label did not produce a second row; (2) the escaped
       representation of the label (e.g. \\n literal) appears in the row.
-    verification: ""
-    commit: ""
+    verification: "Covered by list_label_with_newline_does_not_inject: asserts one rendered row and literal escaped newline in output."
+    commit: "31179dd"
 
   - id: F-33
     kind: coverage_gap
@@ -763,10 +763,10 @@ findings:
     cwe: "CWE-532"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: "Add assert_no_secret_leak(output) to add_rejects_plaintext_secret_argv test body."
-    verification: ""
-    commit: ""
+    verification: "Production fix (9b1bee1): clap parse errors suppressed to generic message. Test (31179dd): assert_no_secret_leak added to add_rejects_plaintext_secret_argv."
+    commit: "06d584d"
 
   - id: F-34
     kind: coverage_gap
@@ -781,12 +781,12 @@ findings:
     cwe: null
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add import_rejects_wrong_passphrase test: export a vault, then run import with
       a different passphrase and assert non-zero exit / no data written.
-    verification: ""
-    commit: ""
+    verification: "Covered by import_rejects_wrong_passphrase: wrong export passphrase returns non-zero and imports no item."
+    commit: "31179dd"
 
   - id: F-20
     kind: coverage_gap
