@@ -200,7 +200,11 @@ pub type Result<T> = core::result::Result<T, SigningError>;
 ///
 /// ## Preconditions
 /// - `private_key.algorithm()` determines the signing algorithm.
-/// - `message` is the exact protocol transcript bytes to authenticate.
+/// - `message` MUST be a domain-separated protocol transcript. Callers are
+///   responsible for prepending a context string that identifies the protocol,
+///   role, and algorithm version (e.g. `b"meissnerseal.device.enrollment.v1\x00"
+///   || payload`). Passing raw payload bytes without domain context creates
+///   cross-protocol replay risk. See CONTRACT.md [P-04] and F-39.
 ///
 /// ## Postconditions
 /// - For `Ed25519V1`, Phase 2 signs with ed25519-dalek and returns a

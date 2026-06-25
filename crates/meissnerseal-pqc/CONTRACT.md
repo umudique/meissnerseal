@@ -205,6 +205,16 @@ Tracking:     docs/ops/dependency_risk_register.md
 
 [P-03] X25519 ephemeral key must be freshly generated per transfer.
        Reusing ephemeral keys breaks forward secrecy.
+
+[P-04] The `message` argument to mldsa::sign() MUST be a domain-separated
+       protocol transcript. Callers are responsible for including a context
+       string that identifies the protocol, role, and algorithm version before
+       the payload bytes (e.g. "meissnerseal.device.enrollment.v1\x00" ||
+       payload). Passing raw payload bytes without domain context creates
+       cross-protocol replay risk. mldsa::sign() does not add its own prefix;
+       domain separation is the caller's responsibility so XFER-1 and
+       DEVICE-1 can each control their own transcript format.
+       See F-39 in docs/security/finding_register.yaml.
 ```
 
 ---

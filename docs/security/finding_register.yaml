@@ -839,6 +839,33 @@ findings:
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
 
+  - id: F-39
+    kind: design
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — domain separation / transcript ownership"
+    date: 2026-06-25
+    description: >-
+      mldsa::sign() accepts raw bytes with no domain separation enforced at
+      the primitive level. If the same Ed25519 key is used in multiple protocol
+      contexts (DEVICE-1 enrollment, XFER-1 transfer) without caller-side
+      domain prefixing, cross-protocol replay and signature confusion attacks
+      become possible. Ed25519 provides no built-in context separation.
+    cwe: "CWE-347"
+    severity: high
+    blocking: false
+    blocks: "XFER-1, DEVICE-1"
+    status: accepted
+    remediation: >-
+      Domain separation is the caller's responsibility per CONTRACT.md [P-04].
+      Added P-04 precondition to CONTRACT.md requiring callers to prepend a
+      protocol/role/version context string to all message bytes before signing.
+      Updated sign() doc block to reference [P-04] and F-39.
+      XFER-1 and DEVICE-1 must each define and enforce their own transcript
+      domain strings. Alternative (prefix inside sign()) deferred until XFER-1
+      transcript format is finalized to avoid double-prefixing.
+    verification: "CONTRACT.md [P-04] added; enforced by XFER-1 and DEVICE-1 implementation."
+    commit: ""
+
   - id: F-38
     kind: coverage_gap
     component: meissnerseal-pqc
