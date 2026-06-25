@@ -58,7 +58,7 @@ Every high-risk security claim maps to:
 | Timing side-channel awareness | Local malware, timing oracle | Crypto boundary | Constant-time review checklist; dudect-style tests (Beta) | MVP-0/Beta | Side-channel checklist |
 | Browser extension isolation | Malicious extension | Native Host | Extension ID allowlist tests, schema fuzzing | MVP-4 | NM protocol tests |
 | Parser fuzzing | Malformed input exploitation | Parsers | cargo-fuzz/AFL++ | MVP-0+ | Fuzz corpus/report |
-| CLI shell-history protections | Secret leakage via argv | CLI | Unsafe argv rejection tests | MVP-0 | CLI safety spec |
+| CLI shell-history protections | Secret leakage via argv | CLI | Unsafe argv rejection tests | MVP-0 | `crates/meissnerseal-cli/CONTRACT.md` G-01 |
 | Static dependency audit | Supply-chain compromise | CI/Release | cargo-audit/deny | MVP-0 | CI report |
 | Signed releases | Release tampering | Release engineering | Signature verification | Beta | Release checklist |
 | SBOM | Dependency visibility | Release engineering | SBOM generation | Beta | SBOM file |
