@@ -728,6 +728,66 @@ findings:
     verification: "cargo test --workspace: all tests pass including list_label_with_newline_does_not_inject (2026-06-25)"
     commit: "b46e1d2"
 
+  # ── E2E test review findings (External review — 2026-06-25) ─────────────────
+  - id: F-32
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "External E2E test review — crates/meissnerseal-cli/tests/e2e.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      list_label_with_newline_does_not_inject: assertion assert!(!first_row.contains('\n'))
+      is a tautology. stdout.lines() strips line separators by contract, so first_row
+      can never contain '\n'. The test passes vacuously and does not verify that the
+      label's embedded newline was escaped before output (the actual security property).
+    cwe: null
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Rewrite assertion to verify: (1) output has exactly one data row (rows.len() == 1),
+      meaning the newline in the label did not produce a second row; (2) the escaped
+      representation of the label (e.g. \\n literal) appears in the row.
+    verification: ""
+    commit: ""
+
+  - id: F-33
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "External E2E test review — crates/meissnerseal-cli/tests/e2e.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      add_rejects_plaintext_secret_argv: test verifies that passing --secret via argv
+      is rejected by clap, but does not call assert_no_secret_leak on the command output.
+      This is the highest-risk path for secret leakage: clap error messages can echo
+      unknown arguments to stderr, potentially exposing the secret value.
+    cwe: "CWE-532"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Add assert_no_secret_leak(output) to add_rejects_plaintext_secret_argv test body."
+    verification: ""
+    commit: ""
+
+  - id: F-34
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "External E2E test review — crates/meissnerseal-cli/tests/e2e.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      No E2E test verifies that import rejects a bundle decrypted with the wrong
+      passphrase. The export/import round-trip test uses only the correct passphrase;
+      the authentication path (wrong key -> decryption failure -> non-zero exit) is
+      untested at the CLI integration layer.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add import_rejects_wrong_passphrase test: export a vault, then run import with
+      a different passphrase and assert non-zero exit / no data written.
+    verification: ""
+    commit: ""
+
   - id: F-20
     kind: coverage_gap
     component: meissnerseal-pqc
