@@ -83,6 +83,8 @@ common:
   read_prefix:
     - AGENTS.md
     - docs/security/security_engineering_protocol.md
+    - CONTRACT.md of every crate being modified
+    - CONTRACT.md of every direct dependency crate called by the modified crate
   scope_rule: >
     Do not modify any other crate under crates/**, nor specs/**, docs/** (except
     this crate's own CONTRACT.md when the task requires it), fuzz/**, or
@@ -100,7 +102,10 @@ common:
     Implementation matches the cited spec section; the tests written first pass;
     every static tool above passes with zero warnings; no plaintext secret appears
     in any test output, log, or error message; CONTRACT.md updated if the public
-    API changed.
+    API changed. Before handing off: review the public API surface against
+    AGENTS.md §4 API SURFACE invariants — no public raw-byte accessor on
+    secret-bearing types, no fail-open constructors, error variants are specific.
+    Produce a completion report (AGENTS.md §13) and stop — do not commit.
 
 roles:
 
@@ -125,6 +130,9 @@ roles:
       - No caller-supplied nonces — nonce generation is internal and non-overridable.
       - No secret-dependent branches or memory accesses in constant-time code.
       - No unsafe Rust without a // SAFETY: comment and maintainer review.
+      - Every HKDF or KDF call must document the domain separation string in the
+        info/label parameter; the owning layer (not the caller) is responsible for
+        setting it — document this in CONTRACT.md if callers must supply context.
 
   pqc:
     kind: builder
@@ -409,15 +417,40 @@ roles:
       Output format:
       **Executive Judgment** — brief overall assessment and decision rationale.
       **Scorecard** — one line per axis: name, score, brief rationale.
-      **Findings** — Primary only (max 5 unless exhaustive requested), ordered by
-      severity. Each: location, CWE number, description, severity (Critical/High/
-      Medium). CWE numbers mandatory — see docs/security/standards_conformance.md §7.
-      Example: `crates/meissnerseal-crypto/src/lib.rs:42 | CWE-323 | Nonce reused across encrypt calls | Critical`
+      **Findings** — all findings that meet the severity threshold, ordered
+      Critical → High → Medium → Low. Do not cap the list. Each finding on
+      one line:
+        `file:line | CWE-NNN | description | Critical/High/Medium/Low`
+      CWE numbers mandatory — see docs/security/standards_conformance.md §7.
+      Example:
+        `crates/meissnerseal-crypto/src/lib.rs:42 | CWE-323 | Nonce reused across encrypt calls | Critical`
+      After the findings list, emit a finding_register.yaml block for every
+      finding so the human can paste directly into the register:
+
+      ```yaml
+      # paste into docs/security/finding_register.yaml
+      - id: F-??          # human assigns sequential ID
+        kind: security_review   # or coverage_gap | design | test_quality
+        component: [crate name]
+        source: "[agent role] — [file reviewed] ([date])"
+        date: [YYYY-MM-DD]
+        description: >-
+          [one or two sentences]
+        cwe: "CWE-NNN"    # or null
+        severity: [critical|high|medium|low]
+        blocking: false
+        status: open
+        remediation: ""
+        verification: ""
+        commit: ""
+      ```
+
       **Approval Recommendation** — one word from the vocabulary + one sentence.
       **Residual Risks** — risks remaining after approval; blocking or non-blocking.
     done: >
       No repository file modified; scorecard covers all nine axes; every finding
-      cites a specific location; approval recommendation uses the correct vocabulary.
+      cites a specific location and CWE; finding_register.yaml block emitted for
+      every finding; approval recommendation uses the correct vocabulary.
 
   formal:
     kind: builder
