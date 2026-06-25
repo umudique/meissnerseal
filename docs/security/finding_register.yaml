@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-24
+updated: 2026-06-25
 
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
@@ -624,6 +624,108 @@ findings:
       envelopes where expires_at is in the past per wall clock before key
       derivation (spec §5). Noted in meissnerseal-ops tasks.yaml XFER-1 notes.
     verification: "XFER-1 implementation will enforce wall-clock expiry per spec §5."
+    commit: ""
+
+  - id: F-26
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      export_command: passphrase String not zeroized when length validation fails.
+      If passphrase.len() < 12, function returns early without calling zeroize(),
+      leaving secret material in heap memory.
+    cwe: "CWE-226"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Call passphrase.zeroize() before returning the validation error."
+    verification: ""
+    commit: ""
+
+  - id: F-27
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      add/get/list/import commands: password String not zeroized before into_bytes().
+      Ownership transfer via into_bytes() moves the buffer but does not zero the
+      original String allocation; secret material remains in heap until GC/reuse.
+    cwe: "CWE-226"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Use password.as_bytes().to_vec() then password.zeroize() before passing bytes downstream."
+    verification: ""
+    commit: ""
+
+  - id: F-28
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      add_command: secret String not zeroized before into_bytes(). Same pattern as
+      F-27 applied to the secret value prompt; secret.into_bytes() does not zero
+      the original String buffer.
+    cwe: "CWE-226"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Use secret.as_bytes().to_vec() then secret.zeroize() before constructing SecretBytes."
+    verification: ""
+    commit: ""
+
+  - id: F-29
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      read_password_from_stdin strips only '\n'; on CRLF input (Windows, some
+      terminals) a trailing '\r' remains in the password string, causing
+      authentication failures that are difficult to diagnose.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: "Use trim_end_matches(&['\\r', '\\n'][..]) instead of trim_end_matches('\\n')."
+    verification: ""
+    commit: ""
+
+  - id: F-30
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      get_item uses String::from_utf8_lossy() to display secret values. Invalid
+      UTF-8 bytes are silently replaced with U+FFFD, corrupting binary secrets
+      such as SSH private keys or arbitrary byte payloads.
+    cwe: "CWE-116"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: "Use stdout.write_all(secret) + write_all(b\"\\n\") for binary-safe output."
+    verification: ""
+    commit: ""
+
+  - id: F-31
+    kind: security_review
+    component: meissnerseal-cli
+    source: "External CLI security review — crates/meissnerseal-cli/src/main.rs (2026-06-25)"
+    date: 2026-06-25
+    description: >-
+      list command outputs item labels unescaped in tab-separated format. A label
+      containing '\n', '\t', or ANSI escape sequences can manipulate terminal
+      output or inject fake list entries.
+    cwe: "CWE-116"
+    severity: low
+    blocking: false
+    status: open
+    remediation: "Escape label with escape_default() or equivalent before writing to stdout."
+    verification: ""
     commit: ""
 
   - id: F-20
