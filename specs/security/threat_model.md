@@ -122,6 +122,7 @@ The following are documented limitations, not failures:
 | Browser isolation failure | Malicious extension | Extension ID allowlist in native host | Native messaging parser tests |
 | Device pairing MITM | Network attacker | QR/OOB fingerprint verification, signed transcript | Pairing spec, Tamarin model |
 | Revoked device access | Compromised device | Signed revocation event + sync key rotation | Revocation tests, TLA+ model |
+| Argv/shell-history secret leakage | Local malware / accident | No `--secret` flag; clap error output generic; `--stdin` is sole non-interactive mechanism (CONTRACT G-01) | Argv rejection tests, clap error echo tests |
 | Timing side-channel | Local malware | Constant-time helpers in crypto boundary | dudect-style tests (Beta) |
 | Metadata leakage (server) | Insider admin | Metadata minimization, opaque blob IDs | Server data inventory, contract tests |
 

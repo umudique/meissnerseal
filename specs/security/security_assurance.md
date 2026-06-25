@@ -28,7 +28,7 @@ Every high-risk security claim maps to:
 | Canonical vault binary format | Parser ambiguity, migration failures | Serialization Layer | Format vectors, fuzzing, round-trip tests | MVP-0 | `vault_format_v1.md`, vectors |
 | Secret wrapper types | Accidental logging | `meissnerseal-security`, `meissnerseal-crypto` | Unit tests | MVP-0 | Secret type policy |
 | Redacted Debug/Display | Secret in logs/crashes | Core, FFI, UI | Snapshot/logging tests | MVP-0 | Redaction test report |
-| Zeroization | Plaintext memory residue | Crypto, FFI | Unit tests, Miri | MVP-0 | Memory hygiene checklist |
+| Zeroization | Plaintext memory residue | Crypto, FFI, CLI | Unit tests, Miri | MVP-0 | Memory hygiene checklist |
 | Scoped plaintext API | Long-lived plaintext ownership | Vault Engine, FFI | API tests | MVP-0 | Scoped API policy |
 | FFI/Dart lease model | Dart heap plaintext | FFI, Desktop | Integration tests | MVP-1 | Secret view lease tests |
 | Clipboard timeout | Clipboard leakage | Desktop/Mobile | UI/platform tests | MVP-1 | Clipboard test results |
