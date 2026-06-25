@@ -338,7 +338,40 @@ mod tests {
         let public_key = ed25519_public_key();
 
         let signature = sign(&private_key, MESSAGE).expect("Ed25519 signing succeeds");
-        assert!(verify(&public_key, OTHER_MESSAGE, &signature).is_err());
+        assert!(matches!(
+            verify(&public_key, OTHER_MESSAGE, &signature),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_malformed_public_key() {
+        let public_key = SigningPublicKey::new(SigningAlgorithmId::Ed25519V1, vec![0u8; 5]);
+        let private_key = ed25519_private_key();
+        let signature = sign(&private_key, MESSAGE).expect("Ed25519 signing succeeds");
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_malformed_signature_length() {
+        let public_key = ed25519_public_key();
+        let signature = Signature::new(SigningAlgorithmId::Ed25519V1, vec![0u8; 5]);
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
+            Err(SigningError::MalformedSignature)
+        ));
+    }
+
+    #[test]
+    fn sign_rejects_malformed_private_key_length() {
+        let private_key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, vec![0u8; 5]);
+        assert!(matches!(
+            sign(&private_key, MESSAGE),
+            Err(SigningError::InvalidKey)
+        ));
     }
 
     #[test]

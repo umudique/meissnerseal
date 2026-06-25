@@ -741,6 +741,29 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-49
+    kind: test_quality
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — negative tests check is_err() not error variant"
+    date: 2026-06-26
+    description: >-
+      verify_rejects_wrong_message used is_err() instead of matching the
+      specific error variant. A test that passes for the wrong reason (e.g.
+      AlgorithmMismatch instead of VerificationFailed) would give false
+      confidence. Three malformed-input cases (wrong public key length,
+      wrong signature length, wrong private key length) were also untested.
+    cwe: null
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Changed verify_rejects_wrong_message to assert Err(VerificationFailed).
+      Added three new tests: verify_rejects_malformed_public_key (InvalidKey),
+      verify_rejects_malformed_signature_length (MalformedSignature),
+      sign_rejects_malformed_private_key_length (InvalidKey).
+    verification: "cargo test -p meissnerseal-pqc: 21/21 pass (2026-06-26)"
+    commit: ""
+
   - id: F-48
     kind: test_quality
     component: meissnerseal-pqc
