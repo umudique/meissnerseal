@@ -762,7 +762,30 @@ findings:
       verify_rejects_malformed_signature_length (MalformedSignature),
       sign_rejects_malformed_private_key_length (InvalidKey).
     verification: "cargo test -p meissnerseal-pqc: 21/21 pass (2026-06-26)"
-    commit: ""
+    commit: "177e074"
+
+  - id: F-50
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — SigningAlgorithmId wire serialization contract untested"
+    date: 2026-06-26
+    description: >-
+      CONTRACT.md specifies algorithm IDs are encoded as little-endian u16 on
+      the wire, but the API only exposed to_u16/from_u16. Callers would have
+      to inline the byte-order conversion, risking inconsistency. No test
+      verified the actual byte layout ([0x01,0x00] for Ed25519V1, etc.).
+    cwe: null
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added to_le_bytes() -> [u8; 2] and from_le_bytes([u8; 2]) -> Result<Self>
+      as const fn helpers to SigningAlgorithmId. Added 3 tests:
+      algorithm_id_le_bytes_ed25519_v1, algorithm_id_le_bytes_hybrid_v1,
+      algorithm_id_from_u16_unknown_is_rejected (covers both from_u16 and
+      from_le_bytes with 0xffff / [0xff,0xff]).
+    verification: "cargo test -p meissnerseal-pqc: 24/24 pass (2026-06-26)"
+    commit: "eeadcda"
 
   - id: F-48
     kind: test_quality
