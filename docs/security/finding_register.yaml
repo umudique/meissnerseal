@@ -741,6 +741,30 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-46
+    kind: coverage_gap
+    component: ci
+    source: "PQC-3 external review — PQC cross-verifiers not wired into CI"
+    date: 2026-06-26
+    description: >-
+      CI ran cross_verify.py (KDF/HKDF/AEAD) but not the three PQC
+      cross-verifiers: mlkem_cross_verify.py, transfer_hybrid_cross_verify.py,
+      signing_ed25519_cross_verify.py. These scripts use an independent Python
+      oracle (cryptography.hazmat) to verify KAT vectors against the Rust
+      implementation's expected values. Without CI integration, KAT vector
+      drift would pass CI silently.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added a "PQC cross-verifiers" step to the Test vectors job in
+      ci-fast.yml, running all three scripts sequentially. cryptography
+      package already in requirements.txt; no new dependencies needed.
+      All three exit non-zero on any case failure.
+    verification: "ci-fast.yml updated; scripts exit non-zero on drift (2026-06-26)"
+    commit: ""
+
   - id: F-45
     kind: test_quality
     component: meissnerseal-pqc

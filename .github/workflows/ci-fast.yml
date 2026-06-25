@@ -90,6 +90,11 @@ jobs:
           grep -qE "missing dependency|skipped|✗" /tmp/cv.out \
             && { echo "generator degraded"; exit 1; }
           git diff --exit-code test-vectors/
+      - name: PQC cross-verifiers (ML-KEM, hybrid KEM, Ed25519 signing)
+        run: |
+          python3 test-vectors/mlkem_cross_verify.py
+          python3 test-vectors/transfer_hybrid_cross_verify.py
+          python3 test-vectors/signing_ed25519_cross_verify.py
 
   # ─── CVE scan ──────────────────────────────────────────────────────────────
   audit:
