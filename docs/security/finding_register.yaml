@@ -826,14 +826,18 @@ findings:
     cwe: "CWE-226"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Change string_to_zeroized_vec() return type to Zeroizing<Vec<u8>>.
       Change all internal function signatures accepting password/passphrase
       from Vec<u8> to Zeroizing<Vec<u8>>. Use std::mem::take(&mut *password)
       at SecretBytes::new() call sites for zero-copy ownership transfer.
-    verification: ""
-    commit: ""
+    verification: >-
+      cargo fmt, check, clippy, test, audit: all pass. Full call chain
+      (unlock_session, add_item, get_item, list_vault, export_bundle,
+      import_bundle) now propagates Zeroizing<Vec<u8>>. std::mem::take
+      ensures zero-copy handoff into SecretBytes at every call site.
+    commit: "65a8c80"
 
   - id: F-20
     kind: coverage_gap
