@@ -2,7 +2,7 @@
 
 A local-first secrets vault designed for the post-quantum transition.
 
-MeissnerSeal encrypts secrets on disk with a layered key hierarchy — Argon2id passphrase hardening, HKDF-derived session subkeys, and XChaCha20-Poly1305 authenticated encryption. The vault format and key hierarchy are designed from the start to accommodate hybrid KEM envelopes (X-Wing: X25519 + ML-KEM-768) when sync and transfer land in the next milestone. No cloud, no sync in MVP-0 — just a sealed vault on your filesystem.
+MeissnerSeal encrypts secrets on disk with a layered key hierarchy — Argon2id passphrase hardening, HKDF-derived session subkeys, and XChaCha20-Poly1305 authenticated encryption. The vault format and key hierarchy are designed from the start to accommodate hybrid KEM envelopes (UG combiner: X25519 + ML-KEM-768) when sync and transfer land in the next milestone. No cloud, no sync in MVP-0 — just a sealed vault on your filesystem.
 
 > **Alpha software.** Do not store real secrets. The vault format is not stable before v1.0 and no external security audit has been completed.
 
@@ -27,7 +27,7 @@ Passphrase + vault_id
 Item encryption:  XChaCha20-Poly1305 under item_wrap_key-derived REK
 ```
 
-Post-MVP-0 sync and transfer envelopes will use X-Wing hybrid KEM (X25519 + ML-KEM-768; IETF draft, ML-KEM standardized in FIPS 203). See ADR-027.
+Post-MVP-0 transfer envelopes use the UG hash-everything combiner (X25519 + ML-KEM-768, HKDF-SHA256; ML-KEM standardized in FIPS 203). See ADR-035.
 
 ---
 
@@ -63,7 +63,7 @@ Requires Rust stable (1.78+).
 git clone https://github.com/umudique/meissnerseal
 cd meissnerseal
 cargo build --release -p meissnerseal-cli
-./target/release/meissnerseal init
+./target/release/meissnerseal init my-vault.msv
 ```
 
 No binary releases yet.
@@ -75,7 +75,7 @@ No binary releases yet.
 | Version | Milestone | Scope |
 |---------|-----------|-------|
 | `0.1.0-alpha` *(now)* | MVP-0 | Local vault, CLI, HKDF key hierarchy, export/import |
-| `0.2.0-alpha` | MVP-2 | X-Wing transfer, device identity, hybrid KEM envelope |
+| `0.2.0-alpha` | MVP-2 | Hybrid KEM transfer (UG combiner), device identity, transfer envelope |
 | `0.3.0-alpha` | MVP-1 | Desktop app, clipboard timeout, auto-lock, FFI |
 | `0.4.0-beta` | MVP-3 | Encrypted sync, device approval, TLA+ model |
 | `0.5.0-beta` | MVP-4 | Browser extension, native messaging |
@@ -91,9 +91,9 @@ MVP-2 precedes MVP-1: transfer proves the core security thesis (hybrid PQ key ag
 
 Decision-log driven. Every non-obvious choice has an ADR:
 
-- Cryptographic primitives — ADR-001, ADR-015, ADR-027
+- Cryptographic primitives — ADR-001, ADR-015, ADR-035
 - Vault format — `specs/`
-- Threat model — `docs/security_engineering_protocol.md`
+- Threat model — `docs/security/security_engineering_protocol.md`
 - Formal verification — ADR-005, ADR-015
 
 ---
