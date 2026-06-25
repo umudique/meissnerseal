@@ -741,6 +741,29 @@ findings:
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
 
+  - id: F-48
+    kind: test_quality
+    component: meissnerseal-pqc
+    source: "PQC-3 external review — from_hex() accepts odd-length hex silently"
+    date: 2026-06-26
+    description: >-
+      from_hex() used chunks(2) on the raw byte slice. An odd-length hex
+      string (e.g. "abc") would produce a trailing single-nibble chunk "c"
+      parsed as 0x0c without any error. In practice KAT values come from
+      Python's .hex() which always produces even-length strings, so the
+      bug cannot trigger on current inputs. A future hex string from another
+      source could silently produce wrong bytes.
+    cwe: null
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added assert_eq!(s.len() % 2, 0, ...) as the first statement in
+      from_hex(). One line, no new dependency, explicit failure message.
+      hex crate not added — the assert is sufficient for this test helper.
+    verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
+    commit: ""
+
   - id: F-47
     kind: test_quality
     component: meissnerseal-pqc

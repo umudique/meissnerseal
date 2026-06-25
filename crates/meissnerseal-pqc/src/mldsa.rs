@@ -313,6 +313,7 @@ mod tests {
     }
 
     fn from_hex(s: &str) -> Vec<u8> {
+        assert_eq!(s.len() % 2, 0, "hex string must have even length: {s}");
         s.as_bytes()
             .chunks(2)
             .map(|pair| {
