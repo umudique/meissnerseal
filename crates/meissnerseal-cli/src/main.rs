@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use clap::{Parser, Subcommand};
+use clap::{error::ErrorKind, Parser, Subcommand};
 use meissnerseal_core::{
     error::{CoreError, Result},
     item::{self, ItemKind, ItemSummary, PlainItem},
@@ -113,7 +113,20 @@ enum DeviceCommands {
 
 fn main() {
     eprintln!("meissnerseal: alpha — do not store real secrets yet.");
-    if let Err(error) = run(Cli::parse(), &mut std::io::stdout()) {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) {
+                error.exit();
+            }
+            eprintln!("invalid command-line arguments");
+            std::process::exit(2);
+        }
+    };
+    if let Err(error) = run(cli, &mut std::io::stdout()) {
         eprintln!("{error}");
         std::process::exit(1);
     }
