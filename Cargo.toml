@@ -37,6 +37,7 @@ zeroize = { version = "1.7", features = ["derive"] }
 subtle = "2.5"
 ml-kem = { version = "0.3.2", features = ["getrandom", "zeroize"] }
 x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 bech32 = "0.11"
 
 # Serialization
