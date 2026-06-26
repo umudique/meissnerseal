@@ -345,7 +345,13 @@ To mark a crate Stable, update its CONTRACT.md header:
 ```
 **API Status:** Stable
 ```
-This requires human approval.
+This requires human approval. Before approving, answer the cascade
+checklist in ADR-038: which crates does this unlock, are there open
+Critical/High findings, are both agent verdicts in?
+
+A Stable crate may be moved to `Stable (Under Review)` or reverted
+to `Unstable` when a post-Stable finding reduces confidence in the
+marking. See ADR-038 for the full revocation protocol.
 
 ---
 
