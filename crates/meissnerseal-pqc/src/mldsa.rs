@@ -205,6 +205,39 @@ pub enum SigningError {
 
 pub type Result<T> = core::result::Result<T, SigningError>;
 
+/// Generate a fresh Ed25519V1 signing keypair.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Randomness must come from the operating-system CSPRNG path exposed by
+///   `meissnerseal-crypto`.
+/// - Callers cannot provide deterministic seed material in production builds.
+///
+/// ## Postconditions
+/// - Returns a `SigningPublicKey` tagged `SigningAlgorithmId::Ed25519V1`.
+/// - Returns a `SigningPrivateKey` tagged `SigningAlgorithmId::Ed25519V1`.
+/// - Private key seed material is stored in `SigningPrivateKey` as
+///   `Zeroizing<Vec<u8>>`.
+///
+/// ## Invariants
+/// - Never logs, prints, or exposes raw private key bytes.
+/// - Does not implement Ed25519 directly; key expansion and public-key
+///   derivation go through `ed25519-dalek`.
+#[must_use]
+pub fn ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey) {
+    let seed = Zeroizing::new(meissnerseal_crypto::rng::random_key());
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let verifying_key = signing_key.verifying_key();
+    (
+        SigningPublicKey::new(
+            SigningAlgorithmId::Ed25519V1,
+            verifying_key.to_bytes().to_vec(),
+        ),
+        SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, seed.to_vec()),
+    )
+}
+
 /// Sign a message with an algorithm-tagged signing private key.
 ///
 /// # Contract
@@ -339,6 +372,14 @@ mod tests {
 
         let signature = sign(&private_key, MESSAGE).expect("Ed25519 signing succeeds");
         verify(&public_key, MESSAGE, &signature).expect("Ed25519 verification succeeds");
+    }
+
+    #[test]
+    fn ed25519_keypair_sign_verify_roundtrip() {
+        let (public_key, private_key) = ed25519_keypair();
+
+        let signature = sign(&private_key, MESSAGE).expect("generated key signs");
+        verify(&public_key, MESSAGE, &signature).expect("generated public key verifies");
     }
 
     #[test]
