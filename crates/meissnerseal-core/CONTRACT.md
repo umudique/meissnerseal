@@ -30,6 +30,15 @@ export::
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
+keys::device::
+  DeviceIdentity
+  DeviceKeypair
+  DeviceTrustState
+  generate(display_name: String) -> Result<(DeviceIdentity, DeviceKeypair)>
+  try_new_ed25519_signing_public_key(bytes: [u8; 32]) -> Result<SigningPublicKey>
+  try_new_signing_public_key(algorithm, bytes: &[u8]) -> Result<SigningPublicKey>
+  sign_enrollment_message(private_key, message) -> Result<Signature>
+
 ```
 
 ---
