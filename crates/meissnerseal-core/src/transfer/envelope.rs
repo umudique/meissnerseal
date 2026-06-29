@@ -7,6 +7,7 @@ use crate::{
         EnvelopeId, TransferError, TransferProfileId, CLASSICAL_ALG_ID_X25519, PQC_ALG_ID_MLKEM768,
         TRANSFER_PROFILE_V1_ID,
     },
+    transfer::replay::SeenEnvelopeIds,
 };
 use meissnerseal_crypto::{
     aead::{self, Ciphertext},
@@ -316,18 +317,24 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
 ///
 /// ## Preconditions
 /// - The envelope must be syntactically complete and match the recipient keys.
+/// - `seen` must be the caller's persistent replay store for the receive
+///   context.
 ///
 /// ## Postconditions
 /// - Phase 2 returns plaintext only after validation and AEAD authentication.
 /// - Expired envelopes return `Err(ExpiredEnvelope)` before key derivation.
+/// - Replayed envelope IDs return `Err(ReplayedEnvelopeId)` before key
+///   derivation or decryption.
 ///
 /// ## Invariants
 /// - Fail closed; never returns partial plaintext on any error.
 pub fn open_envelope(
     envelope: &TransferEnvelope,
     params: OpenEnvelopeParams,
+    seen: &mut SeenEnvelopeIds,
 ) -> Result<Vec<u8>, TransferError> {
     validate_envelope(envelope)?;
+    seen.check_and_insert(&envelope.envelope_id, envelope.expires_at)?;
 
     let transfer_key = hybrid::receive_transfer_key(
         &params.recipient_classical_private_key,
@@ -665,9 +672,57 @@ mod tests {
         let params = open_params();
 
         assert_eq!(
-            open_envelope(&envelope, params).err(),
+            open_envelope(&envelope, params, &mut SeenEnvelopeIds::new()).err(),
             Some(TransferError::ExpiredEnvelope)
         );
+    }
+
+    #[test]
+    fn open_envelope_rejects_replayed_id() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let recipient_private_bytes = *recipient_private.as_bytes();
+        let recipient_public_bytes = *recipient_public.as_bytes();
+        let recipient_pqc_private_bytes = *recipient_pqc_private.as_bytes();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            recipient_classical_public_key: recipient_public,
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: PAYLOAD.to_vec(),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+        let mut seen = SeenEnvelopeIds::new();
+
+        let first = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
+                recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
+                recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
+                sender_signing_public_key: sender_signing_public_key.clone(),
+            },
+            &mut seen,
+        )
+        .expect("first open");
+        assert_eq!(first, PAYLOAD);
+
+        let second = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
+                recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
+                recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
+                sender_signing_public_key,
+            },
+            &mut seen,
+        );
+
+        assert_eq!(second, Err(TransferError::ReplayedEnvelopeId));
     }
 
     fn envelope_fixture() -> TransferEnvelope {
