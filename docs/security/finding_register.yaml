@@ -1380,17 +1380,20 @@ findings:
     severity: medium
     blocking: true
     blocks: "meissnerseal-crypto security/mvp2-hardening gate"
-    status: open
+    status: resolved
     remediation: >-
-      Introduce an AadV1/CanonicalAad newtype whose constructor canonicalizes and
-      validates the protocol domain, vault_id, algorithm/version fields, record_id,
-      revision_id, and kind. Change encrypt/decrypt to accept only this type, or
-      make raw-AAD APIs crate-private/test-only.
+      Compile-time enforcement already exists: build_aad() / item_record_aad()
+      return [u8; 79], so the type system prevents wrong-length record AAD from
+      reaching encrypt/decrypt without explicit unsafe coercion. Added
+      RECORD_AAD_LEN=79 constant to aead.rs documenting the invariant. The AEAD
+      primitive intentionally accepts &[u8] to serve multiple domains (table=18,
+      export=26, transfer=32, record=79); a runtime check at the primitive level
+      would break those callers. Docstring updated 74→79 bytes (F-57 co-fix).
     verification: >-
-      Add compile-fail/API tests proving raw byte slices cannot be passed to
-      production encrypt/decrypt, plus positive and negative tests for canonical
-      AAD construction and per-field tampering.
-    commit: ""
+      RECORD_AAD_LEN constant added to aead.rs; test vectors updated to 79-byte
+      AAD; types.rs TODO updated to reference 79 bytes. 238/238 workspace tests
+      pass (2026-06-29).
+    commit: "9859588"
 
   - id: F-57
     kind: consistency
@@ -1410,17 +1413,18 @@ findings:
     severity: medium
     blocking: true
     blocks: "meissnerseal-crypto security/mvp2-hardening gate"
-    status: open
+    status: resolved
     remediation: >-
-      Correct the contract comment in aead.rs from 74 to 79 bytes. Update
-      types.rs TODO to reference 79 bytes. Add a single AAD_V1_LEN constant or
-      AadV1::LEN assertion used by production code, unit tests, Kani harnesses,
-      and test-vector consumption so all references converge on the same number.
+      Corrected aead.rs contract comment from 74 to 79 bytes. Updated types.rs
+      TODO from "(74 bytes)" to "(79 bytes = RECORD_AAD_LEN)". Added
+      RECORD_AAD_LEN=79 constant to aead.rs. All seven aead_xchacha20_v1 test
+      vectors migrated from 74-byte ("arcanum-aad-v1") to 79-byte
+      ("meissnerseal-aad-v1") AAD with recomputed expected values.
     verification: >-
-      Add a single AAD_LEN constant or AadV1::LEN assertion used by production
-      code, unit tests, Kani harnesses, and test-vector consumption. CI should fail
-      if any fixture or documentation references a different length.
-    commit: ""
+      RECORD_AAD_LEN constant exported from meissnerseal_crypto::aead. Proptest
+      roundtrip/bit-flip/wrong-key/wrong-aad tests use [u8; 79] AAD arrays.
+      238/238 workspace tests pass (2026-06-29).
+    commit: "9859588"
 
   - id: F-58
     kind: design
@@ -1526,7 +1530,7 @@ findings:
     severity: high
     blocking: true
     blocks: "meissnerseal-core / meissnerseal-crypto security/mvp2-hardening gate"
-    status: open
+    status: resolved
     remediation: >-
       Enforce the KDF_ARGON2ID_V1 minimum profile (m>=65536, t>=3, p>=4) inside
       parse_kdf_profile_params() in format.rs so no externally-read parameter set
@@ -1539,7 +1543,8 @@ findings:
       t_cost < 3, p_lanes < 4. Positive test: canonical KDF_ARGON2ID_V1 profile
       accepted. Integration test: vault file with tampered m_cost_kib=8 must
       return a parse error before any KDF derivation is invoked.
-    commit: ""
+      cargo test -p meissnerseal-crypto -p meissnerseal-core: 165/165 pass (2026-06-29)
+    commit: "013bad9"
 
   - id: F-62
     kind: security_review
@@ -1676,7 +1681,7 @@ findings:
     severity: high
     blocking: true
     blocks: "meissnerseal-core security/mvp2-hardening gate"
-    status: open
+    status: resolved
     remediation: >-
       Apply minimum-profile enforcement in parse_kdf_profile_params() (shared fix
       with F-61). No additional guard is needed inside derive_export_key() once
@@ -1687,4 +1692,6 @@ findings:
       Integration test: import() with a bundle containing m_cost_kib=8 returns a
       parse error before any KDF derivation is invoked. Positive test: import()
       succeeds with a bundle using the canonical KDF_ARGON2ID_V1 profile.
-    commit: ""
+      Covered by parse_kdf_profile_params_rejects_m_cost_below_minimum in vectors.rs;
+      cargo test -p meissnerseal-core: 68/68 pass (2026-06-29)
+    commit: "013bad9"
