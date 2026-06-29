@@ -1469,3 +1469,143 @@ findings:
       CI runs the new proof harnesses and fails on any drift in domain strings,
       field order, field length, or encoded algorithm/version identifiers.
     commit: ""
+
+# ── meissnerseal-crypto KDF security review findings (2026-06-29) ─────────────
+
+  - id: F-61
+    kind: security_review
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      KDF_ARGON2ID_V1 accepts caller-supplied Argon2 parameters across a broad
+      range instead of enforcing the registered profile. Validation (argon2.rs:61-70)
+      only checks for zero and exceeding MAX constants; values below the intended
+      m=65536, t=3, p=4 profile (e.g. m=256, t=1, p=1) are accepted. The
+      test valid_params() helper uses m=256/t=1/p=1, confirming these are valid
+      inputs. A downgrade path exists if vault metadata or higher-level callers
+      control the parameter set.
+    cwe: "CWE-327"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-crypto security/mvp2-hardening gate"
+    status: open
+    remediation: >-
+      Enforce the exact KDF_ARGON2ID_V1 profile at the production API boundary, or
+      define an explicit versioned policy that rejects parameters below documented
+      minimums. Keep any low-cost parameters test-only.
+    verification: >-
+      Add negative tests for below-profile parameters such as m_cost_kib < 65536,
+      t_cost < 3, and p_lanes < 4, plus positive tests for the canonical
+      KDF_ARGON2ID_V1 profile.
+    commit: ""
+
+  - id: F-62
+    kind: security_review
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      Argon2 and HKDF derivation functions copy secret outputs through plain stack
+      arrays before wrapping them in zeroize-on-drop Key<N> types. Verified:
+      argon2.rs:81 `let mut output = [u8; MasterUnlockKey::LEN]` → from_bytes(output);
+      hkdf.rs:60 `let mut bytes = [u8; Prk::LEN]` → Prk::from_bytes(bytes);
+      hkdf.rs:83 `let mut output = [u8; N]` → Key::from_bytes(output). After
+      from_bytes moves the value, the compiler is not guaranteed to clear the
+      original stack slot. Derived MUK, PRK, VKEK, and subkeys can remain in stack
+      memory beyond their intended lifetime (process memory dump, swap, hibernation).
+    cwe: "CWE-312"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-crypto security/mvp2-hardening gate"
+    status: open
+    remediation: >-
+      Wrap temporary secret output arrays in Zeroizing<[u8; N]> before filling/copying,
+      or add Key::from_zeroizing_bytes-style constructors that consume zeroizing
+      buffers without leaving unmanaged copies.
+    verification: >-
+      Add code-review checks and unit/Miri-oriented tests for derivation paths
+      proving temporary secret buffers are represented by Zeroizing or are
+      explicitly zeroized before return.
+    commit: ""
+
+  - id: F-63
+    kind: design
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      Low-level HKDF extract and expand are public (hkdf.rs:58, hkdf.rs:80) and
+      accessible via the full path meissnerseal_crypto::kdf::hkdf::extract/expand.
+      kdf/mod.rs re-exports only derive_root_prk, Prk, SubKey, SubkeyPurpose —
+      extract/expand are not at the top-level API but are reachable via the module
+      path. The security contract relies on callers supplying domain-separated
+      derivation contexts; raw extract/expand expose an easy misuse path where
+      new callers can derive keys without the registered purpose labels, vault
+      binding, or AEAD scoping.
+    cwe: "CWE-325"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Make raw extract/expand pub(crate) or mark them as explicitly hazardous,
+      and expose only typed derivation APIs such as derive_root_prk, derive_subkey,
+      and derive_vkek for production callers.
+    verification: >-
+      Add public API tests or compile-fail tests showing that external callers
+      cannot invoke raw HKDF primitives without going through approved
+      domain-separated builders.
+    commit: ""
+
+  - id: F-64
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The Kani harness verify_derive_subkey_rejects_aead_mismatch (hkdf.rs:223-232)
+      does not test AEAD mismatch rejection; it asserts SubKey::LEN == 32 (output
+      length only). The proof name does not match the property proven. Additionally,
+      test_subkey_derivation_all covers only positive derivation; the rejection
+      branches in build_subkey_info (hkdf.rs:174, 176) — missing AEAD for
+      AEAD-scoped purpose and extra AEAD for non-AEAD purpose — have no concrete
+      negative tests.
+    cwe: "CWE-325"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add explicit tests for derive_subkey(ItemKeyWrappingKey, None) → Err,
+      derive_subkey(MetadataEncryptionKey, None) → Err, and
+      derive_subkey(LocalAuditEventKey, Some(1)) → Err. Rename or strengthen the
+      Kani harness so its name matches the property it proves.
+    verification: >-
+      CI should fail if any AEAD-scoped purpose accepts None, or if any
+      non-AEAD-scoped purpose accepts Some(aead_id).
+    commit: ""
+
+  - id: F-65
+    kind: consistency
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The Argon2 salt construction proof (argon2.rs:134-138) asserts the correct
+      45-byte length (salt.len() == 45) but its diagnostic message says "Argon2id
+      salt must always be 40 bytes". The correct derivation is
+      ARGON2ID_SALT_DOMAIN_V1.len() (29) + vault_id (16) = 45, confirmed by the
+      test comment at argon2.rs:166 and the EXPECTED_ARGON2_SALT fixture. The
+      proof message drift could mislead independent implementations or reviewers
+      about the exact domain-separation value.
+    cwe: "CWE-325"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Correct the proof message from 40 to 45 bytes. Centralize the salt length
+      as a named constant derived from ARGON2ID_SALT_DOMAIN_V1.len() + vault_id
+      length so proof messages, test comments, and fixtures share a single source.
+    verification: >-
+      Add a test or proof assertion that ARGON2ID_SALT_LEN equals 45 and that all
+      comments, fixtures, and Kani messages reference the same constant.
+    commit: ""
