@@ -132,6 +132,10 @@ impl SigningPrivateKey {
     pub const fn algorithm(&self) -> SigningAlgorithmId {
         self.algorithm
     }
+
+    pub fn with_secret_bytes<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
+        f(&self.bytes)
+    }
 }
 
 impl core::fmt::Debug for SigningPrivateKey {
