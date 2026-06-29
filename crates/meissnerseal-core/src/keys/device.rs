@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Device identity and enrollment key material.
 
+use crate::transfer::{
+    create_envelope, open_envelope, CreateEnvelopeParams, OpenEnvelopeParams, TransferEnvelope,
+    TransferError,
+};
+use meissnerseal_crypto::types::Key;
 use meissnerseal_pqc::{
     hybrid::{X25519PrivateKey, X25519PublicKey},
     mldsa::{self, SigningAlgorithmId, SigningPrivateKey, SigningPublicKey},
     mlkem::{MlKemPrivateKey, MlKemPublicKey},
 };
+use zeroize::Zeroizing;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Device identifier length in bytes.
@@ -168,6 +174,8 @@ impl ZeroizeOnDrop for DeviceKeypair {}
 pub enum DeviceIdentityError {
     #[error("device identity generation is not implemented")]
     Unimplemented,
+    #[error("device identity file format is unknown or corrupt")]
+    InvalidFileFormat,
     #[error("device display name must not be empty")]
     EmptyDisplayName,
     #[error("device identity requires a signing public key")]
@@ -327,6 +335,263 @@ pub fn sign_enrollment_message(
 ) -> Result<mldsa::Signature> {
     let prefixed = enrollment_signing_message(message);
     mldsa::sign(private_key, &prefixed).map_err(|_| DeviceIdentityError::SigningFailed)
+}
+
+pub fn serialize_keypair_bytes(
+    identity: &DeviceIdentity,
+    keypair: &DeviceKeypair,
+) -> Zeroizing<Vec<u8>> {
+    let mut out = Zeroizing::new(Vec::new());
+    out.push(1);
+    out.extend_from_slice(&identity.device_id);
+    out.extend_from_slice(identity.classical_public_key.as_slice());
+    out.extend_from_slice(keypair.classical_private_key.as_slice());
+    out.extend_from_slice(keypair.pqc_private_key.as_slice());
+    out.extend_from_slice(&keypair.signing_private_key.algorithm().to_le_bytes());
+    keypair.signing_private_key.with_secret_bytes(|secret| {
+        let len = u32::try_from(secret.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(secret);
+    });
+    out
+}
+
+pub fn deserialize_keypair_bytes(
+    bytes: &[u8],
+) -> Result<(DeviceId, X25519PublicKey, DeviceKeypair)> {
+    let mut parser = ByteParser::new(bytes);
+    if parser.take_u8()? != 1 {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let device_id: DeviceId = parser.take_array()?;
+    let classical_public_key = X25519PublicKey::from_bytes(parser.take_array()?);
+    let classical_private_key = X25519PrivateKey::from_bytes(parser.take_array()?);
+    let pqc_private_key = MlKemPrivateKey::from_bytes(parser.take_array()?);
+    let signing_algorithm = SigningAlgorithmId::from_u16(parser.take_u16_le()?)
+        .map_err(|_| DeviceIdentityError::InvalidFileFormat)?;
+    let signing_len = parser.take_u32_le()? as usize;
+    let signing_private_key =
+        SigningPrivateKey::new(signing_algorithm, parser.take_vec(signing_len)?);
+    if !parser.is_empty() {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    Ok((
+        device_id,
+        classical_public_key,
+        DeviceKeypair::new(classical_private_key, pqc_private_key, signing_private_key),
+    ))
+}
+
+pub fn serialize_identity_text(identity: &DeviceIdentity) -> String {
+    let signing_public_key = identity
+        .signing_public_key
+        .as_ref()
+        .map(SigningPublicKey::as_bytes)
+        .unwrap_or(&[]);
+    let mut out = String::new();
+    out.push_str("ms-device-identity-v1\n");
+    out.push_str("device_id=");
+    out.push_str(&hex_encode(&identity.device_id));
+    out.push('\n');
+    out.push_str("display_name=");
+    out.push_str(&identity.display_name);
+    out.push('\n');
+    out.push_str("classical_public_key=");
+    out.push_str(&hex_encode(identity.classical_public_key.as_slice()));
+    out.push('\n');
+    out.push_str("pqc_public_key=");
+    out.push_str(&hex_encode(identity.pqc_public_key.as_slice()));
+    out.push('\n');
+    out.push_str("signing_algorithm=Ed25519V1\n");
+    out.push_str("signing_public_key=");
+    out.push_str(&hex_encode(signing_public_key));
+    out.push('\n');
+    out.push_str("created_at=");
+    out.push_str(&identity.created_at.to_string());
+    out.push('\n');
+    out
+}
+
+pub fn deserialize_identity_text(text: &str) -> Result<DeviceIdentity> {
+    let mut lines = text.lines();
+    if lines.next() != Some("ms-device-identity-v1") {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let mut device_id = None;
+    let mut display_name = None;
+    let mut classical_public_key = None;
+    let mut pqc_public_key = None;
+    let mut signing_algorithm = None;
+    let mut signing_public_key = None;
+    let mut created_at = None;
+
+    for line in lines {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or(DeviceIdentityError::InvalidFileFormat)?;
+        match key {
+            "device_id" => device_id = Some(hex_array::<16>(value)?),
+            "display_name" if !value.contains('\n') => display_name = Some(value.to_owned()),
+            "classical_public_key" => {
+                classical_public_key = Some(Key::from_bytes(hex_array::<32>(value)?));
+            }
+            "pqc_public_key" => {
+                pqc_public_key = Some(Key::from_bytes(hex_array::<1184>(value)?));
+            }
+            "signing_algorithm" if value == "Ed25519V1" => {
+                signing_algorithm = Some(SigningAlgorithmId::Ed25519V1);
+            }
+            "signing_public_key" => signing_public_key = Some(hex_decode(value)?),
+            "created_at" => {
+                created_at = Some(
+                    value
+                        .parse::<Timestamp>()
+                        .map_err(|_| DeviceIdentityError::InvalidFileFormat)?,
+                );
+            }
+            _ => return Err(DeviceIdentityError::InvalidFileFormat),
+        }
+    }
+
+    let signing_public_key = try_new_signing_public_key(
+        signing_algorithm.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        &signing_public_key.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+    )?;
+    let identity = DeviceIdentity {
+        device_id: device_id.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        display_name: display_name.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        classical_public_key: classical_public_key.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        pqc_public_key: pqc_public_key.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        signing_public_key: Some(signing_public_key),
+        created_at: created_at.ok_or(DeviceIdentityError::InvalidFileFormat)?,
+        trust_state: DeviceTrustState::Untrusted,
+    };
+    identity.validate()?;
+    Ok(identity)
+}
+
+pub fn create_signed_transfer_envelope(
+    sender_device_id: DeviceId,
+    sender_keypair: &DeviceKeypair,
+    recipient_device_id: Option<DeviceId>,
+    recipient_classical_public_key: X25519PublicKey,
+    recipient_pqc_public_key: MlKemPublicKey,
+    plaintext: Vec<u8>,
+    expires_at: Option<Timestamp>,
+) -> core::result::Result<TransferEnvelope, TransferError> {
+    let signing_algorithm = sender_keypair.signing_private_key.algorithm();
+    let sender_signing_private_key = sender_keypair
+        .signing_private_key
+        .with_secret_bytes(|bytes| SigningPrivateKey::new(signing_algorithm, bytes.to_vec()));
+    create_envelope(CreateEnvelopeParams {
+        sender_device_id,
+        recipient_device_id,
+        recipient_classical_public_key,
+        recipient_pqc_public_key,
+        sender_signing_private_key,
+        plaintext_payload: plaintext,
+        expires_at,
+    })
+}
+
+pub fn open_received_transfer_envelope(
+    envelope: &TransferEnvelope,
+    recipient_keypair: &DeviceKeypair,
+    recipient_classical_public_key: X25519PublicKey,
+    sender_signing_public_key: SigningPublicKey,
+) -> core::result::Result<Vec<u8>, TransferError> {
+    open_envelope(
+        envelope,
+        OpenEnvelopeParams {
+            recipient_classical_private_key: X25519PrivateKey::from_bytes(
+                *recipient_keypair.classical_private_key.as_bytes(),
+            ),
+            recipient_classical_public_key,
+            recipient_pqc_private_key: MlKemPrivateKey::from_bytes(
+                *recipient_keypair.pqc_private_key.as_bytes(),
+            ),
+            sender_signing_public_key,
+        },
+    )
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    for byte in bytes {
+        let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{byte:02x}"));
+    }
+    out
+}
+
+fn hex_decode(value: &str) -> Result<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let mut out = Vec::new();
+    for pair in value.as_bytes().chunks(2) {
+        let hex = std::str::from_utf8(pair).map_err(|_| DeviceIdentityError::InvalidFileFormat)?;
+        out.push(u8::from_str_radix(hex, 16).map_err(|_| DeviceIdentityError::InvalidFileFormat)?);
+    }
+    Ok(out)
+}
+
+fn hex_array<const N: usize>(value: &str) -> Result<[u8; N]> {
+    hex_decode(value)?
+        .try_into()
+        .map_err(|_| DeviceIdentityError::InvalidFileFormat)
+}
+
+struct ByteParser<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ByteParser<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8]> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(DeviceIdentityError::InvalidFileFormat)?;
+        let slice = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(DeviceIdentityError::InvalidFileFormat)?;
+        self.offset = end;
+        Ok(slice)
+    }
+
+    fn take_u8(&mut self) -> Result<u8> {
+        Ok(*self
+            .take(1)?
+            .first()
+            .ok_or(DeviceIdentityError::InvalidFileFormat)?)
+    }
+
+    fn take_u16_le(&mut self) -> Result<u16> {
+        Ok(u16::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_u32_le(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_array<const N: usize>(&mut self) -> Result<[u8; N]> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)
+    }
+
+    fn take_vec(&mut self, len: usize) -> Result<Vec<u8>> {
+        Ok(self.take(len)?.to_vec())
+    }
 }
 
 fn unix_time_millis() -> Result<Timestamp> {
