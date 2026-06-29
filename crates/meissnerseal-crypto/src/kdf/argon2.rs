@@ -4,6 +4,7 @@
 use crate::kdf::{KdfError, Result};
 use crate::types::{MasterUnlockKey, VaultKeyEncKey};
 use argon2::{Algorithm, Argon2, Params, Version};
+use zeroize::Zeroizing;
 
 /// Domain separation prefix for `KDF_ARGON2ID_V1` salt construction.
 pub const ARGON2ID_SALT_DOMAIN_V1: &[u8; 29] = b"meissnerseal-argon2id-salt-v1";
@@ -89,13 +90,14 @@ pub fn derive(
     .map_err(|_| KdfError::InvalidInput)?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
     let salt = construct_argon2id_salt(vault_id);
-    let mut output = [0u8; MasterUnlockKey::LEN];
+    // F-62: wrap in Zeroizing so the stack buffer is cleared on drop
+    let mut output = Zeroizing::new([0u8; MasterUnlockKey::LEN]);
 
     argon2
-        .hash_password_into(password, &salt, &mut output)
+        .hash_password_into(password, &salt, &mut *output)
         .map_err(|_| KdfError::Backend)?;
 
-    Ok(MasterUnlockKey::from_bytes(output))
+    Ok(MasterUnlockKey::from_bytes(*output))
 }
 
 /// Derive the 32-byte Vault Key Encryption Key from a Master Unlock Key.
