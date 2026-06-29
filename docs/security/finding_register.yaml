@@ -1704,3 +1704,140 @@ findings:
       Covered by parse_kdf_profile_params_rejects_m_cost_below_minimum in vectors.rs;
       cargo test -p meissnerseal-core: 68/68 pass (2026-06-29)
     commit: "013bad9"
+
+# ── meissnerseal-core integration test coverage review (2026-06-29) ───────────
+
+  - id: F-67
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The core integration vector suite does not include .msexp export/import
+      known-answer tests. Export bundle framing, export AAD construction,
+      passphrase-derived export key derivation, outer length fields, and
+      decrypted item-set payload parsing are therefore not locked by
+      cross-version test vectors.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add export_bundle_v1.json vectors covering canonical export sealing,
+      import/decrypt, wrong passphrase, wrong AAD/framing, malformed KDF
+      params, malformed ciphertext length, trailing garbage, and malformed
+      decrypted item payloads.
+    verification: >-
+      CI consumes the new .msexp vectors through the real public export/import
+      APIs and fails on any change to export AAD bytes, KDF derivation bytes,
+      nonce/ciphertext framing, or item-set parser behavior.
+    commit: ""
+
+  - id: F-68
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The sealed-record-table integration tests compute WRK frame and
+      sealed-table offsets with local unchecked helper parsers
+      (record_frame_len_at, read_u32_at) before calling the production
+      open_sealed_record_table_v2 API. vault_format_negative_v1_vectors also
+      navigates via the same helpers, so a vault blob with a malformed WRK
+      frame (wrong nonce_len, aad_len, or ciphertext_len) would misdirect or
+      panic in the helper rather than reaching the production boundary.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add negative vectors that pass complete malformed vault blobs directly
+      into the highest-level production open/parse path, including invalid
+      nonce_len, aad_len, ciphertext_len, WRK frame_len, section offsets, and
+      checked-add overflow cases, without pre-computing offsets in test helpers.
+    verification: >-
+      CI asserts these malformed vault files return Err from the production API
+      rather than panicking in test helpers or being filtered by shadow parsing
+      logic.
+    commit: ""
+
+  - id: F-69
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: ""
+    date: 2026-06-29
+    description: >-
+      KDF TLV reject tests cover one missing tag (0x0102), one duplicate tag
+      (0x0101), one wrong value length, shorter params_len, trailing garbage,
+      unknown profile, wrong Argon2 version, and below-minimum m/t/p values.
+      They do not cover every required tag as missing or duplicated, exact
+      min/max boundary values, zero-length TLVs, unknown extra TLVs, or
+      params_len values that overflow the declared block.
+    cwe: "CWE-327"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add table-driven negative vectors for every required Argon2id TLV tag
+      (0x0101–0x0105) as missing and duplicated, exact minimum and maximum
+      accepted values, below-minimum and above-maximum values, zero-length
+      TLVs, unknown extra tags, and declared lengths that exceed the remaining
+      block.
+    verification: >-
+      CI fails if parse_kdf_profile_params accepts any malformed, duplicated,
+      unknown, below-floor, or over-bound KDF parameter encoding.
+    commit: ""
+
+  - id: F-70
+    kind: consistency
+    component: meissnerseal-core
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The integration test header states that key comparisons use ConstantTimeEq
+      and never print bytes, but vault_kdf_v1_all_seven_subkeys_match_vectors
+      uses assert_eq! on seven derived subkey byte slices and
+      header_sourced_kdf_params_reproduce_existing_muk_vector uses assert_eq!
+      on MUK bytes. assert_eq! prints both sides on failure. The pairwise
+      distinctness test correctly uses ct_eq; the inconsistency is selective.
+      Vectors are non-real test material, but the documented invariant and
+      actual test discipline diverge.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace key-byte assert_eq! calls with constant-time comparisons and
+      failure messages that include only the case label, or update the header
+      comment to explicitly scope the invariant to non-real test material only.
+    verification: >-
+      Grep vectors.rs for assert_eq! over MUK, PRK, subkey, AEAD key, or
+      plaintext-secret byte slices and confirm no side is printed on failure.
+    commit: ""
+
+  - id: F-71
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The core vector loader reads JSON files from ../../test-vectors at
+      runtime via std::fs::read_to_string, while meissnerseal-crypto embeds
+      vectors at compile time with include_str!. The runtime path makes the
+      core integration suite less hermetic: a wrong working directory, a
+      missing file, or a vector file edited after compilation produces a
+      misleading runtime error rather than a compile-time failure or drift
+      detection.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Embed vector JSON with include_str! as done in meissnerseal-crypto, or
+      add a mandatory CI drift guard that regenerates vectors and fails on
+      git diff before running the integration tests.
+    verification: >-
+      CI proves that the vectors tested are the same bytes committed with the
+      crate revision, and that editing any vector file forces recompilation or
+      an explicit drift-check failure.
+    commit: ""
