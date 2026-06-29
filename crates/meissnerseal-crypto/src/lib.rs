@@ -10,6 +10,7 @@ pub use types::{
 
 pub mod aead;
 pub mod argon2;
+pub mod hash;
 pub mod hkdf;
 pub mod kdf;
 pub mod rng;
