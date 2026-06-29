@@ -1442,14 +1442,15 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Replace random_bytes(len) with fixed-size typed helpers for known protocol
-      values (random_id() -> [u8; 16], random_key() already exists), or make it
-      fallible and enforce a conservative maximum length at the API boundary.
+      RANDOM_BYTES_MAX_LEN = 4096 constant added. rng.rs assert!(len <=
+      RANDOM_BYTES_MAX_LEN) enforces the ceiling at runtime; #[should_panic] test
+      pins the rejection behavior. All current callers use hardcoded constants ≤ 32.
     verification: >-
-      Add tests for maximum accepted length and oversized-input rejection, and
-      grep/deny external uses that pass parser-controlled lengths into random_bytes.
+      #[should_panic] test random_bytes_rejects_lengths_above_conservative_max
+      passes in cargo test. Kani verify_random_bytes_max_len_is_conservative
+      proves the constant stays within the conservative range.
     commit: ""
 
   - id: F-59
@@ -1468,15 +1469,14 @@ findings:
     cwe: "CWE-310"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Remove the top-level placeholder modules, move their registry comments into
-      the implementing kdf modules, or explicitly re-export the real kdf::argon2
-      and kdf::hkdf APIs from those paths.
+      Placeholder stubs removed. lib.rs now uses pub use kdf::argon2 and pub use
+      kdf::hkdf — single unambiguous path to each implementation.
     verification: >-
-      Add public API tests or rustdoc examples that compile against the intended
-      Argon2id and HKDF paths, and fail if placeholder modules are exposed as the
-      primary API.
+      top_level_argon2_module_re_exports_kdf_implementation and
+      top_level_hkdf_module_re_exports_kdf_implementation tests confirm both paths
+      resolve to the real implementation structs/enums.
     commit: ""
 
   - id: F-60
@@ -1494,14 +1494,17 @@ findings:
     cwe: "CWE-325"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Add Kani or equivalent bounded checks for exact salt/AAD/info/transcript
-      encodings, preferably sharing constants with production builders. Resolve
-      F-57 first so the AAD TODO references the correct 79-byte length.
+      Four Kani harnesses added to types.rs proofs block, all using production
+      builder constants: verify_argon2_salt_construction_length (ARGON2ID_SALT_LEN),
+      verify_record_aad_v1_length_constant (RECORD_AAD_LEN=79),
+      verify_hkdf_info_string_encoding_shape (build_subkey_info + ASCII check),
+      verify_transcript_hash_binding_length (ROOT_SALT_INPUT_LEN + SHA-256 output).
     verification: >-
-      CI runs the new proof harnesses and fails on any drift in domain strings,
-      field order, field length, or encoded algorithm/version identifiers.
+      cargo kani --package meissnerseal-crypto runs all four harnesses. Harnesses
+      share constants with production builders — drift in any encoding causes proof
+      failure.
     commit: ""
 
 # ── meissnerseal-crypto KDF security review findings (2026-06-29) ─────────────
@@ -1594,15 +1597,16 @@ findings:
     cwe: "CWE-325"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Make raw extract/expand pub(crate) or mark them as explicitly hazardous,
-      and expose only typed derivation APIs such as derive_root_prk, derive_subkey,
-      and derive_vkek for production callers.
+      extract and expand changed to pub(crate). CONTRACT.md updated to remove them
+      from the public API surface and document that external callers must use
+      derive_root_prk, derive_subkey, and derive_vkek. No external callers exist
+      (grep confirmed zero references outside meissnerseal-crypto).
     verification: >-
-      Add public API tests or compile-fail tests showing that external callers
-      cannot invoke raw HKDF primitives without going through approved
-      domain-separated builders.
+      cargo check --workspace --all-targets passes with pub(crate) visibility —
+      any external reference would be a compile error. CONTRACT.md reflects
+      the reduced public surface.
     commit: ""
 
   - id: F-64
@@ -1621,15 +1625,17 @@ findings:
     cwe: "CWE-325"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Add explicit tests for derive_subkey(ItemKeyWrappingKey, None) → Err,
-      derive_subkey(MetadataEncryptionKey, None) → Err, and
-      derive_subkey(LocalAuditEventKey, Some(1)) → Err. Rename or strengthen the
-      Kani harness so its name matches the property it proves.
+      Misnamed harness renamed to verify_derive_subkey_output_length (matches
+      property proven). Three concrete negative tests added: derive_subkey_rejects_
+      missing_aead_for_item_key_wrapping_key, derive_subkey_rejects_missing_aead_
+      for_metadata_encryption_key, derive_subkey_rejects_unexpected_aead_for_
+      local_audit_event_key. All three pass against the existing implementation.
     verification: >-
-      CI should fail if any AEAD-scoped purpose accepts None, or if any
-      non-AEAD-scoped purpose accepts Some(aead_id).
+      cargo test --workspace: all three negative tests pass. Any regression that
+      makes an AEAD-scoped purpose accept None (or non-AEAD accept Some) will
+      break these tests immediately.
     commit: ""
 
   - id: F-65
@@ -1648,14 +1654,15 @@ findings:
     cwe: "CWE-325"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Correct the proof message from 40 to 45 bytes. Centralize the salt length
-      as a named constant derived from ARGON2ID_SALT_DOMAIN_V1.len() + vault_id
-      length so proof messages, test comments, and fixtures share a single source.
+      ARGON2ID_SALT_LEN = ARGON2ID_SALT_DOMAIN_V1.len() + 16 exported as a named
+      constant. Kani proof message corrected to "45 bytes". Test fixture array
+      type and assertion both reference ARGON2ID_SALT_LEN — single source of truth.
     verification: >-
-      Add a test or proof assertion that ARGON2ID_SALT_LEN equals 45 and that all
-      comments, fixtures, and Kani messages reference the same constant.
+      test_argon2id_salt_construction asserts salt.len() == ARGON2ID_SALT_LEN.
+      verify_argon2id_salt_length Kani harness proves salt.len() == ARGON2ID_SALT_LEN
+      for all vault_id inputs. Consistent 45-byte reference throughout.
     commit: ""
 
   - id: F-66

@@ -18,9 +18,7 @@ aead::   encrypt(key, plaintext, aad) -> Result<(Ciphertext, XChaCha20Nonce)>
 argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
          derive_vkek(master_unlock_key, vault_id) -> Result<VaultKeyEncKey>
 
-hkdf::   extract(salt, ikm) -> Prk
-         expand<const N>(prk, info) -> Result<Key<N>>
-         derive_subkey(root_prk, purpose, vault_id, aead_id) -> Result<Key>
+hkdf::   derive_subkey(root_prk, purpose, vault_id, aead_id) -> Result<Key>
          derive_root_prk(vault_root_key, vault_id, header_nonce) -> Prk
            // SHA256(domain||vault_id||header_nonce) → HKDF-Extract
 
@@ -35,6 +33,10 @@ subtle:: ct_eq(a: &[u8], b: &[u8]) -> Choice    // constant-time comparison
 
 zeroize:: (re-exported types and derive macros)
 ```
+
+Raw HKDF extraction and expansion are internal-only helpers. Callers outside
+this crate must use `hkdf::derive_root_prk` and `hkdf::derive_subkey` rather
+than invoking RFC 5869 extract/expand directly.
 
 ---
 
