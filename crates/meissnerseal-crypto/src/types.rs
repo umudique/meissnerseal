@@ -165,7 +165,7 @@ mod proofs {
     }
 
     // TODO (MVP-0): add proofs for argon2 salt construction length
-    // TODO (MVP-0): add proofs for AAD v1 construction (74 bytes)
+    // TODO (MVP-0): add proofs for AAD v1 construction (79 bytes = RECORD_AAD_LEN)
     // TODO (MVP-0): add proofs for HKDF info string encoding
     // TODO (MVP-2): add proofs for transcript hash binding length
 }
