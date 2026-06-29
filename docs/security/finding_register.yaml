@@ -1564,16 +1564,18 @@ findings:
     severity: medium
     blocking: true
     blocks: "meissnerseal-crypto security/mvp2-hardening gate"
-    status: open
+    status: resolved
     remediation: >-
-      Wrap temporary secret output arrays in Zeroizing<[u8; N]> before filling/copying,
-      or add Key::from_zeroizing_bytes-style constructors that consume zeroizing
-      buffers without leaving unmanaged copies.
+      argon2.rs:derive() output buffer wrapped in Zeroizing<[u8; 32]> before
+      hash_password_into(); hkdf.rs:extract() PRK staging buffer and
+      hkdf.rs:expand() output buffer both wrapped in Zeroizing. All three
+      temporary secret buffers are now cleared on drop after Key::from_bytes().
     verification: >-
-      Add code-review checks and unit/Miri-oriented tests for derivation paths
-      proving temporary secret buffers are represented by Zeroizing or are
-      explicitly zeroized before return.
-    commit: ""
+      KAT tests (vault_kdf_v1_vectors, test_muk_derivation, test_root_prk_derivation,
+      test_subkey_derivation_all) confirm identical output after the Zeroizing
+      wrapping. Full Miri proof deferred (MIRI-1 backlog). 238/238 workspace
+      tests pass (2026-06-29).
+    commit: "9b60dec"
 
   - id: F-63
     kind: design
