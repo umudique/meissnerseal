@@ -1331,3 +1331,141 @@ findings:
       encapsulate_with_nist_ek_consistent_with_dk: shared secrets match across
       encapsulate/decapsulate for all three NIST tcIds.
     commit: "120fa90"
+
+# ── meissnerseal-crypto external security review findings (2026-06-29) ────────
+
+  - id: F-56
+    kind: security_review
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      AEAD encrypt/decrypt accept raw aad: &[u8] and do not enforce the canonical
+      MeissnerSeal AAD shape at the crypto boundary. A caller can accidentally
+      encrypt or decrypt with empty, truncated, reordered, or cross-protocol AAD,
+      weakening record/header binding even though authentication itself is
+      performed correctly by XChaCha20-Poly1305. Verified: aead.rs:93 encrypt and
+      aead.rs:157 decrypt both take aad: &[u8] with no length or structure check.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-crypto security/mvp2-hardening gate"
+    status: open
+    remediation: >-
+      Introduce an AadV1/CanonicalAad newtype whose constructor canonicalizes and
+      validates the protocol domain, vault_id, algorithm/version fields, record_id,
+      revision_id, and kind. Change encrypt/decrypt to accept only this type, or
+      make raw-AAD APIs crate-private/test-only.
+    verification: >-
+      Add compile-fail/API tests proving raw byte slices cannot be passed to
+      production encrypt/decrypt, plus positive and negative tests for canonical
+      AAD construction and per-field tampering.
+    commit: ""
+
+  - id: F-57
+    kind: consistency
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      The AEAD contract states "canonical 74-byte AAD" (aead.rs:80), but the
+      in-module test fixture, Kani harness, and actual AAD layout all use 79 bytes:
+      "meissnerseal-aad-v1" (19) + vault_id (16) + 5×u16 (10) + record_id (16) +
+      revision_id (16) + kind (2) = 79. The types.rs TODO comment also references
+      74 bytes (types.rs:168). The correct canonical length is 79; the 74-byte
+      figure in contract documentation and the TODO is wrong. This mismatch can
+      cause independent implementations or future parsers to authenticate different
+      byte strings for the same record.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-crypto security/mvp2-hardening gate"
+    status: open
+    remediation: >-
+      Correct the contract comment in aead.rs from 74 to 79 bytes. Update
+      types.rs TODO to reference 79 bytes. Add a single AAD_V1_LEN constant or
+      AadV1::LEN assertion used by production code, unit tests, Kani harnesses,
+      and test-vector consumption so all references converge on the same number.
+    verification: >-
+      Add a single AAD_LEN constant or AadV1::LEN assertion used by production
+      code, unit tests, Kani harnesses, and test-vector consumption. CI should fail
+      if any fixture or documentation references a different length.
+    commit: ""
+
+  - id: F-58
+    kind: design
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      rng::random_bytes exposes a public len-controlled allocation helper without
+      a maximum size or fallible allocation path. If len is derived from
+      attacker-controlled input in a caller, this can become a memory-exhaustion
+      denial-of-service primitive. Verified: rng.rs:7 pub fn random_bytes(len: usize)
+      -> Vec<u8>. All current call sites in meissnerseal-core use hardcoded
+      constants (16, 32, DEVICE_ID_LEN, PAIRING_NONCE_LEN) — not currently
+      exploitable, but the API shape is unsafe for future callers.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace random_bytes(len) with fixed-size typed helpers for known protocol
+      values (random_id() -> [u8; 16], random_key() already exists), or make it
+      fallible and enforce a conservative maximum length at the API boundary.
+    verification: >-
+      Add tests for maximum accepted length and oversized-input rejection, and
+      grep/deny external uses that pass parser-controlled lengths into random_bytes.
+    commit: ""
+
+  - id: F-59
+    kind: consistency
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      lib.rs exports top-level pub mod argon2 and pub mod hkdf that are comment-only
+      registries (3 lines each), while the actual implementations live in
+      crate::kdf::argon2 and crate::kdf::hkdf. Both paths are simultaneously public.
+      Verified: argon2.rs and hkdf.rs at the crate root contain only 3-line comments;
+      lib.rs:12-15 exports both the placeholder mods and the implementing kdf mod.
+      This creates an ambiguous public API surface and increases the risk that callers
+      or documentation bind to a non-implementing module path.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Remove the top-level placeholder modules, move their registry comments into
+      the implementing kdf modules, or explicitly re-export the real kdf::argon2
+      and kdf::hkdf APIs from those paths.
+    verification: >-
+      Add public API tests or rustdoc examples that compile against the intended
+      Argon2id and HKDF paths, and fail if placeholder modules are exposed as the
+      primary API.
+    commit: ""
+
+  - id: F-60
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: ""
+    date: 2026-06-29
+    description: >-
+      Formal coverage explicitly leaves TODOs for Argon2 salt construction length,
+      AAD v1 construction, HKDF info string encoding, and transcript hash binding.
+      Verified: types.rs:167-170 contains four open TODO comments. The AAD TODO
+      references 74 bytes (wrong — see F-57; correct is 79). These are
+      security-critical domain-separation and binding properties rather than merely
+      type-length properties.
+    cwe: "CWE-325"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add Kani or equivalent bounded checks for exact salt/AAD/info/transcript
+      encodings, preferably sharing constants with production builders. Resolve
+      F-57 first so the AAD TODO references the correct 79-byte length.
+    verification: >-
+      CI runs the new proof harnesses and fails on any drift in domain strings,
+      field order, field length, or encoded algorithm/version identifiers.
+    commit: ""
