@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-25
+updated: 2026-06-29
 
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
@@ -1190,3 +1190,144 @@ findings:
     remediation: "3 NIST ACVP ML-KEM-768 AFT vectors (tcIds 26-28, internalProjection.json commit 65370b8) saved to test-vectors/mlkem_768_kat_v1.json. Rust nist_kat_decapsulate test verifies decapsulate(dk, c) == k for all three. Python mlkem_cross_verify.py re-fetches live NIST source and confirms byte-for-byte match."
     verification: "cargo test -p meissnerseal-pqc: 6/6 pass including nist_kat_decapsulate; python3 mlkem_cross_verify.py: 3 vectors PASS (2026-06-17)"
     commit: "f4dc008"
+
+  # ── meissnerseal-pqc external security review findings (2026-06-29) ──────────────────
+
+  - id: F-51
+    kind: security_review
+    component: meissnerseal-pqc
+    source: ""
+    date: 2026-06-29
+    description: >-
+      X25519 peer public keys are accepted without rejecting low-order inputs or
+      all-zero Diffie-Hellman outputs. x25519_shared_secret (hybrid.rs:167)
+      returns Zeroizing<[u8;32]> with no Result and no all-zero output check.
+      HybridError::X25519Invalid is defined but never returned — dead error path.
+      A low-order peer public key silently removes the classical contribution from
+      the hybrid combiner.
+    cwe: "CWE-327"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-pqc security/mvp2-hardening gate"
+    status: resolved
+    remediation: >-
+      x25519_shared_secret now returns Result<Zeroizing<[u8;32]>, HybridError>.
+      All-zero output check added; returns Err(X25519Invalid) on zero DH output.
+      Propagated through derive_transfer_key and receive_transfer_key via ?.
+    verification: >-
+      Three tests added in hybrid.rs::tests: x25519_shared_secret_rejects_low_order_peer_public_key,
+      receive_transfer_key_rejects_low_order_sender_public_key,
+      derive_transfer_key_rejects_low_order_recipient_public_key.
+      All assert Err(HybridError::X25519Invalid) for [0u8;32] peer public key.
+    commit: "6278043"
+
+  - id: F-52
+    kind: security_review
+    component: meissnerseal-pqc
+    source: ""
+    date: 2026-06-29
+    description: >-
+      sign() and verify() accept raw &[u8] message bytes with no structural
+      enforcement of domain separation at the API boundary. Callers are
+      responsible for prepending a protocol context string (documented in
+      CONTRACT.md [P-04] and F-39), but the type system does not prevent passing
+      raw payload bytes, making cross-protocol replay structurally possible if any
+      caller omits the domain prefix. Related to F-39 (which tracks the caller
+      obligation); this finding tracks the missing API-level enforcement.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    blocks: "meissnerseal-pqc security/mvp2-hardening gate"
+    status: resolved
+    remediation: >-
+      Added sign_with_domain(key, domain, payload) and verify_with_domain(key, domain, payload, sig)
+      to mldsa.rs. These functions accept domain and payload as separate parameters,
+      making domain separation structurally mandatory. Production callers updated:
+      sign_enrollment_message (device.rs) and create/open transfer envelope (envelope.rs)
+      now use sign_with_domain/verify_with_domain. Raw sign/verify retained as public
+      for tests and advanced callers with documented contract obligation.
+    verification: >-
+      sign_with_domain_matches_manual_domain_prepend verifies API equivalence with
+      manual concatenation. sign_with_domain_different_domains_produce_different_signatures
+      confirms cross-domain replay protection. Existing domain_is_distinct test retained.
+    commit: "b06ab97"
+
+  - id: F-53
+    kind: design
+    component: meissnerseal-pqc
+    source: ""
+    date: 2026-06-29
+    description: >-
+      SigningPrivateKey::with_secret_bytes is pub (mldsa.rs:136). The closure
+      pattern limits borrow lifetime but code inside the closure can clone, log,
+      serialize, or store key material outside Zeroizing containers
+      (device.rs:486 does bytes.to_vec() inside the closure). Note: pub(crate)
+      is not a viable fix because meissnerseal-core (the only caller) is a
+      separate crate.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Option A applied: with_secret_bytes annotated with audited escape hatch doc
+      comment (mldsa.rs) stating: bytes must not outlive the closure, persistent
+      copies must use Zeroizing<Vec<u8>>, all call sites tracked in finding register.
+    verification: >-
+      All with_secret_bytes call sites confirmed: device.rs:352 (serialization,
+      bytes written to Zeroizing<Vec<u8>> out buffer), device.rs:486 (deserialization,
+      bytes.to_vec() inside closure — caller holds non-Zeroizing copy transiently).
+      No new call sites. Grep CI check deferred to SEC-AUDIT-1.
+    commit: "b06ab97"
+
+  - id: F-54
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: ""
+    date: 2026-06-29
+    description: >-
+      Hybrid transfer tests cover round-trip derivation, transcript variation,
+      tampered ML-KEM ciphertext, and two sender-side KATs, but do not cover
+      invalid or low-order X25519 public keys, all-zero DH outputs, or
+      receiver-side fixed KATs that lock the full combiner binding through
+      receive_transfer_key.
+    cwe: "CWE-327"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Three low-order X25519 rejection tests added to hybrid.rs (see F-51 fix).
+      Receiver-side KAT deferred: existing round_trip_derive_receive test provides
+      functional verification; fixed receiver-side KAT vectors require separate
+      test-vector generation pass (deferred to SEC-AUDIT-1).
+    verification: >-
+      x25519_shared_secret_rejects_low_order_peer_public_key,
+      receive_transfer_key_rejects_low_order_sender_public_key,
+      derive_transfer_key_rejects_low_order_recipient_public_key all pass.
+    commit: "6278043"
+
+  - id: F-55
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: ""
+    date: 2026-06-29
+    description: >-
+      ML-KEM coverage includes size checks, valid decapsulation, one tampered
+      ciphertext implicit-rejection check, and three NIST decapsulation KATs,
+      but does not exercise encapsulate() against a malformed public key at the
+      crate boundary, nor include a randomized differential check against an
+      independent ML-KEM-768 implementation.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Two new tests added to mlkem.rs: encapsulate_adversarial_keys_do_not_panic
+      exercises [0u8;1184] and [0xffu8;1184] inputs. encapsulate_with_nist_ek_consistent_with_dk
+      uses NIST AFT ek/dk pairs (tcIds 26-28) to cross-verify that encapsulate
+      produces ciphertexts that decapsulate recovers. Full differential cross-verification
+      against an independent implementation deferred to SEC-AUDIT-1.
+    verification: >-
+      encapsulate_adversarial_keys_do_not_panic: no panic on edge-case keys.
+      encapsulate_with_nist_ek_consistent_with_dk: shared secrets match across
+      encapsulate/decapsulate for all three NIST tcIds.
+    commit: "120fa90"
