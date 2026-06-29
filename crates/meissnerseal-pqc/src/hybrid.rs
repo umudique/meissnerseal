@@ -103,7 +103,7 @@ pub fn derive_transfer_key(
     pqc_shared_secret: &SharedSecret,
     transcript_hash: &[u8; 32],
 ) -> Result<TransferKey> {
-    let ss_x25519 = x25519_shared_secret(sender_ephemeral_private, recipient_classical_public);
+    let ss_x25519 = x25519_shared_secret(sender_ephemeral_private, recipient_classical_public)?;
     derive_transfer_key_from_shared_parts(
         pqc_shared_secret,
         &ss_x25519,
@@ -151,7 +151,7 @@ pub fn receive_transfer_key(
     pqc_private_key: &MlKemPrivateKey,
     transcript_hash: &[u8; 32],
 ) -> Result<TransferKey> {
-    let ss_x25519 = x25519_shared_secret(recipient_classical_private, sender_ephemeral_public);
+    let ss_x25519 = x25519_shared_secret(recipient_classical_private, sender_ephemeral_public)?;
     let pqc_shared_secret = mlkem::decapsulate(pqc_private_key, pqc_ciphertext)?;
 
     derive_transfer_key_from_shared_parts(
@@ -164,14 +164,22 @@ pub fn receive_transfer_key(
     )
 }
 
+// RFC 7748 §6.1: implementations SHOULD check for all-zero output and abort.
+// A low-order peer public key (8 small-subgroup points on Curve25519) produces
+// all-zero shared secret, silently removing the classical DH contribution from
+// the hybrid combiner IKM and violating the hybrid security guarantee (F-51).
 fn x25519_shared_secret(
     private_key: &X25519PrivateKey,
     peer_public_key: &X25519PublicKey,
-) -> Zeroizing<[u8; 32]> {
+) -> Result<Zeroizing<[u8; 32]>> {
     let private_bytes = Zeroizing::new(*private_key.as_bytes());
     let secret = StaticSecret::from(*private_bytes);
     let peer_public = PublicKey::from(*peer_public_key.as_bytes());
-    Zeroizing::new(secret.diffie_hellman(&peer_public).to_bytes())
+    let shared = Zeroizing::new(secret.diffie_hellman(&peer_public).to_bytes());
+    if shared.iter().all(|&b| b == 0) {
+        return Err(HybridError::X25519Invalid);
+    }
+    Ok(shared)
 }
 
 fn derive_transfer_key_from_shared_parts(
@@ -363,6 +371,63 @@ mod tests {
         .expect("ML-KEM implicit rejection still returns a receiver key");
 
         assert!(bool::from(!sender_key.ct_eq(&receiver_key)));
+    }
+
+    // F-54: coverage for F-51 zero-check — all 8 Curve25519 small-subgroup points
+    // map to all-zero X25519 output. [0u8;32] (the identity u-coordinate) is the
+    // canonical test vector; the others share the same property.
+    #[test]
+    fn x25519_shared_secret_rejects_low_order_peer_public_key() {
+        let (private, _public) = x25519_keypair();
+        let low_order_peer = X25519PublicKey::from_bytes([0u8; 32]);
+        assert!(matches!(
+            x25519_shared_secret(&private, &low_order_peer),
+            Err(HybridError::X25519Invalid)
+        ));
+    }
+
+    #[test]
+    fn receive_transfer_key_rejects_low_order_sender_public_key() {
+        let (recipient_private, recipient_public) = x25519_keypair();
+        let low_order_sender = X25519PublicKey::from_bytes([0u8; 32]);
+        let (pqc_public, pqc_private) = mlkem::keypair().expect("ML-KEM keypair succeeds");
+        let (pqc_ciphertext, _) =
+            mlkem::encapsulate(&pqc_public).expect("ML-KEM encapsulate succeeds");
+        let transcript_hash = [0x42u8; 32];
+
+        assert!(matches!(
+            receive_transfer_key(
+                &recipient_private,
+                &recipient_public,
+                &low_order_sender,
+                &pqc_ciphertext,
+                &pqc_private,
+                &transcript_hash,
+            ),
+            Err(HybridError::X25519Invalid)
+        ));
+    }
+
+    #[test]
+    fn derive_transfer_key_rejects_low_order_recipient_public_key() {
+        let (sender_private, sender_public) = x25519_keypair();
+        let low_order_recipient = X25519PublicKey::from_bytes([0u8; 32]);
+        let (pqc_public, _) = mlkem::keypair().expect("ML-KEM keypair succeeds");
+        let (pqc_ciphertext, pqc_shared_secret) =
+            mlkem::encapsulate(&pqc_public).expect("ML-KEM encapsulate succeeds");
+        let transcript_hash = [0x42u8; 32];
+
+        assert!(matches!(
+            derive_transfer_key(
+                &sender_private,
+                &sender_public,
+                &low_order_recipient,
+                &pqc_ciphertext,
+                &pqc_shared_secret,
+                &transcript_hash,
+            ),
+            Err(HybridError::X25519Invalid)
+        ));
     }
 
     #[test]
