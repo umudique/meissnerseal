@@ -39,6 +39,14 @@ keys::device::
   try_new_signing_public_key(algorithm, bytes: &[u8]) -> Result<SigningPublicKey>
   sign_enrollment_message(private_key, message) -> Result<Signature>
 
+transfer::
+  TransferProfileId
+  TransferEnvelope
+  compute_transcript_hash(params: &TranscriptParams) -> [u8; 32]
+  validate_envelope(envelope: &TransferEnvelope) -> Result<(), TransferError>
+  create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError>
+  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams) -> Result<Vec<u8>, TransferError>
+
 ```
 
 ---
@@ -49,11 +57,6 @@ These APIs are not part of the MVP-0 Stable contract. They will be locked
 in future milestones as noted.
 
 ```
-transfer::  [MVP-2 — PQC-dependent, meissnerseal-pqc not Stable]
-  create_envelope(session, params) -> Result<TransferEnvelope>
-  receive_envelope<F, R>(session, envelope, f: F) -> Result<R>
-    // F: FnOnce(&PlainItemBundleView<'_>) -> Result<R>
-
 device::  [post-MVP-0 — pairing/sync roadmap-excluded]
   pair(session, pairing_payload) -> Result<DeviceIdentity>
   approve(session, device_id) -> Result<()>
