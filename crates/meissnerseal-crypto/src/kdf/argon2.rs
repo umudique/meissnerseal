@@ -8,6 +8,8 @@ use zeroize::Zeroizing;
 
 /// Domain separation prefix for `KDF_ARGON2ID_V1` salt construction.
 pub const ARGON2ID_SALT_DOMAIN_V1: &[u8; 29] = b"meissnerseal-argon2id-salt-v1";
+/// Fixed-width Argon2id salt length: domain prefix plus 16-byte vault UUID.
+pub const ARGON2ID_SALT_LEN: usize = ARGON2ID_SALT_DOMAIN_V1.len() + 16;
 const VKEK_SALT_DOMAIN_V1: &[u8; 25] = b"meissnerseal-vkek-salt-v1";
 const VKEK_INFO_V1: &[u8] = b"meissnerseal:vault-kek:v1";
 
@@ -131,8 +133,8 @@ pub fn derive_vkek(
     Ok(VaultKeyEncKey::from_bytes(*vkek.as_bytes()))
 }
 
-fn construct_argon2id_salt(vault_id: &[u8; 16]) -> [u8; 45] {
-    let mut salt = [0u8; 45];
+pub(crate) fn construct_argon2id_salt(vault_id: &[u8; 16]) -> [u8; ARGON2ID_SALT_LEN] {
+    let mut salt = [0u8; ARGON2ID_SALT_LEN];
     let (domain, vault) = salt.split_at_mut(ARGON2ID_SALT_DOMAIN_V1.len());
     domain.copy_from_slice(ARGON2ID_SALT_DOMAIN_V1);
     vault.copy_from_slice(vault_id);
@@ -147,7 +149,10 @@ mod proofs {
     fn verify_argon2id_salt_length() {
         let vault_id = kani::any::<[u8; 16]>();
         let salt = construct_argon2id_salt(&vault_id);
-        kani::assert(salt.len() == 45, "Argon2id salt must always be 40 bytes");
+        kani::assert(
+            salt.len() == ARGON2ID_SALT_LEN,
+            "Argon2id salt must always be 45 bytes",
+        );
     }
 
     #[kani::proof]
@@ -177,7 +182,7 @@ mod tests {
         output_len: 32,
     };
     // "meissnerseal-argon2id-salt-v1" (29) + vault_id (16) = 45
-    const EXPECTED_ARGON2_SALT: [u8; 45] = [
+    const EXPECTED_ARGON2_SALT: [u8; ARGON2ID_SALT_LEN] = [
         0x6d, 0x65, 0x69, 0x73, 0x73, 0x6e, 0x65, 0x72, 0x73, 0x65, 0x61, 0x6c, 0x2d, 0x61, 0x72,
         0x67, 0x6f, 0x6e, 0x32, 0x69, 0x64, 0x2d, 0x73, 0x61, 0x6c, 0x74, 0x2d, 0x76, 0x31, 0x01,
         0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
@@ -197,6 +202,7 @@ mod tests {
     fn test_argon2id_salt_construction() {
         let salt = construct_argon2id_salt(&VAULT_ID);
         assert_eq!(salt, EXPECTED_ARGON2_SALT);
+        assert_eq!(salt.len(), ARGON2ID_SALT_LEN);
     }
 
     #[test]

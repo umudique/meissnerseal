@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 const ROOT_SALT_DOMAIN_V1: &[u8; 25] = b"meissnerseal-root-salt-v1";
+#[cfg_attr(not(kani), allow(dead_code))]
+pub(crate) const ROOT_SALT_INPUT_LEN: usize = ROOT_SALT_DOMAIN_V1.len() + 16 + HeaderNonce::LEN;
 
 /// HKDF pseudo-random key.
 pub type Prk = HkdfPrk;
@@ -56,7 +58,7 @@ pub enum SubkeyPurpose {
 /// - All fixed-length secret output is represented by `Prk`.
 /// - Secret values are not compared with `==`; constant-time comparison is used
 ///   wherever secret equality is required.
-pub fn extract(salt: &[u8], ikm: &[u8]) -> Prk {
+pub(crate) fn extract(salt: &[u8], ikm: &[u8]) -> Prk {
     let (prk, _) = hkdf::Hkdf::<Sha256>::extract(Some(salt), ikm);
     // F-62: Zeroizing clears the stack copy of the PRK on drop
     let mut bytes = Zeroizing::new([0u8; Prk::LEN]);
@@ -79,7 +81,7 @@ pub fn extract(salt: &[u8], ikm: &[u8]) -> Prk {
 /// - Uses no custom cryptographic primitive.
 /// - All fixed-length secret output is represented by `Key<N>`.
 /// - Secret values are not logged, printed, written, or compared with `==`.
-pub fn expand<const N: usize>(prk: &Prk, info: &[u8]) -> Result<Key<N>> {
+pub(crate) fn expand<const N: usize>(prk: &Prk, info: &[u8]) -> Result<Key<N>> {
     let hkdf =
         hkdf::Hkdf::<Sha256>::from_prk(prk.as_slice()).map_err(|_| KdfError::InvalidInput)?;
     // F-62: Zeroizing clears the expanded key material from the stack on drop
@@ -153,7 +155,7 @@ pub fn derive_root_prk(
     extract(&root_salt, vault_root_key.as_slice())
 }
 
-fn build_subkey_info(
+pub(crate) fn build_subkey_info(
     purpose: SubkeyPurpose,
     vault_id: &[u8; 16],
     aead_id: Option<u16>,
@@ -203,14 +205,23 @@ mod proofs {
     use super::*;
 
     #[kani::proof]
-    fn verify_hkdf_info_ascii() {
-        // Type-level proof: HKDF info string prefix is hardcoded ASCII.
-        // Calling build_subkey_info with kani::any() vault_id causes state space
-        // explosion because format!("{byte:02x}") over 16 symbolic bytes is
-        // unanalyzable by CBMC. The ASCII property is guaranteed by the static
-        // string literals in info_label() and the fixed format pattern.
-        let prefix = "meissnerseal:audit:v1:vault:";
-        kani::assert(prefix.is_ascii(), "HKDF info prefix must be valid ASCII");
+    fn verify_hkdf_info_encoding_matches_registry() {
+        let vault_id = [0u8; 16];
+        let audit = build_subkey_info(SubkeyPurpose::LocalAuditEventKey, &vault_id, None)
+            .expect("audit info must build");
+        let metadata = build_subkey_info(SubkeyPurpose::MetadataEncryptionKey, &vault_id, Some(1))
+            .expect("metadata info must build");
+
+        kani::assert(audit.is_ascii(), "HKDF info must be ASCII");
+        kani::assert(metadata.is_ascii(), "HKDF info must be ASCII");
+        kani::assert(
+            audit.len() == "meissnerseal:audit:v1:vault:".len() + (crate::types::VaultId::LEN * 2),
+            "non-AEAD HKDF info length must match registry encoding",
+        );
+        kani::assert(
+            metadata.ends_with(":aead:1"),
+            "AEAD-scoped HKDF info must encode the AEAD identifier",
+        );
     }
 
     #[kani::proof]
@@ -223,14 +234,23 @@ mod proofs {
     }
 
     #[kani::proof]
-    fn verify_derive_subkey_rejects_aead_mismatch() {
-        // Type-level proof: SubKey output length is always 32 bytes (Key<32>).
-        // Calling derive_subkey with kani::any() vault_id causes String format
-        // explosion due to format!("{byte:02x}") over 16 symbolic bytes.
-        // The rejection behavior is proven by test_subkey_derivation_all (concrete).
+    fn verify_derive_subkey_output_length() {
         kani::assert(
             crate::types::Key::<32>::LEN == SubKey::LEN,
             "SubKey output must always be 32 bytes",
+        );
+    }
+
+    #[kani::proof]
+    fn verify_root_salt_binding_input_length() {
+        kani::assert(
+            ROOT_SALT_INPUT_LEN
+                == ROOT_SALT_DOMAIN_V1.len() + crate::types::VaultId::LEN + HeaderNonce::LEN,
+            "root salt binding input must include domain, vault_id, and header_nonce",
+        );
+        kani::assert(
+            sha2::Sha256::digest([0u8; ROOT_SALT_INPUT_LEN]).len() == Prk::LEN,
+            "root salt transcript hash must stay 32 bytes",
         );
     }
 }
@@ -409,5 +429,47 @@ mod tests {
         let expected = SubKey::from_bytes(expected_bytes);
 
         assert!(bool::from(subkey.ct_eq(&expected)));
+    }
+
+    #[test]
+    fn derive_subkey_rejects_missing_aead_for_item_key_wrapping_key() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        assert!(matches!(
+            derive_subkey(
+                &root_prk,
+                SubkeyPurpose::ItemKeyWrappingKey,
+                &VAULT_ID,
+                None
+            ),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_subkey_rejects_missing_aead_for_metadata_encryption_key() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        assert!(matches!(
+            derive_subkey(
+                &root_prk,
+                SubkeyPurpose::MetadataEncryptionKey,
+                &VAULT_ID,
+                None,
+            ),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_subkey_rejects_unexpected_aead_for_local_audit_event_key() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        assert!(matches!(
+            derive_subkey(
+                &root_prk,
+                SubkeyPurpose::LocalAuditEventKey,
+                &VAULT_ID,
+                Some(1),
+            ),
+            Err(KdfError::InvalidInput)
+        ));
     }
 }
