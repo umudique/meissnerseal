@@ -28,6 +28,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "seen_envelope_ids"
+path = "fuzz_targets/seen_envelope_ids.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "sync_envelope"
 path = "fuzz_targets/sync_envelope.rs"
 test = false
