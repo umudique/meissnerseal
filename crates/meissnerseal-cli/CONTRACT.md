@@ -33,6 +33,7 @@ meissnerseal transfer create --sender-keypair PATH
 meissnerseal transfer receive <PATH> --recipient-keypair PATH
                                     --sender-identity PATH
                                     [--output PATH]
+                                    [--seen-ids PATH]
                                  — receive transfer envelope
 meissnerseal device pair --name NAME --self-keypair PATH
                          --self-identity PATH --peer-identity PATH

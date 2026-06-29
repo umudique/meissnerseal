@@ -14,11 +14,17 @@ use meissnerseal_core::{
             PairingPayload, PAIRING_PROTOCOL_VERSION_V1,
         },
     },
-    transfer::envelope::{envelope_from_bytes, envelope_to_bytes},
+    transfer::{
+        envelope::{envelope_from_bytes, envelope_to_bytes},
+        SeenEnvelopeIds,
+    },
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
 use meissnerseal_security::secret_lifecycle::SecretBytes;
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Parser)]
@@ -129,6 +135,8 @@ enum TransferCommands {
         sender_identity: PathBuf,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        seen_ids: Option<PathBuf>,
     },
 }
 
@@ -211,7 +219,15 @@ fn transfer_command(action: TransferCommands, stdout: &mut dyn Write) -> Result<
             recipient_keypair,
             sender_identity,
             output,
-        } => transfer_receive_command(envelope, recipient_keypair, sender_identity, output, stdout),
+            seen_ids,
+        } => transfer_receive_command(
+            envelope,
+            recipient_keypair,
+            sender_identity,
+            output,
+            seen_ids,
+            stdout,
+        ),
     }
 }
 
@@ -271,8 +287,12 @@ fn transfer_receive_command(
     recipient_keypair: PathBuf,
     sender_identity: PathBuf,
     output: Option<PathBuf>,
+    seen_ids: Option<PathBuf>,
     stdout: &mut dyn Write,
 ) -> Result<()> {
+    let seen_ids_path =
+        seen_ids.unwrap_or_else(|| default_seen_ids_path(&envelope, output.as_deref()));
+    let mut seen = load_seen_ids(&seen_ids_path)?;
     let envelope =
         envelope_from_bytes(&std::fs::read(&envelope)?).map_err(|_| CoreError::Crypto)?;
     let (_recipient_device_id, recipient_classical_public_key, recipient_keypair) =
@@ -289,14 +309,32 @@ fn transfer_receive_command(
         &recipient_keypair,
         recipient_classical_public_key,
         sender_signing_public_key,
+        &mut seen,
     )
     .map_err(|_| CoreError::Crypto)?;
+    std::fs::write(&seen_ids_path, seen.to_bytes())?;
+    restrict_owner_only(&seen_ids_path)?;
     if let Some(output) = output {
         std::fs::write(output, plaintext)?;
     } else {
         stdout.write_all(&plaintext)?;
     }
     Ok(())
+}
+
+fn default_seen_ids_path(envelope: &Path, output: Option<&Path>) -> PathBuf {
+    if let Some(output) = output {
+        return PathBuf::from(format!("{}.seen", output.display()));
+    }
+    PathBuf::from(format!("{}.seen", envelope.display()))
+}
+
+fn load_seen_ids(path: &PathBuf) -> Result<SeenEnvelopeIds> {
+    match std::fs::read(path) {
+        Ok(bytes) => SeenEnvelopeIds::from_bytes(&bytes).map_err(|_| CoreError::Crypto),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SeenEnvelopeIds::new()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn device_pair_command(
@@ -1036,11 +1074,13 @@ mod tests {
             recipient_keypair_path.clone(),
             sender_identity_path.clone(),
             Some(output_path.clone()),
+            None,
             &mut Vec::new(),
         )
         .expect("transfer receive");
 
         assert_eq!(std::fs::read(&output_path).expect("output"), plaintext);
+        let seen_ids_path = default_seen_ids_path(&envelope_path, Some(output_path.as_path()));
 
         for path in [
             sender_keypair_path,
@@ -1050,6 +1090,7 @@ mod tests {
             input_path,
             envelope_path,
             output_path,
+            seen_ids_path,
         ] {
             let _ = std::fs::remove_file(path);
         }
