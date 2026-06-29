@@ -427,6 +427,34 @@ fn parse_kdf_profile_params_rejects_unknown_profile_id() {
     assert!(parse_kdf_profile_params(&block).is_err());
 }
 
+// F-61/F-66: below-minimum profile params must be rejected so attacker-controlled
+// vault/bundle headers cannot collapse brute-force cost below the registered floor.
+// Tags: 0x0101=m_cost_kib, 0x0102=t_cost, 0x0103=p_lanes (each u32le at TLV offset +4).
+
+#[test]
+fn parse_kdf_profile_params_rejects_m_cost_below_minimum() {
+    let mut block = kdf_profile_value_from_vector();
+    let (offset, _) = find_kdf_param_tlv(&block, 0x0101).expect("m_cost_kib TLV");
+    block[offset + 4..offset + 8].copy_from_slice(&8u32.to_le_bytes());
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_t_cost_below_minimum() {
+    let mut block = kdf_profile_value_from_vector();
+    let (offset, _) = find_kdf_param_tlv(&block, 0x0102).expect("t_cost TLV");
+    block[offset + 4..offset + 8].copy_from_slice(&2u32.to_le_bytes());
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_p_lanes_below_minimum() {
+    let mut block = kdf_profile_value_from_vector();
+    let (offset, _) = find_kdf_param_tlv(&block, 0x0103).expect("p_lanes TLV");
+    block[offset + 4..offset + 8].copy_from_slice(&3u32.to_le_bytes());
+    assert!(parse_kdf_profile_params(&block).is_err());
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
 fn header_sourced_kdf_params_reproduce_existing_muk_vector() {

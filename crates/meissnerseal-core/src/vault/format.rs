@@ -4,7 +4,10 @@
 
 use meissnerseal_crypto::{
     aead::{decrypt, encrypt, Ciphertext, TAG_LEN},
-    kdf::argon2::{Argon2Params, ARGON2_MAX_M_COST_KIB, ARGON2_MAX_P_LANES, ARGON2_MAX_T_COST},
+    kdf::argon2::{
+        Argon2Params, ARGON2_MAX_M_COST_KIB, ARGON2_MAX_P_LANES, ARGON2_MAX_T_COST,
+        ARGON2_MIN_M_COST_KIB, ARGON2_MIN_P_LANES, ARGON2_MIN_T_COST,
+    },
     types::{AeadKey, XChaCha20Nonce},
 };
 
@@ -1539,6 +1542,17 @@ fn validate_argon2_params(params: &Argon2Params) -> Result<()> {
     }
     if params.output_len != 32 {
         return Err(format_error("invalid output_len"));
+    }
+    // F-61/F-66: enforce KDF_ARGON2ID_V1 minimum profile so attacker-controlled
+    // vault/bundle params cannot collapse brute-force cost below the registered floor.
+    if params.m_cost_kib < ARGON2_MIN_M_COST_KIB {
+        return Err(format_error("m_cost_kib below minimum profile"));
+    }
+    if params.t_cost < ARGON2_MIN_T_COST {
+        return Err(format_error("t_cost below minimum profile"));
+    }
+    if params.p_lanes < ARGON2_MIN_P_LANES {
+        return Err(format_error("p_lanes below minimum profile"));
     }
     if params.m_cost_kib > ARGON2_MAX_M_COST_KIB {
         return Err(format_error("m_cost_kib exceeds safety limit"));

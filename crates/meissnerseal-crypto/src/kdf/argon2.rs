@@ -17,6 +17,14 @@ pub const ARGON2_MAX_T_COST: u32 = 16;
 /// Maximum allowed parallelism lanes for Argon2id.
 pub const ARGON2_MAX_P_LANES: u32 = 16;
 
+/// Minimum memory cost enforced for KDF_ARGON2ID_V1 (64 MiB). Rejects attacker-supplied
+/// params that collapse brute-force cost; mirrors the canonical profile floor (F-61).
+pub const ARGON2_MIN_M_COST_KIB: u32 = 65_536;
+/// Minimum iteration count enforced for KDF_ARGON2ID_V1.
+pub const ARGON2_MIN_T_COST: u32 = 3;
+/// Minimum parallelism lanes enforced for KDF_ARGON2ID_V1.
+pub const ARGON2_MIN_P_LANES: u32 = 4;
+
 /// Explicit Argon2id parameter set for `KDF_ARGON2ID_V1`.
 #[derive(Clone, Copy, Debug)]
 pub struct Argon2Params {
@@ -62,6 +70,9 @@ pub fn derive(
         || params.t_cost == 0
         || params.p_lanes == 0
         || params.output_len != MasterUnlockKey::LEN
+        || params.m_cost_kib < ARGON2_MIN_M_COST_KIB
+        || params.t_cost < ARGON2_MIN_T_COST
+        || params.p_lanes < ARGON2_MIN_P_LANES
         || params.m_cost_kib > ARGON2_MAX_M_COST_KIB
         || params.t_cost > ARGON2_MAX_T_COST
         || params.p_lanes > ARGON2_MAX_P_LANES
@@ -207,16 +218,16 @@ mod tests {
     }
 
     // Each guard condition is tested in isolation (exactly one invalid field,
-    // every other field valid). This is the pattern that catches the `||`->`&&`
-    // mutations in the validation chain: under `&&`, a single true condition no
-    // longer short-circuits to Err. `m_cost_kib` is 256 (not 64) so the argon2
-    // backend accepts `p_lanes = MAX+1` (which requires m >= 8*p); otherwise
-    // Params::new would reject it and mask the guard mutation.
+    // every other field valid). This pattern catches `||`->`&&` mutations in the
+    // validation chain. Canonical profile values (m=MIN, t=MIN, p=MIN) are used
+    // so that min-profile enforcement is satisfied by all other fields while one
+    // is set invalid. The argon2 backend requires m >= 8*p; at p=MAX+1=17 we need
+    // m >= 136 KiB — ARGON2_MIN_M_COST_KIB (65536 KiB) satisfies this.
     fn valid_params() -> Argon2Params {
         Argon2Params {
-            m_cost_kib: 256,
-            t_cost: 1,
-            p_lanes: 1,
+            m_cost_kib: ARGON2_MIN_M_COST_KIB,
+            t_cost: ARGON2_MIN_T_COST,
+            p_lanes: ARGON2_MIN_P_LANES,
             output_len: MasterUnlockKey::LEN,
         }
     }
@@ -297,6 +308,45 @@ mod tests {
     fn derive_rejects_wrong_output_len() {
         let params = Argon2Params {
             output_len: MasterUnlockKey::LEN + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    // F-61: below-minimum profile params must be REJECTED.
+    // Each test sets one field one unit below the KDF_ARGON2ID_V1 minimum while
+    // keeping all other fields at valid canonical values.
+    #[test]
+    fn derive_rejects_m_cost_below_minimum() {
+        let params = Argon2Params {
+            m_cost_kib: ARGON2_MIN_M_COST_KIB - 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_t_cost_below_minimum() {
+        let params = Argon2Params {
+            t_cost: ARGON2_MIN_T_COST - 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive(PASSWORD, &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn derive_rejects_p_lanes_below_minimum() {
+        let params = Argon2Params {
+            p_lanes: ARGON2_MIN_P_LANES - 1,
             ..valid_params()
         };
         assert!(matches!(
