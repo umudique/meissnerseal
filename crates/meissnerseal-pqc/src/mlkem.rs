@@ -233,6 +233,42 @@ mod tests {
             .0
     }
 
+    // F-55: encapsulate boundary — adversarial public keys must not panic.
+    // ML-KEM has no "invalid" 1184-byte public key (any bytes are structurally
+    // valid); this test verifies the boundary handles edge-case inputs gracefully.
+    #[test]
+    fn encapsulate_adversarial_keys_do_not_panic() {
+        let _ = encapsulate(&MlKemPublicKey::from_bytes([0u8; 1184]));
+        let _ = encapsulate(&MlKemPublicKey::from_bytes([0xffu8; 1184]));
+    }
+
+    // F-55: encapsulate cross-verify — using NIST key material confirms that
+    // encapsulate() produces ciphertexts that decapsulate() can recover, closing
+    // the gap between the one-sided NIST KAT vectors (decapsulation only).
+    #[test]
+    fn encapsulate_with_nist_ek_consistent_with_dk() {
+        for tc_id in [26usize, 27, 28] {
+            let ek_hex = parse_kat_field(KAT, "ek", tc_id);
+            let dk_hex = parse_kat_field(KAT, "dk", tc_id);
+
+            let ek_bytes: [u8; 1184] = from_hex(ek_hex).try_into().expect("ek 1184 bytes");
+            let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("dk 2400 bytes");
+
+            let public_key = MlKemPublicKey::from_bytes(ek_bytes);
+            let private_key = MlKemPrivateKey::from_bytes(dk_bytes);
+
+            let (ciphertext, encap_secret) =
+                encapsulate(&public_key).expect("NIST KAT ek encapsulate succeeds");
+            let decap_secret =
+                decapsulate(&private_key, &ciphertext).expect("round-trip decapsulate succeeds");
+
+            assert!(
+                bool::from(encap_secret.ct_eq(&decap_secret)),
+                "tcId {tc_id}: encapsulate/decapsulate shared secret mismatch"
+            );
+        }
+    }
+
     #[test]
     fn nist_kat_decapsulate() {
         // Vectors tcId 26, 27, 28 from NIST ACVP internalProjection.json.
