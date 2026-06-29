@@ -133,6 +133,11 @@ impl SigningPrivateKey {
         self.algorithm
     }
 
+    /// Audited escape hatch for cross-crate serialization (F-53).
+    ///
+    /// The bytes must not outlive the closure. Callers that need to persist a
+    /// copy must wrap in `Zeroizing<Vec<u8>>`. All call sites are in
+    /// meissnerseal-core and tracked in the finding register.
     pub fn with_secret_bytes<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
         f(&self.bytes)
     }
@@ -282,6 +287,39 @@ pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature
         }
         SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Err(SigningError::Unimplemented),
     }
+}
+
+/// Sign a payload with an explicit domain separator (F-52, CONTRACT.md [P-04]).
+///
+/// Prefer this over `sign` for all protocol operations. Passing `domain` and
+/// `payload` separately makes domain separation structurally mandatory, preventing
+/// cross-protocol replay when new callers are added. Example domains:
+/// `b"meissnerseal.device.enrollment.v1\x00"`,
+/// `b"meissnerseal.transfer.envelope.v1\x00"`.
+pub fn sign_with_domain(
+    private_key: &SigningPrivateKey,
+    domain: &[u8],
+    payload: &[u8],
+) -> Result<Signature> {
+    let mut message = Vec::with_capacity(domain.len().saturating_add(payload.len()));
+    message.extend_from_slice(domain);
+    message.extend_from_slice(payload);
+    sign(private_key, &message)
+}
+
+/// Verify a signature produced by `sign_with_domain` for the same domain and payload.
+///
+/// Prefer this over `verify` for all protocol operations. CONTRACT.md [P-04].
+pub fn verify_with_domain(
+    public_key: &SigningPublicKey,
+    domain: &[u8],
+    payload: &[u8],
+    signature: &Signature,
+) -> Result<()> {
+    let mut message = Vec::with_capacity(domain.len().saturating_add(payload.len()));
+    message.extend_from_slice(domain);
+    message.extend_from_slice(payload);
+    verify(public_key, &message, signature)
 }
 
 /// Verify an algorithm-tagged signature against an algorithm-tagged public key.
@@ -542,6 +580,39 @@ mod tests {
 
             verify(&public_key, &message, &signature).expect("Ed25519V1 KAT verify must succeed");
         }
+    }
+
+    #[test]
+    fn sign_with_domain_matches_manual_domain_prepend() {
+        let private_key = ed25519_private_key();
+        let public_key = ed25519_public_key();
+        let domain = b"meissnerseal.test.domain.v1\x00";
+        let payload = b"test payload bytes";
+
+        let sig_via_api =
+            sign_with_domain(&private_key, domain, payload).expect("sign_with_domain succeeds");
+
+        let mut manual = Vec::new();
+        manual.extend_from_slice(domain);
+        manual.extend_from_slice(payload);
+        let sig_manual = sign(&private_key, &manual).expect("manual sign succeeds");
+
+        assert_eq!(sig_via_api.as_bytes(), sig_manual.as_bytes());
+        verify_with_domain(&public_key, domain, payload, &sig_via_api)
+            .expect("verify_with_domain accepts matching signature");
+    }
+
+    #[test]
+    fn sign_with_domain_different_domains_produce_different_signatures() {
+        let private_key = ed25519_private_key();
+        let payload = b"same payload";
+
+        let sig_a =
+            sign_with_domain(&private_key, b"domain.a\x00", payload).expect("sign domain a");
+        let sig_b =
+            sign_with_domain(&private_key, b"domain.b\x00", payload).expect("sign domain b");
+
+        assert_ne!(sig_a.as_bytes(), sig_b.as_bytes());
     }
 
     fn ed25519_private_key() -> SigningPrivateKey {

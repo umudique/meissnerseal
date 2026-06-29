@@ -283,11 +283,12 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
     )
     .map_err(|_| TransferError::KeyDerivationFailed)?;
 
-    let mut signed_message = Vec::new();
-    signed_message.extend_from_slice(TRANSFER_ENVELOPE_SIGNING_DOMAIN);
-    signed_message.extend_from_slice(&transcript_hash);
-    let signature = mldsa::sign(&params.sender_signing_private_key, &signed_message)
-        .map_err(|_| TransferError::SigningFailed)?;
+    let signature = mldsa::sign_with_domain(
+        &params.sender_signing_private_key,
+        TRANSFER_ENVELOPE_SIGNING_DOMAIN,
+        &transcript_hash,
+    )
+    .map_err(|_| TransferError::SigningFailed)?;
 
     // transfer_profile_v1.md §2 defines no cleartext signature field on
     // TransferEnvelope. Keep the public envelope layout unchanged and carry
@@ -356,12 +357,10 @@ pub fn open_envelope(
     .map_err(|_| TransferError::DecryptionFailed)?;
     let (signature, payload) = decode_signed_payload(plaintext.as_ref())?;
 
-    let mut signed_message = Vec::new();
-    signed_message.extend_from_slice(TRANSFER_ENVELOPE_SIGNING_DOMAIN);
-    signed_message.extend_from_slice(&envelope.transcript_hash);
-    mldsa::verify(
+    mldsa::verify_with_domain(
         &params.sender_signing_public_key,
-        &signed_message,
+        TRANSFER_ENVELOPE_SIGNING_DOMAIN,
+        &envelope.transcript_hash,
         &signature,
     )
     .map_err(|_| TransferError::VerificationFailed)?;

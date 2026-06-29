@@ -334,8 +334,8 @@ pub fn sign_enrollment_message(
     private_key: &SigningPrivateKey,
     message: &[u8],
 ) -> Result<mldsa::Signature> {
-    let prefixed = enrollment_signing_message(message);
-    mldsa::sign(private_key, &prefixed).map_err(|_| DeviceIdentityError::SigningFailed)
+    mldsa::sign_with_domain(private_key, DEVICE_ENROLLMENT_SIGNING_DOMAIN, message)
+        .map_err(|_| DeviceIdentityError::SigningFailed)
 }
 
 pub fn serialize_keypair_bytes(
