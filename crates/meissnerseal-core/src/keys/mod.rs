@@ -2,3 +2,4 @@
 // keys
 pub mod device;
 pub mod hierarchy;
+pub mod pairing;

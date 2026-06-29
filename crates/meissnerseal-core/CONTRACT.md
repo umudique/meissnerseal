@@ -39,6 +39,16 @@ keys::device::
   try_new_signing_public_key(algorithm, bytes: &[u8]) -> Result<SigningPublicKey>
   sign_enrollment_message(private_key, message) -> Result<Signature>
 
+keys::pairing::
+  PairingPayload
+  PairingTranscript
+  PairingSession
+  build_pairing_payload(identity, capabilities) -> Result<PairingPayload>
+  validate_pairing_payload(payload) -> Result<()>
+  compute_pairing_transcript(payload) -> Result<PairingTranscript>
+  derive_short_authentication_string(pairing_nonce, transcript_hash) -> Result<String>
+  validate_trust_transition(from, to) -> Result<()>
+
 transfer::
   TransferProfileId
   TransferEnvelope
