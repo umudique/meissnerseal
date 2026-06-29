@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Device identity and enrollment key material.
 
+use crate::transfer::SeenEnvelopeIds;
 use crate::transfer::{
     create_envelope, open_envelope, CreateEnvelopeParams, OpenEnvelopeParams, TransferEnvelope,
     TransferError,
@@ -499,6 +500,7 @@ pub fn open_received_transfer_envelope(
     recipient_keypair: &DeviceKeypair,
     recipient_classical_public_key: X25519PublicKey,
     sender_signing_public_key: SigningPublicKey,
+    seen: &mut SeenEnvelopeIds,
 ) -> core::result::Result<Vec<u8>, TransferError> {
     open_envelope(
         envelope,
@@ -512,6 +514,7 @@ pub fn open_received_transfer_envelope(
             ),
             sender_signing_public_key,
         },
+        seen,
     )
 }
 
