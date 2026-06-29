@@ -15,6 +15,42 @@
 version: 1
 updated: 2026-06-29
 
+# ── Systemic root causes ──────────────────────────────────────────────────────
+# Root causes are named patterns that appear across multiple findings.
+# Each finding that traces to a root cause carries root_cause: <id>.
+
+root_causes:
+  - id: KOK-A
+    name: "Externally-read security parameter used before minimum enforcement"
+    date: 2026-06-29
+    description: >-
+      An attacker-controlled security parameter (Argon2 cost factors, algorithm
+      ID, profile tag) is read from an external source (vault file, export bundle,
+      transfer bundle) and consumed in a security-sensitive operation before any
+      minimum or profile constraint is enforced. Authentication of the external
+      source is either absent or occurs after the parameter is consumed. The gap
+      is not in missing validation code per se, but in ordering: the pattern is
+      read → use → (optionally) validate instead of read → validate-with-minimums
+      → use. The attacker controls the parameter set; the victim's passphrase
+      hardening budget is spent against an attacker-chosen cost, not the
+      application-defined minimum.
+    pattern: >-
+      external_source → parse() → validate_bounds_only() → derive/sign/enc(params)
+    instances:
+      - finding: F-61
+        location: "meissnerseal-core/src/vault/format.rs:1073 + 1530"
+        surface: "vault file header Argon2 params → derive_session_keys()"
+      - finding: F-66
+        location: "meissnerseal-core/src/export.rs:154"
+        surface: "export bundle Argon2 params → derive_export_key()"
+    related_findings:
+      - F-39
+    remediation_pattern: >-
+      Move minimum-profile enforcement into the parser (parse_kdf_profile_params),
+      not into the consumer (derive_*). Any code path that ingests an external
+      source must be unable to produce a below-minimum parameter struct; the
+      struct type itself should be a proof of validity.
+
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
   - id: F-01
@@ -88,7 +124,7 @@ findings:
     date: 2026-06-06
     description: "pqc_profile silently defaults to 0 when TAG_PQC_PROFILE absent (downgrade surface)"
     cwe: CWE-754
-    severity: low-medium
+    severity: medium
     blocking: false
     status: deferred
     remediation: "MVP-0 fail-safe (PQC inactive, AAD binds pqc_profile); MVP-2: None+reject. Documented inline in format.rs (arcanum-ops DEC-1)"
@@ -808,7 +844,7 @@ findings:
       from_hex(). One line, no new dependency, explicit failure message.
       hex crate not added — the assert is sufficient for this test helper.
     verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
-    commit: ""
+    commit: "728b3c0"
 
   - id: F-47
     kind: test_quality
@@ -831,7 +867,7 @@ findings:
       signature lengths are derived outputs not inputs; hex validity is caught
       by fromhex(); case_id uniqueness omitted (file is author-controlled).
     verification: "python3 signing_ed25519_cross_verify.py: ed25519-sign-00: ok, ed25519-sign-01: ok (2026-06-26)"
-    commit: ""
+    commit: "46cc79b"
 
   - id: F-46
     kind: coverage_gap
@@ -855,7 +891,7 @@ findings:
       package already in requirements.txt; no new dependencies needed.
       All three exit non-zero on any case failure.
     verification: "ci-fast.yml updated; scripts exit non-zero on drift (2026-06-26)"
-    commit: ""
+    commit: "4db0810"
 
   - id: F-45
     kind: test_quality
@@ -878,7 +914,7 @@ findings:
       parses the full file; schema mismatches fail at test startup, not
       mid-test. ed25519_private_key/public_key helpers now use cases[0].
     verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
-    commit: ""
+    commit: "313206b"
 
   - id: F-44
     kind: coverage_gap
@@ -901,7 +937,7 @@ findings:
       ID LE assertion for each. New cases in the JSON are automatically
       covered without test changes.
     verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-26)"
-    commit: ""
+    commit: "486862a"
 
   - id: F-43
     kind: dependency_configuration
@@ -929,7 +965,7 @@ findings:
     verification: >-
       cargo metadata confirmed: ed25519-dalek activated features = [zeroize],
       curve25519-dalek activated features = [zeroize] (2026-06-25).
-    commit: ""
+    commit: "36f9013"
 
   - id: F-42
     kind: test_quality
@@ -954,7 +990,7 @@ findings:
       invariant guaranteed by Zeroizing<Vec<u8>>, documented in CONTRACT.md
       [G-04] and the type's doc block.
     verification: "cargo test -p meissnerseal-pqc: 18/18 pass (2026-06-25)"
-    commit: ""
+    commit: "bd483f3"
 
   - id: F-41
     kind: error_semantics
@@ -974,11 +1010,13 @@ findings:
     blocking: false
     status: resolved
     remediation: >-
-      Rewrite assertion to verify: (1) output has exactly one data row (rows.len() == 1),
-      meaning the newline in the label did not produce a second row; (2) the escaped
-      representation of the label (e.g. \\n literal) appears in the row.
-    verification: "Covered by list_label_with_newline_does_not_inject: asserts one rendered row and literal escaped newline in output."
-    commit: "31179dd"
+      Added MalformedSignature variant to SigningError. verify() now returns
+      MalformedSignature when signature bytes cannot be parsed to [u8; 64],
+      and VerificationFailed only when the well-formed signature does not
+      verify cryptographically. CONTRACT.md API surface and verify() doc
+      block updated.
+    verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
+    commit: "387fc0d"
 
   - id: F-33
     kind: coverage_gap
@@ -1069,14 +1107,6 @@ findings:
       ensures zero-copy handoff into SecretBytes at every call site.
     commit: "65a8c80"
 
-      Added MalformedSignature variant to SigningError. verify() now returns
-      MalformedSignature when signature bytes cannot be parsed to [u8; 64],
-      and VerificationFailed only when the well-formed signature does not
-      verify cryptographically. CONTRACT.md API surface and verify() doc
-      block updated.
-    verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
-    commit: ""
-
   - id: F-40
     kind: design
     component: meissnerseal-pqc
@@ -1152,7 +1182,7 @@ findings:
       anchored vector. Full wire-format KAT (encoded_signature) deferred to
       XFER-1 per scope boundary.
     verification: "cargo test -p meissnerseal-pqc: 17/17 pass (2026-06-25)"
-    commit: ""
+    commit: "717a9f8"
 
   - id: F-37
     kind: api_design
@@ -1474,30 +1504,41 @@ findings:
 
   - id: F-61
     kind: security_review
-    component: meissnerseal-crypto
+    component: "meissnerseal-core / meissnerseal-crypto"
+    root_cause: KOK-A
     source: ""
     date: 2026-06-29
     description: >-
-      KDF_ARGON2ID_V1 accepts caller-supplied Argon2 parameters across a broad
-      range instead of enforcing the registered profile. Validation (argon2.rs:61-70)
-      only checks for zero and exceeding MAX constants; values below the intended
-      m=65536, t=3, p=4 profile (e.g. m=256, t=1, p=1) are accepted. The
-      test valid_params() helper uses m=256/t=1/p=1, confirming these are valid
-      inputs. A downgrade path exists if vault metadata or higher-level callers
-      control the parameter set.
-    cwe: "CWE-327"
-    severity: medium
+      Argon2 parameter validation enforces only zero and MAX bounds; the registered
+      KDF_ARGON2ID_V1 minimums (m=65536, t=3, p=4) are never enforced at parse
+      time. The security-critical entry point is meissnerseal-core/format.rs:
+      parse_kdf_profile_params() (format.rs:1147) reads attacker-controlled vault
+      header bytes, calls validate_argon2_params() (format.rs:1530), and returns
+      HeaderKdfParams with the attacker-supplied values intact. These flow directly
+      into derive_session_keys() via engine.rs:unlock_impl(). Full attack chain:
+      vault file tamper → parse_header() [format.rs:1073] →
+      parse_kdf_profile_params() → validate_argon2_params() accepts m=8 →
+      derive_session_keys() derives MUK with m=8 → offline brute-force cost
+      drops 8192x. The meissnerseal-crypto argon2.rs validate_argon2_params()
+      has the identical gap; format.rs is the primary security-critical call site.
+      See F-66 for the export/import exploitation surface. Root cause: KOK-A.
+    cwe: "CWE-916"
+    severity: high
     blocking: true
-    blocks: "meissnerseal-crypto security/mvp2-hardening gate"
+    blocks: "meissnerseal-core / meissnerseal-crypto security/mvp2-hardening gate"
     status: open
     remediation: >-
-      Enforce the exact KDF_ARGON2ID_V1 profile at the production API boundary, or
-      define an explicit versioned policy that rejects parameters below documented
-      minimums. Keep any low-cost parameters test-only.
+      Enforce the KDF_ARGON2ID_V1 minimum profile (m>=65536, t>=3, p>=4) inside
+      parse_kdf_profile_params() in format.rs so no externally-read parameter set
+      can produce a derivation weaker than the registered profile. Mirror the same
+      minimum check in argon2.rs validate_argon2_params(). Test-only helpers that
+      use below-profile parameters must be gated behind #[cfg(test)] or use a
+      separate unchecked constructor.
     verification: >-
-      Add negative tests for below-profile parameters such as m_cost_kib < 65536,
-      t_cost < 3, and p_lanes < 4, plus positive tests for the canonical
-      KDF_ARGON2ID_V1 profile.
+      Negative tests: parse_kdf_profile_params() rejects m_cost_kib < 65536,
+      t_cost < 3, p_lanes < 4. Positive test: canonical KDF_ARGON2ID_V1 profile
+      accepted. Integration test: vault file with tampered m_cost_kib=8 must
+      return a parse error before any KDF derivation is invoked.
     commit: ""
 
   - id: F-62
@@ -1608,4 +1649,42 @@ findings:
     verification: >-
       Add a test or proof assertion that ARGON2ID_SALT_LEN equals 45 and that all
       comments, fixtures, and Kani messages reference the same constant.
+    commit: ""
+
+  - id: F-66
+    kind: security_review
+    component: meissnerseal-core
+    root_cause: KOK-A
+    source: ""
+    date: 2026-06-29
+    description: >-
+      Export bundle import path reads Argon2 parameters from an attacker-controlled
+      bundle and passes them to parse_kdf_profile_params() without minimum profile
+      enforcement, then directly to derive_export_key(). Full attack chain:
+      malicious export bundle → import() [export.rs:148] →
+      parse_kdf_profile_params(parsed.kdf_params) [export.rs:154] →
+      validate_argon2_params() accepts m=8 → derive_export_key() [export.rs:197]
+      → derive(passphrase, source_vault_id, &kdf_params.argon2) invoked at m=8.
+      Threat model: attacker distributes a crafted bundle to a victim via social
+      engineering; victim imports it; the export passphrase is brute-forceable at
+      8192x reduced cost compared to the KDF_ARGON2ID_V1 profile. Note: export
+      creation always uses HeaderKdfParams::canonical_argon2id_v1(), so a
+      legitimately produced bundle is not affected; the attack requires a forged
+      or tampered bundle. Root cause: KOK-A. Shares the same fix point as F-61
+      (parse_kdf_profile_params minimum enforcement).
+    cwe: "CWE-916"
+    severity: high
+    blocking: true
+    blocks: "meissnerseal-core security/mvp2-hardening gate"
+    status: open
+    remediation: >-
+      Apply minimum-profile enforcement in parse_kdf_profile_params() (shared fix
+      with F-61). No additional guard is needed inside derive_export_key() once
+      the parser rejects below-profile inputs. After the fix, verify that import()
+      returns a parse error without invoking derive_export_key() when bundle
+      params are below the minimum profile.
+    verification: >-
+      Integration test: import() with a bundle containing m_cost_kib=8 returns a
+      parse error before any KDF derivation is invoked. Positive test: import()
+      succeeds with a bundle using the canonical KDF_ARGON2ID_V1 profile.
     commit: ""
