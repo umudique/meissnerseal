@@ -3,6 +3,18 @@ use clap::{error::ErrorKind, Parser, Subcommand};
 use meissnerseal_core::{
     error::{CoreError, Result},
     item::{self, ItemKind, ItemSummary, PlainItem},
+    keys::{
+        device::{
+            create_signed_transfer_envelope, deserialize_identity_text, deserialize_keypair_bytes,
+            generate, open_received_transfer_envelope, serialize_identity_text,
+            serialize_keypair_bytes, DeviceIdentity,
+        },
+        pairing::{
+            build_pairing_payload, compute_pairing_transcript, derive_short_authentication_string,
+            PairingPayload, PAIRING_PROTOCOL_VERSION_V1,
+        },
+    },
+    transfer::envelope::{envelope_from_bytes, envelope_to_bytes},
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
 use meissnerseal_security::secret_lifecycle::SecretBytes;
@@ -96,15 +108,43 @@ enum Commands {
 #[derive(Subcommand)]
 enum TransferCommands {
     /// Create a transfer envelope
-    Create,
+    Create {
+        #[arg(long)]
+        sender_keypair: PathBuf,
+        #[arg(long)]
+        recipient_identity: PathBuf,
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value = "3600")]
+        expires_in: u64,
+    },
     /// Receive a transfer envelope
-    Receive,
+    Receive {
+        envelope: PathBuf,
+        #[arg(long)]
+        recipient_keypair: PathBuf,
+        #[arg(long)]
+        sender_identity: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
 enum DeviceCommands {
     /// Pair with another device
-    Pair,
+    Pair {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        self_keypair: PathBuf,
+        #[arg(long)]
+        self_identity: PathBuf,
+        #[arg(long)]
+        peer_identity: PathBuf,
+    },
     /// List approved devices
     List,
     /// Revoke a device
@@ -122,7 +162,7 @@ fn main() {
             ) {
                 error.exit();
             }
-            eprintln!("invalid command-line arguments");
+            eprintln!("invalid command-line arguments; command is not wired in MVP-0 CLI yet");
             std::process::exit(2);
         }
     };
@@ -145,10 +185,221 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
             writeln!(stdout, "Vault is locked.")?;
             Ok(())
         }
-        Commands::Transfer { .. } | Commands::Device { .. } => Err(CoreError::InvalidState(
+        Commands::Transfer { action } => transfer_command(action, stdout),
+        Commands::Device { action } => device_command(action, stdout),
+    }
+}
+
+fn transfer_command(action: TransferCommands, stdout: &mut dyn Write) -> Result<()> {
+    match action {
+        TransferCommands::Create {
+            sender_keypair,
+            recipient_identity,
+            input,
+            output,
+            expires_in,
+        } => transfer_create_command(
+            sender_keypair,
+            recipient_identity,
+            input,
+            output,
+            expires_in,
+            stdout,
+        ),
+        TransferCommands::Receive {
+            envelope,
+            recipient_keypair,
+            sender_identity,
+            output,
+        } => transfer_receive_command(envelope, recipient_keypair, sender_identity, output, stdout),
+    }
+}
+
+fn device_command(action: DeviceCommands, stdout: &mut dyn Write) -> Result<()> {
+    match action {
+        DeviceCommands::Pair {
+            name,
+            self_keypair,
+            self_identity,
+            peer_identity,
+        } => device_pair_command(name, self_keypair, self_identity, peer_identity, stdout),
+        DeviceCommands::List | DeviceCommands::Revoke => Err(CoreError::InvalidState(
             "command is not wired in MVP-0 CLI yet".into(),
         )),
     }
+}
+
+fn transfer_create_command(
+    sender_keypair: PathBuf,
+    recipient_identity: PathBuf,
+    input: PathBuf,
+    output: PathBuf,
+    expires_in: u64,
+    stdout: &mut dyn Write,
+) -> Result<()> {
+    let (sender_device_id, _sender_classical_public_key, sender_keypair) =
+        deserialize_keypair_bytes(&std::fs::read(&sender_keypair)?).map_err(device_parse_error)?;
+    let recipient = deserialize_identity_text(&std::fs::read_to_string(&recipient_identity)?)
+        .map_err(device_parse_error)?;
+    let plaintext = std::fs::read(&input)?;
+    let expires_at = Some(
+        unix_now_millis()?
+            .checked_add(
+                expires_in
+                    .checked_mul(1_000)
+                    .ok_or_else(|| CoreError::InvalidState("expiry overflow".into()))?,
+            )
+            .ok_or_else(|| CoreError::InvalidState("expiry overflow".into()))?,
+    );
+    let envelope = create_signed_transfer_envelope(
+        sender_device_id,
+        &sender_keypair,
+        Some(recipient.device_id),
+        recipient.classical_public_key,
+        recipient.pqc_public_key,
+        plaintext,
+        expires_at,
+    )
+    .map_err(|_| CoreError::Crypto)?;
+    std::fs::write(&output, envelope_to_bytes(&envelope))?;
+    writeln!(stdout, "Transfer envelope written to {}.", output.display())?;
+    Ok(())
+}
+
+fn transfer_receive_command(
+    envelope: PathBuf,
+    recipient_keypair: PathBuf,
+    sender_identity: PathBuf,
+    output: Option<PathBuf>,
+    stdout: &mut dyn Write,
+) -> Result<()> {
+    let envelope =
+        envelope_from_bytes(&std::fs::read(&envelope)?).map_err(|_| CoreError::Crypto)?;
+    let (_recipient_device_id, recipient_classical_public_key, recipient_keypair) =
+        deserialize_keypair_bytes(&std::fs::read(&recipient_keypair)?)
+            .map_err(device_parse_error)?;
+    let mut sender = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
+        .map_err(device_parse_error)?;
+    let sender_signing_public_key = sender
+        .signing_public_key
+        .take()
+        .ok_or_else(|| CoreError::InvalidState("sender identity missing signing key".into()))?;
+    let plaintext = open_received_transfer_envelope(
+        &envelope,
+        &recipient_keypair,
+        recipient_classical_public_key,
+        sender_signing_public_key,
+    )
+    .map_err(|_| CoreError::Crypto)?;
+    if let Some(output) = output {
+        std::fs::write(output, plaintext)?;
+    } else {
+        stdout.write_all(&plaintext)?;
+    }
+    Ok(())
+}
+
+fn device_pair_command(
+    name: String,
+    self_keypair: PathBuf,
+    self_identity: PathBuf,
+    peer_identity: PathBuf,
+    stdout: &mut dyn Write,
+) -> Result<()> {
+    let (identity, keypair) = generate(name).map_err(device_parse_error)?;
+    let identity_text = serialize_identity_text(&identity);
+    eprintln!("=== YOUR IDENTITY (share this with peer) ===");
+    eprint!("{identity_text}");
+    eprintln!("=== PASTE PEER IDENTITY, then blank line ===");
+    let peer_block = read_until_blank_line()?;
+    let peer = deserialize_identity_text(&peer_block).map_err(device_parse_error)?;
+    let payload = build_pairing_payload(&identity, 0x01)
+        .map_err(|_| CoreError::InvalidState("pairing payload failed".into()))?;
+    let peer_payload = synthetic_pairing_payload(&peer, payload.pairing_nonce)?;
+    let transcript = compute_pairing_transcript(&peer_payload)
+        .map_err(|_| CoreError::InvalidState("pairing transcript failed".into()))?;
+    let sas = derive_short_authentication_string(
+        &peer_payload.pairing_nonce,
+        &transcript.transcript_hash,
+    )
+    .map_err(|_| CoreError::InvalidState("pairing SAS failed".into()))?;
+    // MVP-2 SAS limitation: each side uses its own nonce against the peer's identity,
+    // so SAS values will differ between initiator and responder. Transfer protocol
+    // security is unaffected; this step is advisory only until bilateral nonce
+    // commitment exchange is implemented.
+    eprintln!("SAS: {sas} — verify this matches the other device");
+    eprint!("Confirm SAS match? [y/N]: ");
+    let mut confirm = String::new();
+    std::io::stdin().read_line(&mut confirm)?;
+    if !matches!(confirm.trim(), "y" | "Y") {
+        return Err(CoreError::InvalidState(
+            "pairing aborted — SAS not confirmed".into(),
+        ));
+    }
+    let keypair_bytes = serialize_keypair_bytes(&identity, &keypair);
+    std::fs::write(&self_keypair, &*keypair_bytes)?;
+    restrict_owner_only(&self_keypair)?;
+    std::fs::write(&self_identity, identity_text)?;
+    std::fs::write(&peer_identity, serialize_identity_text(&peer))?;
+    eprintln!(
+        "WARNING: device keypair written to {} — restrict permissions: chmod 600 {}",
+        self_keypair.display(),
+        self_keypair.display()
+    );
+    writeln!(stdout, "Pairing complete.")?;
+    Ok(())
+}
+
+fn synthetic_pairing_payload(
+    identity: &DeviceIdentity,
+    pairing_nonce: [u8; 32],
+) -> Result<PairingPayload> {
+    let mut payload = build_pairing_payload(identity, 0x01)
+        .map_err(|_| CoreError::InvalidState("pairing payload failed".into()))?;
+    payload.protocol_version = PAIRING_PROTOCOL_VERSION_V1;
+    payload.pairing_nonce = pairing_nonce;
+    Ok(payload)
+}
+
+fn device_parse_error(_: meissnerseal_core::keys::device::DeviceIdentityError) -> CoreError {
+    CoreError::InvalidState("device file is invalid".into())
+}
+
+fn read_until_blank_line() -> Result<String> {
+    use std::io::BufRead;
+    let mut out = String::new();
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            break;
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+fn unix_now_millis() -> Result<u64> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    u64::try_from(millis).map_err(|_| CoreError::InvalidState("timestamp overflow".into()))
+}
+
+#[cfg(unix)]
+fn restrict_owner_only(path: &PathBuf) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(0o600);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_owner_only(_path: &PathBuf) -> Result<()> {
+    Ok(())
 }
 
 fn init_vault(path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
@@ -586,6 +837,225 @@ mod tests {
     }
 
     #[test]
+    fn transfer_device_help_contains_no_secret_values() {
+        let help = help_text();
+
+        assert!(help.contains("shell-history leakage risk"));
+        assert!(help.contains("transfer"));
+        assert!(help.contains("device"));
+        assert!(!help.contains(KNOWN_SECRET));
+        assert!(!help.contains("Secret value:"));
+        assert!(!help.contains("Master password:"));
+    }
+
+    #[test]
+    fn transfer_create_rejects_plaintext_secret_in_argv() {
+        let positional = Cli::try_parse_from([
+            "meissnerseal",
+            "transfer",
+            "create",
+            "--sender-keypair",
+            "/tmp/sender.ms-kp",
+            "--recipient-identity",
+            "/tmp/recipient.ms-id",
+            "--input",
+            "/tmp/plain.txt",
+            "--output",
+            "/tmp/out.msenv",
+            KNOWN_SECRET,
+        ]);
+        assert!(positional.is_err());
+
+        let flagged = Cli::try_parse_from([
+            "meissnerseal",
+            "transfer",
+            "create",
+            "--sender-keypair",
+            "/tmp/sender.ms-kp",
+            "--recipient-identity",
+            "/tmp/recipient.ms-id",
+            "--input",
+            "/tmp/plain.txt",
+            "--output",
+            "/tmp/out.msenv",
+            "--secret",
+            KNOWN_SECRET,
+        ]);
+        assert!(flagged.is_err());
+    }
+
+    #[test]
+    fn envelope_file_roundtrip_preserves_all_fields() {
+        let (sender_identity, sender_keypair) =
+            generate("sender".to_owned()).expect("sender device");
+        let (recipient_identity, _recipient_keypair) =
+            generate("recipient".to_owned()).expect("recipient device");
+        let recipient_device_id = recipient_identity.device_id;
+        let envelope = create_signed_transfer_envelope(
+            sender_identity.device_id,
+            &sender_keypair,
+            Some(recipient_device_id),
+            recipient_identity.classical_public_key,
+            recipient_identity.pqc_public_key,
+            b"roundtrip plaintext".to_vec(),
+            Some(unix_now_millis().expect("time") + 60_000),
+        )
+        .expect("envelope");
+
+        let parsed = envelope_from_bytes(&envelope_to_bytes(&envelope)).expect("parse envelope");
+
+        assert_envelopes_equal(&envelope, &parsed);
+    }
+
+    #[test]
+    fn envelope_parser_rejects_wrong_magic() {
+        assert!(envelope_from_bytes(b"BADENV").is_err());
+    }
+
+    #[test]
+    fn envelope_parser_rejects_truncated_input() {
+        let (sender_identity, sender_keypair) =
+            generate("sender".to_owned()).expect("sender device");
+        let (recipient_identity, _recipient_keypair) =
+            generate("recipient".to_owned()).expect("recipient device");
+        let envelope = create_signed_transfer_envelope(
+            sender_identity.device_id,
+            &sender_keypair,
+            Some(recipient_identity.device_id),
+            recipient_identity.classical_public_key,
+            recipient_identity.pqc_public_key,
+            b"roundtrip plaintext".to_vec(),
+            Some(unix_now_millis().expect("time") + 60_000),
+        )
+        .expect("envelope");
+        let bytes = envelope_to_bytes(&envelope);
+
+        let truncated = bytes
+            .get(..bytes.len().saturating_sub(1))
+            .expect("truncated slice");
+        assert!(envelope_from_bytes(truncated).is_err());
+    }
+
+    #[test]
+    fn identity_file_roundtrip_preserves_all_fields() {
+        let (identity, _keypair) = generate("identity".to_owned()).expect("identity");
+        let parsed = deserialize_identity_text(&serialize_identity_text(&identity)).expect("parse");
+
+        assert_eq!(identity.device_id, parsed.device_id);
+        assert_eq!(identity.display_name, parsed.display_name);
+        assert_eq!(
+            identity.classical_public_key.as_slice(),
+            parsed.classical_public_key.as_slice()
+        );
+        assert_eq!(
+            identity.pqc_public_key.as_slice(),
+            parsed.pqc_public_key.as_slice()
+        );
+        assert_eq!(
+            identity
+                .signing_public_key
+                .as_ref()
+                .expect("signing key")
+                .as_bytes(),
+            parsed
+                .signing_public_key
+                .as_ref()
+                .expect("signing key")
+                .as_bytes()
+        );
+        assert_eq!(identity.created_at, parsed.created_at);
+    }
+
+    #[test]
+    fn identity_file_parser_rejects_unknown_version() {
+        assert!(deserialize_identity_text("unknown-version\n").is_err());
+    }
+
+    #[test]
+    fn keypair_file_roundtrip_preserves_device_id_and_classical_public_key() {
+        let (identity, keypair) = generate("keypair".to_owned()).expect("keypair");
+        let (device_id, classical_public_key, _parsed_keypair) =
+            deserialize_keypair_bytes(&serialize_keypair_bytes(&identity, &keypair))
+                .expect("parse keypair");
+
+        assert_eq!(identity.device_id, device_id);
+        assert_eq!(
+            identity.classical_public_key.as_slice(),
+            classical_public_key.as_slice()
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "PQC transfer path is too slow under Miri")]
+    fn transfer_create_then_receive_roundtrips_plaintext() {
+        let (sender_identity, sender_keypair) = generate("sender".to_owned()).expect("sender");
+        let (recipient_identity, recipient_keypair) =
+            generate("recipient".to_owned()).expect("recipient");
+        let sender_keypair_path = unique_vault_path("sender-kp");
+        let recipient_keypair_path = unique_vault_path("recipient-kp");
+        let sender_identity_path = unique_vault_path("sender-id");
+        let recipient_identity_path = unique_vault_path("recipient-id");
+        let input_path = unique_vault_path("transfer-input");
+        let envelope_path = unique_vault_path("transfer-envelope");
+        let output_path = unique_vault_path("transfer-output");
+        let plaintext = b"transfer plaintext never argv";
+
+        std::fs::write(
+            &sender_keypair_path,
+            &*serialize_keypair_bytes(&sender_identity, &sender_keypair),
+        )
+        .expect("write sender keypair");
+        std::fs::write(
+            &recipient_keypair_path,
+            &*serialize_keypair_bytes(&recipient_identity, &recipient_keypair),
+        )
+        .expect("write recipient keypair");
+        std::fs::write(
+            &sender_identity_path,
+            serialize_identity_text(&sender_identity),
+        )
+        .expect("write sender identity");
+        std::fs::write(
+            &recipient_identity_path,
+            serialize_identity_text(&recipient_identity),
+        )
+        .expect("write recipient identity");
+        std::fs::write(&input_path, plaintext).expect("write plaintext");
+
+        transfer_create_command(
+            sender_keypair_path.clone(),
+            recipient_identity_path.clone(),
+            input_path.clone(),
+            envelope_path.clone(),
+            3600,
+            &mut Vec::new(),
+        )
+        .expect("transfer create");
+        transfer_receive_command(
+            envelope_path.clone(),
+            recipient_keypair_path.clone(),
+            sender_identity_path.clone(),
+            Some(output_path.clone()),
+            &mut Vec::new(),
+        )
+        .expect("transfer receive");
+
+        assert_eq!(std::fs::read(&output_path).expect("output"), plaintext);
+
+        for path in [
+            sender_keypair_path,
+            recipient_keypair_path,
+            sender_identity_path,
+            recipient_identity_path,
+            input_path,
+            envelope_path,
+            output_path,
+        ] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
     fn stdin_global_flag_parses_before_add() {
         let cli = Cli::try_parse_from([
             "meissnerseal",
@@ -776,6 +1246,32 @@ mod tests {
         haystack
             .windows(needle.len())
             .any(|window| window == needle)
+    }
+
+    fn assert_envelopes_equal(
+        left: &meissnerseal_core::transfer::TransferEnvelope,
+        right: &meissnerseal_core::transfer::TransferEnvelope,
+    ) {
+        assert_eq!(left.version, right.version);
+        assert_eq!(
+            left.transfer_profile.to_u16(),
+            right.transfer_profile.to_u16()
+        );
+        assert_eq!(left.envelope_id, right.envelope_id);
+        assert_eq!(left.sender_device_id, right.sender_device_id);
+        assert_eq!(left.recipient_device_id, right.recipient_device_id);
+        assert_eq!(
+            left.classical_ephemeral_public_key.as_slice(),
+            right.classical_ephemeral_public_key.as_slice()
+        );
+        assert_eq!(
+            left.pqc_ciphertext.as_slice(),
+            right.pqc_ciphertext.as_slice()
+        );
+        assert_eq!(left.transcript_hash, right.transcript_hash);
+        assert_eq!(left.encrypted_payload, right.encrypted_payload);
+        assert_eq!(left.nonce, right.nonce);
+        assert_eq!(left.expires_at, right.expires_at);
     }
 
     fn help_text() -> String {
