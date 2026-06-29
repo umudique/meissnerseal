@@ -11,6 +11,15 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// XChaCha20-Poly1305 authentication tag length in bytes.
 pub const TAG_LEN: usize = 16;
 
+/// Canonical record-level AAD length (F-56/F-57).
+///
+/// Layout: `"meissnerseal-aad-v1"` (19) + vault_id (16) + 5×u16 (10) +
+/// record_id (16) + revision_id (16) + kind (2) = 79 bytes.
+///
+/// Enforced at compile time via the `[u8; 79]` return type of `build_aad()`.
+/// Other AEAD domains (table, export, transfer) use different lengths by design.
+pub const RECORD_AAD_LEN: usize = 79;
+
 /// AEAD ciphertext bytes with the authentication tag appended.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Ciphertext(Vec<u8>);
@@ -77,7 +86,7 @@ pub type Result<T> = core::result::Result<T, AeadError>;
 /// - `key` is a 32-byte `AeadKey` derived by this crate's key derivation APIs.
 /// - `plaintext` is caller-owned secret input and is never logged, printed, or
 ///   written to any output except the returned authenticated ciphertext.
-/// - `aad` is the caller-supplied canonical 74-byte AAD construction.
+/// - `aad` is the caller-supplied canonical 79-byte AAD construction.
 /// ## Postconditions
 /// - On success, returns `(Ciphertext, XChaCha20Nonce)` containing
 ///   `ciphertext_bytes || tag` and the generated nonce to store with the record.
@@ -203,7 +212,7 @@ mod prop_tests {
 
     // Property: encrypt → decrypt roundtrip holds for all inputs.
     //
-    // ∀ key[32], nonce[24], plaintext (0..512 bytes), aad (0..128 bytes):
+    // ∀ key[32], nonce[24], plaintext (0..512 bytes), aad[79]:
     //   decrypt(encrypt(p, aad, n, k), aad, n, k) == Ok(p)
     proptest! {
         #[test]
@@ -211,7 +220,7 @@ mod prop_tests {
             key_bytes in proptest::array::uniform32(0u8..),
             nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
             plaintext in proptest::collection::vec(0u8.., 0..512),
-            aad in proptest::collection::vec(0u8.., 0..128),
+            aad in proptest::array::uniform::<_, 79>(0u8..),
         ) {
             let key = AeadKey::from_bytes(key_bytes);
             let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
@@ -224,14 +233,14 @@ mod prop_tests {
 
         // Property: wrong key → always Err.
         //
-        // ∀ plaintext, aad, k1 ≠ k2: decrypt(encrypt(p, aad, k1), aad, k2) == Err
+        // ∀ plaintext, aad[79], k1 ≠ k2: decrypt(encrypt(p, aad, k1), aad, k2) == Err
         #[test]
         fn wrong_key_rejected(
             key1_bytes in proptest::array::uniform32(0u8..),
             key2_bytes in proptest::array::uniform32(0u8..),
             nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
             plaintext in proptest::collection::vec(0u8.., 1..64),
-            aad in proptest::collection::vec(0u8.., 0..64),
+            aad in proptest::array::uniform::<_, 79>(0u8..),
         ) {
             prop_assume!(key1_bytes != key2_bytes);
             let key1 = AeadKey::from_bytes(key1_bytes);
@@ -244,14 +253,14 @@ mod prop_tests {
 
         // Property: wrong AAD → always Err.
         //
-        // ∀ p, k, aad1 ≠ aad2: decrypt(encrypt(p, aad1, k), aad2, k) == Err
+        // ∀ p, k, aad1[79] ≠ aad2[79]: decrypt(encrypt(p, aad1, k), aad2, k) == Err
         #[test]
         fn wrong_aad_rejected(
             key_bytes in proptest::array::uniform32(0u8..),
             nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
             plaintext in proptest::collection::vec(0u8.., 1..64),
-            aad1 in proptest::collection::vec(0u8.., 0..64),
-            aad2 in proptest::collection::vec(0u8.., 0..64),
+            aad1 in proptest::array::uniform::<_, 79>(0u8..),
+            aad2 in proptest::array::uniform::<_, 79>(0u8..),
         ) {
             prop_assume!(aad1 != aad2);
             let key = AeadKey::from_bytes(key_bytes);
@@ -267,7 +276,7 @@ mod prop_tests {
             key_bytes in proptest::array::uniform32(0u8..),
             nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
             plaintext in proptest::collection::vec(0u8.., 0..512),
-            aad in proptest::collection::vec(0u8.., 0..128),
+            aad in proptest::array::uniform::<_, 79>(0u8..),
         ) {
             let key = AeadKey::from_bytes(key_bytes);
             let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
@@ -283,7 +292,7 @@ mod prop_tests {
             key_bytes in proptest::array::uniform32(0u8..),
             nonce_bytes in proptest::array::uniform::<_, 24>(0u8..),
             plaintext in proptest::collection::vec(0u8.., 1..64),
-            aad in proptest::collection::vec(0u8.., 0..64),
+            aad in proptest::array::uniform::<_, 79>(0u8..),
         ) {
             let key = AeadKey::from_bytes(key_bytes);
             let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
