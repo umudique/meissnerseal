@@ -1451,7 +1451,7 @@ findings:
       #[should_panic] test random_bytes_rejects_lengths_above_conservative_max
       passes in cargo test. Kani verify_random_bytes_max_len_is_conservative
       proves the constant stays within the conservative range.
-    commit: ""
+    commit: "bd6664b"
 
   - id: F-59
     kind: consistency
@@ -1477,7 +1477,7 @@ findings:
       top_level_argon2_module_re_exports_kdf_implementation and
       top_level_hkdf_module_re_exports_kdf_implementation tests confirm both paths
       resolve to the real implementation structs/enums.
-    commit: ""
+    commit: "bd6664b"
 
   - id: F-60
     kind: coverage_gap
@@ -1505,7 +1505,7 @@ findings:
       cargo kani --package meissnerseal-crypto runs all four harnesses. Harnesses
       share constants with production builders — drift in any encoding causes proof
       failure.
-    commit: ""
+    commit: "bd6664b"
 
 # ── meissnerseal-crypto KDF security review findings (2026-06-29) ─────────────
 
@@ -1607,7 +1607,7 @@ findings:
       cargo check --workspace --all-targets passes with pub(crate) visibility —
       any external reference would be a compile error. CONTRACT.md reflects
       the reduced public surface.
-    commit: ""
+    commit: "bd6664b"
 
   - id: F-64
     kind: coverage_gap
@@ -1636,7 +1636,7 @@ findings:
       cargo test --workspace: all three negative tests pass. Any regression that
       makes an AEAD-scoped purpose accept None (or non-AEAD accept Some) will
       break these tests immediately.
-    commit: ""
+    commit: "bd6664b"
 
   - id: F-65
     kind: consistency
@@ -1663,7 +1663,7 @@ findings:
       test_argon2id_salt_construction asserts salt.len() == ARGON2ID_SALT_LEN.
       verify_argon2id_salt_length Kani harness proves salt.len() == ARGON2ID_SALT_LEN
       for all vault_id inputs. Consistent 45-byte reference throughout.
-    commit: ""
+    commit: "bd6664b"
 
   - id: F-66
     kind: security_review
