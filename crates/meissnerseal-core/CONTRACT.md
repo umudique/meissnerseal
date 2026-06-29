@@ -52,10 +52,15 @@ keys::pairing::
 transfer::
   TransferProfileId
   TransferEnvelope
+  SeenEnvelopeIds
+  SeenEnvelopeIds::new() -> Self
+  SeenEnvelopeIds::check_and_insert(id, expires_at) -> Result<(), TransferError>
+  SeenEnvelopeIds::to_bytes() -> Vec<u8>
+  SeenEnvelopeIds::from_bytes(bytes) -> Result<Self, TransferError>
   compute_transcript_hash(params: &TranscriptParams) -> [u8; 32]
   validate_envelope(envelope: &TransferEnvelope) -> Result<(), TransferError>
   create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError>
-  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams) -> Result<Vec<u8>, TransferError>
+  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams, seen: &mut SeenEnvelopeIds) -> Result<Vec<u8>, TransferError>
 
 ```
 
@@ -85,11 +90,6 @@ recovery::  [MVP-1 — ADR-010]
        Approved devices always have a signing_public_key.
        Transition to Approved with None signing key returns Err.
 
-[G-04] transfer::receive_envelope rejects:  [MVP-2 — transfer::]
-       — expired envelopes (expires_at in the past)
-       — replayed envelope_ids
-       — transcript hash mismatches
-       — unknown or mismatched algorithm IDs
 ```
 
 ### Planned Preconditions
@@ -109,6 +109,14 @@ recovery::  [MVP-1 — ADR-010]
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
+
+[G-04] transfer::open_envelope rejects:
+       — expired envelopes (expires_at in the past)
+       — replayed envelope_ids through SeenEnvelopeIds::check_and_insert
+       — transcript hash mismatches
+       — unknown or mismatched algorithm IDs
+       SeenEnvelopeIds serializes accepted envelope IDs with expiry-aware
+       eviction and fail-closed parsing.
 
 [G-05] Vault parser rejects:
        — wrong magic bytes
