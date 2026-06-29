@@ -5,6 +5,7 @@ use crate::kdf::{KdfError, Result};
 use crate::types::{DerivedSubkey, HeaderNonce, HkdfPrk, Key, VaultRootKey};
 use core::fmt::Write;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 const ROOT_SALT_DOMAIN_V1: &[u8; 25] = b"meissnerseal-root-salt-v1";
 
@@ -57,9 +58,10 @@ pub enum SubkeyPurpose {
 ///   wherever secret equality is required.
 pub fn extract(salt: &[u8], ikm: &[u8]) -> Prk {
     let (prk, _) = hkdf::Hkdf::<Sha256>::extract(Some(salt), ikm);
-    let mut bytes = [0u8; Prk::LEN];
+    // F-62: Zeroizing clears the stack copy of the PRK on drop
+    let mut bytes = Zeroizing::new([0u8; Prk::LEN]);
     bytes.copy_from_slice(&prk);
-    Prk::from_bytes(bytes)
+    Prk::from_bytes(*bytes)
 }
 
 /// HKDF-SHA256 expand into a fixed-length key.
@@ -80,10 +82,11 @@ pub fn extract(salt: &[u8], ikm: &[u8]) -> Prk {
 pub fn expand<const N: usize>(prk: &Prk, info: &[u8]) -> Result<Key<N>> {
     let hkdf =
         hkdf::Hkdf::<Sha256>::from_prk(prk.as_slice()).map_err(|_| KdfError::InvalidInput)?;
-    let mut output = [0u8; N];
-    hkdf.expand(info, &mut output)
+    // F-62: Zeroizing clears the expanded key material from the stack on drop
+    let mut output = Zeroizing::new([0u8; N]);
+    hkdf.expand(info, &mut *output)
         .map_err(|_| KdfError::InvalidInput)?;
-    Ok(Key::from_bytes(output))
+    Ok(Key::from_bytes(*output))
 }
 
 /// Derive a 32-byte subkey from a root PRK and purpose-specific HKDF info.
