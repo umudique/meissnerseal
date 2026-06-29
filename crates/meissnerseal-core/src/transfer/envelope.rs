@@ -25,6 +25,7 @@ pub type Nonce = [u8; 24];
 /// Context string for XFER-1 transfer envelope signatures (F-39).
 pub const TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8] = b"meissnerseal.transfer.envelope.v1\x00";
 const TRANSFER_TRANSCRIPT_DOMAIN: &[u8] = b"meissnerseal-transfer-transcript-v1";
+const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 
 /// Transfer envelope for `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`.
 ///
@@ -359,6 +360,141 @@ pub fn open_envelope(
     .map_err(|_| TransferError::VerificationFailed)?;
 
     Ok(payload.to_vec())
+}
+
+#[must_use]
+pub fn envelope_to_bytes(envelope: &TransferEnvelope) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(TRANSFER_ENVELOPE_MAGIC);
+    out.extend_from_slice(&envelope.version.to_le_bytes());
+    out.extend_from_slice(&envelope.transfer_profile.to_u16().to_le_bytes());
+    out.extend_from_slice(&envelope.envelope_id);
+    out.extend_from_slice(&envelope.sender_device_id);
+    if let Some(recipient_device_id) = envelope.recipient_device_id {
+        out.push(1);
+        out.extend_from_slice(&recipient_device_id);
+    } else {
+        out.push(0);
+    }
+    out.extend_from_slice(envelope.classical_ephemeral_public_key.as_slice());
+    let pqc_ct_len = u32::try_from(envelope.pqc_ciphertext.as_slice().len()).unwrap_or(u32::MAX);
+    out.extend_from_slice(&pqc_ct_len.to_le_bytes());
+    out.extend_from_slice(envelope.pqc_ciphertext.as_slice());
+    out.extend_from_slice(&envelope.transcript_hash);
+    out.extend_from_slice(&envelope.nonce);
+    if let Some(expires_at) = envelope.expires_at {
+        out.push(1);
+        out.extend_from_slice(&expires_at.to_le_bytes());
+    } else {
+        out.push(0);
+    }
+    let payload_len = u32::try_from(envelope.encrypted_payload.len()).unwrap_or(u32::MAX);
+    out.extend_from_slice(&payload_len.to_le_bytes());
+    out.extend_from_slice(&envelope.encrypted_payload);
+    out
+}
+
+pub fn envelope_from_bytes(bytes: &[u8]) -> Result<TransferEnvelope, TransferError> {
+    let mut parser = EnvelopeByteParser::new(bytes);
+    if parser.take(TRANSFER_ENVELOPE_MAGIC.len())? != TRANSFER_ENVELOPE_MAGIC {
+        return Err(TransferError::UnknownProfile);
+    }
+    let version = parser.take_u16_le()?;
+    if version != 1 {
+        return Err(TransferError::UnknownProfile);
+    }
+    let transfer_profile = TransferProfileId::from_u16(parser.take_u16_le()?)?;
+    let envelope_id = parser.take_array()?;
+    let sender_device_id = parser.take_array()?;
+    let recipient_device_id = match parser.take_u8()? {
+        0 => None,
+        1 => Some(parser.take_array()?),
+        _ => return Err(TransferError::UnknownProfile),
+    };
+    let classical_ephemeral_public_key = X25519PublicKey::from_bytes(parser.take_array()?);
+    let pqc_ct_len = parser.take_u32_le()? as usize;
+    let pqc_ciphertext = MlKemCiphertext::from_bytes(
+        parser
+            .take(pqc_ct_len)?
+            .try_into()
+            .map_err(|_| TransferError::UnknownProfile)?,
+    );
+    let transcript_hash = parser.take_array()?;
+    let nonce = parser.take_array()?;
+    let expires_at = match parser.take_u8()? {
+        0 => None,
+        1 => Some(parser.take_u64_le()?),
+        _ => return Err(TransferError::UnknownProfile),
+    };
+    let payload_len = parser.take_u32_le()? as usize;
+    let encrypted_payload = parser.take(payload_len)?.to_vec();
+    if !parser.is_empty() {
+        return Err(TransferError::UnknownProfile);
+    }
+
+    Ok(TransferEnvelope {
+        version,
+        transfer_profile,
+        envelope_id,
+        sender_device_id,
+        recipient_device_id,
+        classical_ephemeral_public_key,
+        pqc_ciphertext,
+        transcript_hash,
+        encrypted_payload,
+        nonce,
+        expires_at,
+    })
+}
+
+struct EnvelopeByteParser<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> EnvelopeByteParser<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8], TransferError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(TransferError::UnknownProfile)?;
+        let slice = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(TransferError::UnknownProfile)?;
+        self.offset = end;
+        Ok(slice)
+    }
+
+    fn take_u8(&mut self) -> Result<u8, TransferError> {
+        Ok(*self.take(1)?.first().ok_or(TransferError::UnknownProfile)?)
+    }
+
+    fn take_u16_le(&mut self) -> Result<u16, TransferError> {
+        Ok(u16::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_u32_le(&mut self) -> Result<u32, TransferError> {
+        Ok(u32::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_u64_le(&mut self) -> Result<u64, TransferError> {
+        Ok(u64::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_array<const N: usize>(&mut self) -> Result<[u8; N], TransferError> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| TransferError::UnknownProfile)
+    }
 }
 
 fn unix_time_millis() -> Timestamp {
