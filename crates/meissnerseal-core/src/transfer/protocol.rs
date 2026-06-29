@@ -77,6 +77,8 @@ pub enum TransferError {
     UnknownProfile,
     #[error("transfer envelope expired")]
     ExpiredEnvelope,
+    #[error("transfer envelope id has already been accepted")]
+    ReplayedEnvelopeId,
     #[error("transfer transcript hash mismatch")]
     TranscriptMismatch,
     #[error("missing PQC ciphertext")]
@@ -97,6 +99,8 @@ pub enum TransferError {
     InvalidEnvelopeId,
     #[error("transfer transcript hash helper unavailable")]
     TranscriptHashUnavailable,
+    #[error("replay store file format is unknown or corrupt")]
+    MalformedReplayStore,
     #[error("transfer implementation unavailable")]
     Unimplemented,
 }
