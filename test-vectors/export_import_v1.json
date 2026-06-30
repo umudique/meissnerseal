@@ -1,0 +1,90 @@
+{
+  "profile": "ARCEXP_EXPORT_IMPORT_V1",
+  "version": 1,
+  "description": "Known-answer vectors for encrypted .msexp export/import framing and AEAD authentication. Covers round-trip semantics, ciphertext corruption rejection, wrong decryption key rejection, and boundary payload values via an empty-secret item.",
+  "generated_by": "generate_export_import.py (argon2-cffi 23.1.0, PyNaCl 1.5.0, Python stdlib struct/hashlib/json)",
+  "handoff_note": "Core should use the round-trip case to build live items, call export(session, passphrase), then import into a second unlocked vault and assert the imported plaintext matches expected_items. Use bundle_hex directly for import KATs. The corruption and wrong-decryption-key cases should call import(...) and assert a specific authentication rejection. In the current .msexp design, the 'recipient key' is the Argon2-derived AEAD key from the export passphrase, source_vault_id, and bundled kdf_params.",
+  "cases": [
+    {
+      "id": "export-import-roundtrip-v1",
+      "type": "round_trip",
+      "inputs": {
+        "source_vault_id_hex": "498a12874ce3ae03506e7b3c84838eab",
+        "export_passphrase_utf8": "tv-2-a export passphrase never real",
+        "nonce_hex": "f588f26de956c36f3c616c1c79d5789a46328c077f94ab5c",
+        "items": [
+          {
+            "kind": "SecureNote",
+            "kind_u16": 5,
+            "label": "boundary-empty-secret",
+            "tags": [],
+            "secret_hex": ""
+          },
+          {
+            "kind": "SshPrivateKey",
+            "kind_u16": 3,
+            "label": "roundtrip-key-material",
+            "tags": [
+              "prod",
+              "ops"
+            ],
+            "secret_hex": "45138011e202d974dc3d5e106a812276f123349e8420d09c5c8eb68737b7c763d6ed675d477e0a8ed736a4fc69930042"
+          }
+        ]
+      },
+      "expected": {
+        "bundle_magic_hex": "4152434558500100",
+        "bundle_version": 1,
+        "aead_profile_id": 1,
+        "kdf_profile_id": 1,
+        "kdf_params_hex": "0100260000000101040000000100020104000300000003010400040000000401020020000501040013000000",
+        "aad_hex": "498a12874ce3ae03506e7b3c84838eab41524345585001000100",
+        "payload_plaintext_hex": "02000000050015000000626f756e646172792d656d7074792d7365637265740000000000000000030016000000726f756e64747269702d6b65792d6d6174657269616c020000000400000070726f64030000006f70733000000045138011e202d974dc3d5e106a812276f123349e8420d09c5c8eb68737b7c763d6ed675d477e0a8ed736a4fc69930042",
+        "ciphertext_and_tag_hex": "da696a8d54c20ad95af7957f08cfd5c10e3b8877510695f34c3ac10655acb9b3c4ce7a175cb444bb2b09e3f5121716a92218caee5e29e6dd8cdb55119e76dca0132d07f0f9378c1a4409d4feb8bd86d0831224a3ad1eeaeade262af0505b93d4b953a9150b4509acd2437bbc9dde7afb602123b526e98833d70a987ebe56dde03a3ace02916f329e7b40af7fe083ab655e1521d915dd6e85057f",
+        "bundle_hex": "41524345585001000100498a12874ce3ae03506e7b3c84838eab2c0000000100260000000101040000000100020104000300000003010400040000000401020020000501040013000000f588f26de956c36f3c616c1c79d5789a46328c077f94ab5c9a000000da696a8d54c20ad95af7957f08cfd5c10e3b8877510695f34c3ac10655acb9b3c4ce7a175cb444bb2b09e3f5121716a92218caee5e29e6dd8cdb55119e76dca0132d07f0f9378c1a4409d4feb8bd86d0831224a3ad1eeaeade262af0505b93d4b953a9150b4509acd2437bbc9dde7afb602123b526e98833d70a987ebe56dde03a3ace02916f329e7b40af7fe083ab655e1521d915dd6e85057f",
+        "expected_items": [
+          {
+            "kind": "SecureNote",
+            "kind_u16": 5,
+            "label": "boundary-empty-secret",
+            "tags": [],
+            "secret_hex": ""
+          },
+          {
+            "kind": "SshPrivateKey",
+            "kind_u16": 3,
+            "label": "roundtrip-key-material",
+            "tags": [
+              "prod",
+              "ops"
+            ],
+            "secret_hex": "45138011e202d974dc3d5e106a812276f123349e8420d09c5c8eb68737b7c763d6ed675d477e0a8ed736a4fc69930042"
+          }
+        ]
+      }
+    },
+    {
+      "id": "export-import-ciphertext-corruption-v1",
+      "type": "ciphertext_corruption",
+      "inputs": {
+        "export_passphrase_utf8": "tv-2-a export passphrase never real",
+        "bundle_hex": "41524345585001000100498a12874ce3ae03506e7b3c84838eab2c0000000100260000000101040000000100020104000300000003010400040000000401020020000501040013000000f588f26de956c36f3c616c1c79d5789a46328c077f94ab5c9a000000da696a8d54c20ad85af7957f08cfd5c10e3b8877510695f34c3ac10655acb9b3c4ce7a175cb444bb2b09e3f5121716a92218caee5e29e6dd8cdb55119e76dca0132d07f0f9378c1a4409d4feb8bd86d0831224a3ad1eeaeade262af0505b93d4b953a9150b4509acd2437bbc9dde7afb602123b526e98833d70a987ebe56dde03a3ace02916f329e7b40af7fe083ab655e1521d915dd6e85057f",
+        "flipped_bundle_byte_offset": 109
+      },
+      "expected": {
+        "rejection": "auth"
+      }
+    },
+    {
+      "id": "export-import-wrong-decryption-key-v1",
+      "type": "wrong_decryption_key",
+      "inputs": {
+        "wrong_passphrase_utf8": "tv-2-a wrong decryption key never real",
+        "bundle_hex": "41524345585001000100498a12874ce3ae03506e7b3c84838eab2c0000000100260000000101040000000100020104000300000003010400040000000401020020000501040013000000f588f26de956c36f3c616c1c79d5789a46328c077f94ab5c9a000000da696a8d54c20ad95af7957f08cfd5c10e3b8877510695f34c3ac10655acb9b3c4ce7a175cb444bb2b09e3f5121716a92218caee5e29e6dd8cdb55119e76dca0132d07f0f9378c1a4409d4feb8bd86d0831224a3ad1eeaeade262af0505b93d4b953a9150b4509acd2437bbc9dde7afb602123b526e98833d70a987ebe56dde03a3ace02916f329e7b40af7fe083ab655e1521d915dd6e85057f"
+      },
+      "expected": {
+        "rejection": "auth"
+      }
+    }
+  ]
+}
