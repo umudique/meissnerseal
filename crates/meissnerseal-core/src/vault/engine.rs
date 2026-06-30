@@ -171,8 +171,16 @@ impl Vault<Locked> {
 
         // Derive key hierarchy and wrap the VaultRootKey.
         let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
+        let aead_profile = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1)?;
         let (keys, wrk_ciphertext, wrk_nonce) = params.password.with_secret(|pw| {
-            create_session_keys(pw, &vault_id, &header_nonce, &kdf_params, &aad)
+            create_session_keys(
+                pw,
+                &vault_id,
+                &header_nonce,
+                aead_profile,
+                &kdf_params,
+                &aad,
+            )
         })?;
 
         persist_vault(
@@ -625,6 +633,7 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
             pw,
             &context.vault_id,
             context.header_nonce.as_bytes(),
+            context.profile_set.aead_profile,
             &header.kdf_params,
             &frame.ciphertext,
             &frame.nonce,
