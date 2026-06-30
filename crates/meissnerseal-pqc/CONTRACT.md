@@ -42,6 +42,7 @@ mldsa::  SigningAlgorithmId
          SigningPrivateKey { algorithm_id, private_key_bytes }
          Signature { algorithm_id, signature_bytes }
 
+         ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey)
          sign(private_key, message) -> Result<Signature>
          verify(public_key, message, signature) -> Result<()>
          SigningAlgorithmId::from_u16(u16) -> Result<SigningAlgorithmId>
@@ -122,12 +123,12 @@ mldsa::  SigningAlgorithmId
 ## Verification Status
 
 ```
-cargo test:    16/16 pass for mlkem:: + hybrid:: + mldsa::, including
+cargo test:    25/25 pass for mlkem:: + hybrid:: + mldsa::, including
                NIST ML-KEM KATs, ADR-035 transfer-hybrid KATs, and ADR-028
                Ed25519V1 signing KATs
-Miri:          16/16 pass (2026-06-25, mlkem:: + hybrid:: + mldsa::,
+Miri:          25/25 pass (2026-06-28, mlkem:: + hybrid:: + mldsa::,
                -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check)
-               All Ed25519V1 sign/verify paths verified UB-free.
+               All Ed25519V1 keygen/sign/verify paths verified UB-free.
 Kani:          6 harnesses, 6/6 SUCCESS (2026-06-25)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module.

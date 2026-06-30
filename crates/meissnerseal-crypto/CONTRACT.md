@@ -24,6 +24,9 @@ hkdf::   extract(salt, ikm) -> Prk
          derive_root_prk(vault_root_key, vault_id, header_nonce) -> Prk
            // SHA256(domain||vault_id||header_nonce) → HKDF-Extract
 
+hash::   sha256_bytes(input) -> [u8; 32]
+           // SHA-256 digest over exact caller-provided bytes
+
 rng::    random_bytes(len) -> Vec<u8>            // OS CSPRNG only
          random_key() -> [u8; 32]
          random_nonce_xchacha20() -> [u8; 24]

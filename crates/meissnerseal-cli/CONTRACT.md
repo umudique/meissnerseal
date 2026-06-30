@@ -25,6 +25,19 @@ meissnerseal export --output PATH --vault PATH
 meissnerseal import --input PATH --vault PATH
                                  — import encrypted .msexp bundle
 meissnerseal lock                     — lock vault session
+meissnerseal transfer create --sender-keypair PATH
+                             --recipient-identity PATH
+                             --input PATH --output PATH
+                             [--expires-in SECS]
+                                 — create transfer envelope
+meissnerseal transfer receive <PATH> --recipient-keypair PATH
+                                    --sender-identity PATH
+                                    [--output PATH]
+                                    [--seen-ids PATH]
+                                 — receive transfer envelope
+meissnerseal device pair --name NAME --self-keypair PATH
+                         --self-identity PATH --peer-identity PATH
+                                 — pair with another device over OOB channel
 ```
 
 ---
@@ -34,14 +47,11 @@ meissnerseal lock                     — lock vault session
 ```
 meissnerseal import --unsafe-plaintext <PATH>
                                  — import plaintext JSON/CSV (dev/test only)
-meissnerseal transfer create          — create transfer envelope  [MVP-2]
-meissnerseal transfer receive <PATH>  — receive transfer envelope [MVP-2]
-meissnerseal device pair              — pair with another device  [post-MVP-0]
 meissnerseal device list              — list approved devices     [post-MVP-0]
 meissnerseal device revoke <device-id>                            [post-MVP-0]
 ```
 
-These commands parse correctly but return an error at runtime until wired.
+Device list/revoke commands parse correctly but return an error at runtime until wired.
 
 ---
 

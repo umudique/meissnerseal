@@ -30,6 +30,38 @@ export::
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
+keys::device::
+  DeviceIdentity
+  DeviceKeypair
+  DeviceTrustState
+  generate(display_name: String) -> Result<(DeviceIdentity, DeviceKeypair)>
+  try_new_ed25519_signing_public_key(bytes: [u8; 32]) -> Result<SigningPublicKey>
+  try_new_signing_public_key(algorithm, bytes: &[u8]) -> Result<SigningPublicKey>
+  sign_enrollment_message(private_key, message) -> Result<Signature>
+
+keys::pairing::
+  PairingPayload
+  PairingTranscript
+  PairingSession
+  build_pairing_payload(identity, capabilities) -> Result<PairingPayload>
+  validate_pairing_payload(payload) -> Result<()>
+  compute_pairing_transcript(payload) -> Result<PairingTranscript>
+  derive_short_authentication_string(pairing_nonce, transcript_hash) -> Result<String>
+  validate_trust_transition(from, to) -> Result<()>
+
+transfer::
+  TransferProfileId
+  TransferEnvelope
+  SeenEnvelopeIds
+  SeenEnvelopeIds::new() -> Self
+  SeenEnvelopeIds::check_and_insert(id, expires_at) -> Result<(), TransferError>
+  SeenEnvelopeIds::to_bytes() -> Vec<u8>
+  SeenEnvelopeIds::from_bytes(bytes) -> Result<Self, TransferError>
+  compute_transcript_hash(params: &TranscriptParams) -> [u8; 32]
+  validate_envelope(envelope: &TransferEnvelope) -> Result<(), TransferError>
+  create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError>
+  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams, seen: &mut SeenEnvelopeIds) -> Result<Vec<u8>, TransferError>
+
 ```
 
 ---
@@ -40,11 +72,6 @@ These APIs are not part of the MVP-0 Stable contract. They will be locked
 in future milestones as noted.
 
 ```
-transfer::  [MVP-2 — PQC-dependent, meissnerseal-pqc not Stable]
-  create_envelope(session, params) -> Result<TransferEnvelope>
-  receive_envelope<F, R>(session, envelope, f: F) -> Result<R>
-    // F: FnOnce(&PlainItemBundleView<'_>) -> Result<R>
-
 device::  [post-MVP-0 — pairing/sync roadmap-excluded]
   pair(session, pairing_payload) -> Result<DeviceIdentity>
   approve(session, device_id) -> Result<()>
@@ -63,11 +90,6 @@ recovery::  [MVP-1 — ADR-010]
        Approved devices always have a signing_public_key.
        Transition to Approved with None signing key returns Err.
 
-[G-04] transfer::receive_envelope rejects:  [MVP-2 — transfer::]
-       — expired envelopes (expires_at in the past)
-       — replayed envelope_ids
-       — transcript hash mismatches
-       — unknown or mismatched algorithm IDs
 ```
 
 ### Planned Preconditions
@@ -87,6 +109,14 @@ recovery::  [MVP-1 — ADR-010]
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
+
+[G-04] transfer::open_envelope rejects:
+       — expired envelopes (expires_at in the past)
+       — replayed envelope_ids through SeenEnvelopeIds::check_and_insert
+       — transcript hash mismatches
+       — unknown or mismatched algorithm IDs
+       SeenEnvelopeIds serializes accepted envelope IDs with expiry-aware
+       eviction and fail-closed parsing.
 
 [G-05] Vault parser rejects:
        — wrong magic bytes
