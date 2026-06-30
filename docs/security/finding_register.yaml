@@ -51,6 +51,92 @@ root_causes:
       source must be unable to produce a below-minimum parameter struct; the
       struct type itself should be a proof of validity.
 
+  - id: KOK-B
+    name: "Authenticated state parsed at trust boundary not carried into session type"
+    date: 2026-06-29
+    description: >-
+      Parameters authenticated at a trust boundary (vault_id, algorithm profile
+      IDs, header nonce) are not captured into the session type at unlock time.
+      Callers re-derive or re-read these values mid-session from mutable sources
+      (disk, raw constants, scattered fields), creating TOCTOU windows and
+      divergence between the identity established at unlock and the identity
+      used during cryptographic operations. The gap is architectural: the type
+      system does not carry proof of authentication forward, so callers cannot
+      be prevented from drifting.
+    pattern: >-
+      parse_header() → use(header.field) at unlock →
+      re-read(disk) / const VALUE at later operation (drift window)
+    instances:
+      - finding: F-75
+        location: "meissnerseal-core/src/export.rs — session_vault_id()"
+        surface: "vault_id re-read from disk at export time instead of carried from unlock"
+      - finding: F-85
+        location: "meissnerseal-core/src/vault/keys/hierarchy.rs — const AEAD_ID"
+        surface: "hardcoded AEAD_ID constant diverges from header-bound aead_profile"
+      - finding: F-98
+        location: "meissnerseal-core/src/vault/format.rs — aead_profile / pqc_profile fields"
+        surface: "algorithm profile IDs stored as raw u16 with no validated newtype"
+      - finding: F-105
+        location: "meissnerseal-core/src/vault/engine.rs — Vault<Unlocked>"
+        surface: "vault_id absent from session type; re-derived or re-read on demand"
+      - finding: F-108
+        location: "meissnerseal-core/src/vault/engine.rs — Vault<Unlocked>"
+        surface: "profile set absent from session type; algorithm choices not bound to session"
+    related_findings:
+      - F-73
+    remediation_pattern: >-
+      Introduce an AuthenticatedVaultContext struct capturing vault_id,
+      header_nonce, and profile_set once at unlock from the parsed header.
+      Embed in Vault<Unlocked>; all downstream operations read from context,
+      never from disk or raw constants. Profile IDs use typed newtypes with
+      fail-closed constructors validated at the parse boundary.
+
+  - id: KOK-C
+    name: "Security invariants expressed in prose not enforced by the type system"
+    date: 2026-06-29
+    description: >-
+      Security-critical constraints (plaintext payload lifetime, item access
+      scope, device key exposure surface, sender trust state) are documented
+      in CONTRACT.md comments and /// doc comments but are not structurally
+      enforced by the type system. A caller that ignores the documentation
+      can violate the invariant without a compile error. The gap is not a
+      missing check in one function but a pattern where the type boundary
+      fails to express the security contract.
+    pattern: >-
+      /// # Security: caller must not retain plaintext beyond closure →
+      fn returns T (T can be stored, cloned, leaked)
+    instances:
+      - finding: F-78
+        location: "meissnerseal-core/src/vault/engine.rs — with_item()"
+        surface: "with_item closure can return plaintext via captures; no type prevents it"
+      - finding: F-83
+        location: "meissnerseal-core/src/device/engine.rs — serialize_keypair_bytes()"
+        surface: "pub function exposes raw keypair bytes; sealed-at-rest invariant unenforced"
+      - finding: F-92
+        location: "meissnerseal-core/src/protocol/envelope.rs — encode_signed_payload()"
+        surface: "signed payload returned as Vec<u8>; plaintext lifetime unbounded by type"
+      - finding: F-103
+        location: "meissnerseal-core/src/vault/format.rs, export.rs, protocol/"
+        surface: "trust boundary matrix (provenance, size, encoding) documented not typed"
+      - finding: F-104
+        location: "meissnerseal-core/src/protocol/envelope.rs — OpenEnvelopeParams"
+        surface: "sender_signing_public_key: SigningPublicKey accepts any key regardless of trust state"
+      - finding: F-106
+        location: "meissnerseal-core/src/device/engine.rs — device key file"
+        surface: "keypair file written without identity binding; substitution undetectable at load"
+      - finding: F-107
+        location: "meissnerseal-core/src/protocol/envelope.rs — open_envelope()"
+        surface: "plaintext payload returned as Vec<u8>; callers can leak or retain it"
+    related_findings:
+      - F-83
+      - F-104
+    remediation_pattern: >-
+      Replace return types and parameter types with typed wrappers that make
+      the security invariant a compile-time guarantee: SecretPayload (no Clone,
+      ZeroizeOnDrop), with_item returning Result<()> (closure cannot return T),
+      TrustedSender (constructable only from verified DeviceIdentity),
+      SealedDeviceKeyFile (sealed write/open API, no raw byte exposure).
+
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
   - id: F-01
@@ -1874,6 +1960,7 @@ findings:
 
   - id: F-73
     kind: security_review
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
     date: 2026-06-29
@@ -1929,6 +2016,7 @@ findings:
 
   - id: F-75
     kind: design
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
     date: 2026-06-29
@@ -2013,6 +2101,7 @@ findings:
 
   - id: F-78
     kind: security_review
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
     date: 2026-06-30
@@ -2151,6 +2240,7 @@ findings:
 
   - id: F-83
     kind: security_review
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-06-30)"
     date: 2026-06-30
@@ -2211,6 +2301,7 @@ findings:
 
   - id: F-85
     kind: security_review
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-06-30)"
     date: 2026-06-30
@@ -2426,6 +2517,7 @@ findings:
 
   - id: F-92
     kind: security_review
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
     date: 2026-06-30
@@ -2613,6 +2705,7 @@ findings:
 
   - id: F-98
     kind: security_review
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-06-30)"
     date: 2026-06-30
@@ -2770,6 +2863,7 @@ findings:
 
   - id: F-103
     kind: security_architecture
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — meissnerseal-core cross-protocol analysis (2026-06-30)"
     date: 2026-06-30
@@ -2811,6 +2905,7 @@ findings:
 
   - id: F-104
     kind: security_architecture
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
     date: 2026-06-30
@@ -2845,6 +2940,7 @@ findings:
 
   - id: F-105
     kind: security_architecture
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/vault/engine.rs (2026-06-30)"
     date: 2026-06-30
@@ -2880,6 +2976,7 @@ findings:
 
   - id: F-106
     kind: security_architecture
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-06-30)"
     date: 2026-06-30
@@ -2917,6 +3014,7 @@ findings:
 
   - id: F-107
     kind: security_architecture
+    root_cause: KOK-C
     component: meissnerseal-core
     source: "security review — meissnerseal-core cross-module analysis (2026-06-30)"
     date: 2026-06-30
@@ -2956,6 +3054,7 @@ findings:
 
   - id: F-108
     kind: security_architecture
+    root_cause: KOK-B
     component: meissnerseal-core
     source: "security review — meissnerseal-core cross-module analysis (2026-06-30)"
     date: 2026-06-30
