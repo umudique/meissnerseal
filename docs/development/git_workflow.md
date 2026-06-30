@@ -201,7 +201,8 @@ Agents must create a commit **only after**:
    cargo check --workspace     — zero type errors
    cargo clippy ... -D warnings — zero warnings
    cargo test --workspace      — zero test failures
-   cargo audit                 — zero unresolved CVEs
+   cargo deny check            — zero advisory / ban / license errors
+   cargo audit                 — zero unresolved CVEs (redundant with deny advisories; both must pass)
    ```
 4. The Completion Report (AGENTS.md §13) is ready
 
@@ -229,7 +230,7 @@ Why:
 motivated this change. Reference the relevant spec section or ADR.>
 
 Verification:
-- cargo fmt, check, clippy, test, audit: all pass
+- cargo fmt, check, clippy, test, deny, audit: all pass
 - Miri: <pass / not applicable — reason>
 - Kani: <pass / not applicable — reason>
 - Test vectors: <added / updated / not applicable>
@@ -346,7 +347,7 @@ main                    — always deployable, protected
 ## Findings                ← include when findings are raised or closed
 | ID | Severity | Kind | Status |
 |---|---|---|---|
-| F-NN | Critical/High/Medium/Low | <description> | Resolved / Deferred / Accepted |
+| F-NN | low / medium / high | security_review / design / coverage_gap / consistency / security_architecture | open / resolved / deferred / accepted |
 ```
 
 ### Docs PRs (docs/)
