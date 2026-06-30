@@ -2008,3 +2008,760 @@ findings:
       metadata, passphrase material, or filesystem path appears in formatted
       CoreError output.
     commit: ""
+
+# ── meissnerseal-core item store security review (2026-06-30) ────────────────
+
+  - id: F-78
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      with_item is generic over R and returns Result<R>, which allows a caller
+      to clone label/tags or copy secret bytes inside the closure and return
+      them as R, bypassing the intended closure-scoped plaintext lifecycle.
+      PlainItemView holds borrowed references that cannot outlive the closure,
+      but the return type R is unconstrained, so owned plaintext can escape.
+      CONTRACT G-02 documents the invariant in prose but the type system does
+      not enforce it.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Change with_item to return Result<()> (non-escaping visitor), or
+      constrain R to non-secret result types via a sealed marker trait.
+      If a constrained return type is kept, document that with_item is an
+      explicit plaintext extraction boundary and audit all call sites.
+    verification: >-
+      Add compile-fail tests showing that returning Vec<u8>, String, PlainItem,
+      or SecretBytes from the closure is rejected. Add a positive test for a
+      permitted non-secret return type such as usize or bool.
+    commit: ""
+
+  - id: F-79
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      list calls read_item for every live record, which unwraps the REK under
+      the IKWK and decrypts the full encrypted payload including the secret
+      field before dropping it. A metadata-only list operation should not
+      materialize secret bytes at all. While decoded.secret is zeroized
+      immediately on drop, the secret is briefly live in memory during every
+      list call, widening the exposure window unnecessarily.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Split item metadata and secret payload into separately authenticated
+      encrypted regions, or add a metadata-only record path that authenticates
+      and decrypts label/tags without unwrapping the REK or decrypting the
+      secret field.
+    verification: >-
+      Add tests or instrumentation proving list does not construct SecretBytes,
+      unwrap REKs, or decrypt secret payloads when only summaries are requested.
+    commit: ""
+
+  - id: F-80
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      deserialize_item_payload enforces no explicit policy maxima on label
+      length, tag count, tag lengths, or secret length. Individual field
+      sizes are indirectly bounded by available payload bytes via take_bytes,
+      preventing OOM through a single oversized field. However, a large
+      tag_count with many small tags can drive excessive Vec growth and loop
+      iterations (each consuming 4 bytes of authentic payload), and no
+      static ceiling exists to reject unreasonable metadata sizes.
+    cwe: "CWE-400"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Define and enforce explicit maximum label length, tag count, tag length,
+      secret length, and total plaintext payload length. Reject payloads
+      exceeding any maximum with a static format error before allocation or
+      loop iteration.
+    verification: >-
+      Add negative tests for tag_count and label/tag/secret lengths at and
+      beyond the defined maxima. Confirm deserialization rejects over-limit
+      payloads before entering allocation loops.
+    commit: ""
+
+  - id: F-81
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      item_record_aad is documented as "Canonical 74-byte per-record AAD (§7)"
+      but returns [u8; 79]. The add contract (store.rs) also states "74-byte
+      record AAD from vault_format_v1.md §7". The canonical AAD is 79 bytes
+      per the build_aad implementation and the vectors.rs KAT. This drift
+      between comment and type can mislead independent implementations or
+      future record-frame changes around AEAD binding.
+    cwe: "CWE-325"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the "74-byte" references in item_record_aad and the add contract
+      with the correct "79-byte" value, or introduce a shared RECORD_AAD_LEN
+      constant used in both the comment and an assertion.
+    verification: >-
+      Add an assertion or test confirming item_record_aad(...).len() == 79.
+      Grep the codebase for stale "74-byte AAD" references and confirm none
+      remain in item store code or contracts.
+    commit: ""
+
+  - id: F-82
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Item store tests cover add/list, with_item, update, delete,
+      lock/unlock persistence, tampered payload ciphertext, tampered wrapped
+      REK, and record ID substitution. Not covered: malformed item payload
+      parser boundaries (oversized tag_count, truncated fields, trailing
+      garbage), tombstone frame parsing, duplicate record IDs in the table,
+      update nonce and revision freshness (only secret length is asserted),
+      and the with_item plaintext escape contract.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add focused tests for malformed serialized item payloads, over-limit
+      metadata and secret fields, tombstone handling, duplicate table entries,
+      update revision and nonce freshness, and attempts to return owned
+      plaintext from with_item.
+    verification: >-
+      CI should fail if malformed authenticated item payloads parse
+      successfully, if update reuses revision or nonce material, or if
+      with_item allows owned plaintext to escape contrary to G-02.
+    commit: ""
+
+# ── meissnerseal-core device identity & pairing security review (2026-06-30) ─
+
+  - id: F-83
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      serialize_keypair_bytes is a public function that writes X25519 private
+      key bytes, ML-KEM-768 private key bytes, and signing private key bytes
+      into a raw Zeroizing<Vec<u8>> without encryption or authentication. The
+      Zeroizing wrapper clears memory on drop but does not prevent the caller
+      from persisting or transmitting the plaintext bytes before the value is
+      dropped. Because the function is public, any crate can obtain unencrypted
+      device private key material via a single call.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Change serialize_keypair_bytes to pub(crate), or replace it with a
+      storage API that encrypts and authenticates the serialized bytes under a
+      typed device-key encryption key before returning anything persistable.
+      All call sites that write .ms-kp files must go through the protected path.
+    verification: >-
+      Add API tests proving that external callers cannot obtain raw plaintext
+      device private key bytes. Add storage round-trip tests proving persisted
+      keypair bytes are AEAD-protected and reject tampering.
+    commit: ""
+
+  - id: F-84
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      deserialize_keypair_bytes accepts the signing algorithm tag and a u32
+      signing key length field without validating that the byte count matches
+      the expected length for that algorithm. For Ed25519V1 the private key
+      must be 32 bytes, but any u32 length is accepted and the bytes are
+      passed directly to SigningPrivateKey::new. Additionally the deserialized
+      X25519 classical_public_key is never verified against the classical
+      private key; any public key can be paired with any private key in the
+      stored file. ML-KEM and X25519 private key field sizes are enforced
+      implicitly by take_array const-generic bounds, so the gap is limited to
+      signing key length and public/private coherence.
+    cwe: "CWE-310"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      During deserialization, reject signing key lengths that do not match the
+      declared algorithm (Ed25519V1 must be exactly 32 bytes; Unimplemented
+      algorithms must be rejected outright). Recompute the X25519 public key
+      from the deserialized private key and compare it to the stored public key
+      before accepting the keypair as valid.
+    verification: >-
+      Add malformed keypair tests for wrong Ed25519V1 signing key length,
+      unimplemented signing algorithm, X25519 public/private mismatch, and
+      trailing garbage bytes after the final field.
+    commit: ""
+
+  - id: F-85
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Vault session key derivation hardcodes AEAD_ID = 1 when calling
+      derive_subkeys for AEAD-scoped item-wrap and metadata subkeys.
+      Neither derive_session_keys nor create_session_keys receives the vault
+      header aead_profile as a parameter; the module-level constant is used
+      unconditionally. derive_subkeys accepts aead_id as a parameter, so the
+      registry design supports crypto-agile derivation, but neither call site
+      plumbs the actual header AEAD profile ID through. If a new AEAD profile
+      is introduced, both paths will silently derive subkeys under the wrong
+      profile binding.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add an aead_profile parameter to derive_session_keys and
+      create_session_keys and pass it to derive_subkeys. Parse and validate the
+      header aead_profile before calling either function, and reject unsupported
+      AEAD profile IDs before any key derivation begins.
+    verification: >-
+      Add vectors showing that different header AEAD profile IDs produce
+      distinct item-wrap and metadata subkeys. Add tests proving that unlock
+      fails closed for an unsupported AEAD profile ID.
+    commit: ""
+
+  - id: F-86
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      The PairingTranscript contract specifies that Phase 2 must sign the
+      pairing transcript using sign_enrollment_message() and the DEVICE-1
+      enrollment domain prefix (meissnerseal.device.enrollment.v1\0). Reusing
+      the enrollment domain for a semantically distinct pairing transcript means
+      that enrollment signatures and pairing signatures are not
+      non-interchangeable at the type or domain level. If the serialized
+      transcript bytes of an enrollment payload and a pairing payload ever
+      overlap due to format evolution, cross-protocol signature replay becomes
+      possible.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add a dedicated pairing signing domain constant such as
+      meissnerseal.device.pairing.v1\0 and a sign_pairing_message helper
+      mirroring sign_enrollment_message. Update PairingTranscript and DEVICE-2
+      Phase 2 to use the pairing domain. Keep enrollment and pairing APIs
+      non-interchangeable at the call-site level.
+    verification: >-
+      Add tests proving that the same transcript bytes signed under enrollment
+      and pairing domains produce distinct signatures, and that pairing
+      verification rejects enrollment-domain signatures.
+    commit: ""
+
+  - id: F-87
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      validate_trust_transition allows cross-transitions between the two
+      terminal states: Expired -> Revoked (line 305) and Revoked -> Expired
+      (line 311) both return Ok(()). The DeviceTrustState contract in device.rs
+      states "Revoked and Expired are terminal states for DEVICE-1 policy" but
+      the transition matrix contradicts this by permitting mutual conversion
+      between them. Downstream code that gates on Revoked vs Expired may handle
+      the states differently, so blurring them undermines policy enforcement.
+    cwe: "CWE-284"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Remove the Revoked -> Expired and Expired -> Revoked arms from
+      validate_trust_transition. Allow only idempotent self-transitions
+      (Revoked -> Revoked, Expired -> Expired) for terminal states, and return
+      Err(InvalidTrustTransition) for any cross-terminal transition unless the
+      persisted policy model explicitly requires otherwise.
+    verification: >-
+      Add a complete transition-matrix test covering every DeviceTrustState
+      source/target pair and asserting that Revoked and Expired cannot
+      transition to any state other than themselves.
+    commit: ""
+
+  - id: F-88
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/ (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Device identity and pairing tests cover key generation, signing domain
+      prefix behavior, trust transition basics, and pairing payload/SAS
+      construction. Not covered: device keypair serialization and
+      deserialization round-trip, malformed deserialize input (wrong signing key
+      length, unimplemented algorithm, X25519 public/private mismatch, trailing
+      garbage), display_name newline and control character handling, AEAD
+      profile variation in session key derivation subkeys, and full pairing
+      transcript sign/verify using the pairing domain.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add table-driven tests for keypair serialization round-trips, malformed
+      keypair parsing, display name with embedded newline or control characters,
+      session subkey divergence across different AEAD profile IDs, and pairing
+      transcript sign/verify behavior under the correct domain.
+    verification: >-
+      CI should fail if malformed keypair bytes deserialize successfully, if
+      display names with newlines or control chars are accepted, if AEAD profile
+      variation does not change AEAD-scoped subkeys, or if pairing transcript
+      signatures verify under the wrong domain.
+    commit: ""
+
+# ── meissnerseal-core transfer / envelope / replay security review (2026-06-30) ─
+
+  - id: F-89
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      open_envelope inserts the envelope_id into the replay store immediately
+      after validate_envelope (which checks transcript hash, expiry, and
+      profile) and before ML-KEM decapsulation, AEAD authentication, signed
+      payload decoding, or sender signature verification. The transcript hash
+      does not cover encrypted_payload, so an attacker who can observe a real
+      envelope can copy all its fields, substitute garbage encrypted_payload,
+      and deliver the modified copy first. The modified envelope passes
+      validate_envelope, the ID is committed to the replay store, and the
+      authentic envelope is later rejected as replayed.
+    cwe: "CWE-310"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Split replay handling into a check-only phase before expensive work and a
+      commit phase only after AEAD authentication and sender signature
+      verification both succeed. Evict expired entries before the check, but do
+      not persist a new ID until the envelope has been fully accepted.
+    verification: >-
+      Add a test that submits a transcriptvalid envelope with garbage
+      encrypted_payload first, then submits the authentic envelope with the
+      same envelope_id and verifies it is still accepted without replay error.
+    commit: ""
+
+  - id: F-90
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Anonymous-recipient support is architecturally incomplete.
+      TranscriptParams has an anonymous_recipient_public_key field and the
+      contract says anonymous mode must bind it, but both create_envelope and
+      validate_envelope always pass None for this field. When
+      recipient_device_id is also None, compute_transcript_hash includes no
+      recipient material at all, allowing any party to decrypt without
+      transcript-level binding to a recipient. There is also no mode
+      discriminator byte in the transcript to distinguish identified from
+      anonymous mode.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add an explicit recipient mode to CreateEnvelopeParams and the
+      transcript. For anonymous mode, require and transcript-bind the anonymous
+      recipient public key or a canonical fingerprint thereof. Reject envelopes
+      where recipient_device_id is None and no anonymous recipient binding is
+      present. Add a mode discriminator byte to the transcript so identified
+      and anonymous inputs cannot be confused.
+    verification: >-
+      Add transcript KATs for identified and anonymous recipients confirming
+      they produce distinct hashes, and negative tests proving anonymous
+      envelopes fail validation when the bound anonymous key is absent or
+      modified.
+    commit: ""
+
+  - id: F-91
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      TransferEnvelope.version is checked in envelope_from_bytes (rejects
+      version != 1 during wire parsing), but validate_envelope does not check
+      it, and version is not included in the compute_transcript_hash input.
+      Callers who construct a TransferEnvelope struct directly rather than via
+      envelope_from_bytes can set any version value and still pass
+      validate_envelope if the other transcript-bound fields are valid. The
+      split between wire-level and runtime validation creates an inconsistency
+      that may widen under future version evolution.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add a version check to validate_envelope (reject version != 1 before
+      transcript comparison) and include the version field in the transcript
+      input, or remove the independent version field and rely solely on
+      transfer_profile as the canonical version discriminator. Document which
+      path is authoritative.
+    verification: >-
+      Add tests proving validate_envelope rejects version != 1 when the struct
+      is constructed directly, and that changing the version field changes the
+      transcript hash.
+    commit: ""
+
+  - id: F-92
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      create_envelope builds a sealed_payload Vec<u8> containing the
+      algorithm-tagged signature header, signature bytes, and plaintext
+      transfer payload via encode_signed_payload before passing it to AEAD
+      encryption. This buffer is not wrapped in Zeroizing<Vec<u8>> and is not
+      explicitly cleared after encryption succeeds or fails. The incoming
+      CreateEnvelopeParams.plaintext_payload is also a plain Vec<u8>, so
+      plaintext is never under Zeroizing ownership at any point in the
+      create_envelope path.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Change encode_signed_payload to return Zeroizing<Vec<u8>>, change
+      CreateEnvelopeParams.plaintext_payload to Zeroizing<Vec<u8>> or
+      SecretBytes, and ensure plaintext staging buffers are zeroized on all
+      return paths (success and error).
+    verification: >-
+      Add code-review checks and tests confirming encode_signed_payload returns
+      a zeroizing buffer, create_envelope zeroizes the sealed_payload on both
+      success and failure, and the plaintext parameter type enforces zeroizing
+      ownership at the call site.
+    commit: ""
+
+  - id: F-93
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Sender authentication is carried inside the AEAD-encrypted payload.
+      open_envelope must perform ML-KEM decapsulation, transfer key derivation,
+      and AEAD decryption before the sender signature can be decoded and
+      verified. Unauthenticated parties who know the recipient public keys can
+      force this KEM and AEAD work on the receiver by sending syntactically
+      valid envelopes with crafted or random ciphertext. The code comment in
+      create_envelope acknowledges this signcryption tradeoff.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Consider moving an algorithm-tagged sender signature over the transcript
+      hash, nonce, and ciphertext into cleartext envelope metadata so sender
+      authentication can be verified before KEM decapsulation. If the current
+      signcryption structure is retained for protocol reasons, document the DoS
+      tradeoff and implement rate limiting or sender allow-listing before
+      performing KEM work.
+    verification: >-
+      Add benchmarks or tests demonstrating that unauthenticated envelopes are
+      rejected before decapsulation when cleartext sender signatures are
+      present, or add policy tests for rate limiting applied before
+      open_envelope performs KEM work.
+    commit: ""
+
+  - id: F-94
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      SeenEnvelopeIds::from_bytes reads the count field as u32 and immediately
+      calls Vec::with_capacity(count) before verifying the remaining input
+      contains count complete replay entries. Each entry is 24 bytes (16-byte
+      EnvelopeId + 8-byte expires_at). A malformed replay-store file with
+      count = u32::MAX requests allocation for approximately 96 GiB before any
+      bounds check, causing an OOM abort or panic on most platforms.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Before allocating, verify that bytes.len() >= 4 + count * 24 (with
+      overflow-safe arithmetic) and that count does not exceed a defined
+      maximum replay-store entry limit. Return MalformedReplayStore immediately
+      if either condition fails.
+    verification: >-
+      Add tests for count = u32::MAX, count values whose declared size exceeds
+      the actual input, exact-boundary valid stores, and trailing garbage.
+      Confirm no allocation occurs before the bounds check passes.
+    commit: ""
+
+  - id: F-95
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/ (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Transfer tests cover transcript output length and field sensitivity,
+      expiry rejection, profile rejection, transcript mismatch, domain
+      separation from device enrollment, replay rejection for a successfully
+      opened envelope, and replay-store serialization. Not covered: envelope
+      binary serialization roundtrip via envelope_to_bytes/envelope_from_bytes,
+      malformed or oversized pqc_ct_len or payload_len fields, version != 1
+      rejection in envelope_from_bytes, anonymous-recipient transcript binding,
+      tampered nonce or encrypted_payload, wrong sender signing key, and replay
+      store mutation occurring on a failed AEAD or signature step (the
+      premature-insert scenario from F-89).
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add table-driven tests for envelope_to_bytes/envelope_from_bytes
+      roundtrip, malformed or truncated length fields, version != 1 rejection,
+      anonymous recipient mode, wrong sender signature key, tampered
+      ciphertext/tag/nonce causing authentication failure, and a test
+      confirming that a failed open_envelope does not record the envelope_id
+      as accepted once F-89 is resolved.
+    verification: >-
+      CI should fail if malformed envelopes parse without error, if version
+      changes do not affect validation, if anonymous recipient material is not
+      transcript-bound, if wrong-key envelopes return plaintext, or if a
+      failed open_envelope call records the envelope_id in the replay store.
+    commit: ""
+
+# ── meissnerseal-core vault module security review (2026-06-30) ───────────────
+
+  - id: F-96
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/engine.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Vault create and mutation paths create temporary and final vault files
+      using std::fs::OpenOptions without setting explicit file permissions.
+      On Unix, all three creation sites (target_claim in persist_vault,
+      tmp_file in persist_vault_inner, and tmp_file in
+      persist_vault_mutation_v2) rely entirely on the process umask. With a
+      permissive umask such as 0o022, newly created vault files become
+      world-readable (0o644), exposing the encrypted vault bytes including
+      the magic, header metadata, and ciphertext to any local user.
+    cwe: "CWE-276"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Create vault and temporary files with explicit owner-only permissions
+      on Unix (0o600 via OpenOptionsExt::mode). Preserve or intentionally
+      tighten existing vault file permissions during atomic replacement.
+      Add platform-specific handling or documented secure defaults for
+      non-Unix targets.
+    verification: >-
+      Add tests that create and mutate a vault under a permissive umask
+      (set via libc::umask) and assert the resulting vault file and
+      temporary file have mode 0o600. Add a regression test proving
+      mutation does not widen an existing restrictive vault file mode.
+    commit: ""
+
+  - id: F-97
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      parse_header processes the header TLV section in a single loop but
+      does not call reject_duplicate for any top-level tag. Duplicate
+      TAG_VAULT_ID, TAG_CREATED_AT, TAG_KDF_PROFILE, TAG_AEAD_PROFILE,
+      TAG_PQC_PROFILE, TAG_SCHEMA_PROFILE, or TAG_HEADER_NONCE TLVs are
+      silently accepted, with the last occurrence overwriting all previous
+      values. The reject_duplicate helper is defined and used correctly
+      inside parse_kdf_profile_params for Argon2 sub-parameters, but not
+      applied to the outer TLV layer. A non-canonical header with duplicate
+      critical fields allows different parsers to select different effective
+      values for vault_id, header_nonce, or algorithm profiles.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Track whether each known header TLV has already appeared and call
+      reject_duplicate for every registered top-level tag before assigning
+      the new value. Non-critical unknown TLVs may be skipped, but
+      duplicate known critical tags must produce an Err.
+    verification: >-
+      Add malformed header tests with duplicated TAG_VAULT_ID,
+      TAG_KDF_PROFILE, TAG_AEAD_PROFILE, TAG_PQC_PROFILE,
+      TAG_SCHEMA_PROFILE, and TAG_HEADER_NONCE TLVs. CI should fail if
+      any duplicate known header field parses successfully.
+    commit: ""
+
+  - id: F-98
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      parse_header validates that schema_profile equals
+      SCHEMA_MEISSNER_RECORDS_V2 and delegates KDF profile validation to
+      parse_kdf_profile_params, but does not validate the aead_profile or
+      pqc_profile values. An unsupported aead_profile (anything other than
+      AEAD_XCHACHA20_POLY1305_V1) or pqc_profile (anything other than
+      PQC_NONE) passes parse_header and is stored in VaultHeader without
+      rejection. The rest of the implementation continues under the fixed
+      XChaCha20-Poly1305 and inactive-PQC assumptions regardless of the
+      parsed profile values, creating a gap between the accepted header
+      and the implemented cryptographic behavior.
+    cwe: "CWE-327"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      After the TLV loop, reject aead_profile values other than
+      AEAD_XCHACHA20_POLY1305_V1 and pqc_profile values other than
+      PQC_NONE until additional profiles are fully implemented. Ensure
+      the AEAD profile rejection happens before any session key derivation
+      or record frame decryption, consistent with the existing schema
+      profile gate.
+    verification: >-
+      Add tests that construct or patch headers with unsupported AEAD
+      and PQC profile values and assert parse_header or unlock fails
+      closed before record frame decryption or session key derivation.
+    commit: ""
+
+  - id: F-99
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      parse_record_frame reads frame_version and the frame-local AEAD
+      profile field but validates neither. frame_version is stored in
+      RecordFrame without checking it equals FORMAT_VERSION. The local
+      AEAD profile is assigned to a variable prefixed with underscore and
+      is entirely unused. Additionally, the stored AAD bytes are bounds-
+      checked for truncation but then skipped: the parser advances past
+      them without comparing the stored content to the canonical AAD that
+      callers will reconstruct from the frame metadata. Mutable frame
+      metadata can therefore drift from the authenticated interpretation
+      used for decryption without triggering a parser rejection.
+    cwe: "CWE-345"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Validate frame_version == FORMAT_VERSION and the frame-local AEAD
+      profile == AEAD_XCHACHA20_POLY1305_V1 inside parse_record_frame.
+      Validate aad_len == AAD_LEN and compare the stored AAD bytes to
+      the canonical AAD expected for the frame. Alternatively remove
+      the stored AAD from the frame format if it is not intended to be
+      authoritative.
+    verification: >-
+      Add tests that patch frame_version, the frame AEAD profile,
+      aad_len, and stored AAD bytes while leaving ciphertext unchanged.
+      Each case should fail before or during unlock or list instead of
+      silently accepting drift.
+    commit: ""
+
+  - id: F-100
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      open_sealed_record_table_v2 checks that each entry frame_offset is
+      strictly greater than wrk_frame_offset (the WRK frame start), but
+      does not receive wrk_frame_end and therefore cannot reject frames
+      that start inside the WRK frame body. A table entry whose
+      frame_offset is wrk_frame_offset + N for any positive N passes the
+      bounds check. Additionally there is no check that authenticated
+      table entries do not overlap the sealed-table section itself, no
+      inter-entry overlap check, and no duplicate live record ID check.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Pass wrk_frame_end and the sealed-table section end into
+      open_sealed_record_table_v2, then reject entries whose frame spans
+      overlap the WRK frame region, the sealed-table region, or any
+      previously validated entry region. Reject duplicate live record IDs
+      in the authenticated entry set.
+    verification: >-
+      Add sealed-table negative vectors for frame_offset inside the WRK
+      frame body, frame_offset inside the sealed table section,
+      overlapping item frames, duplicate record IDs, and frame bounds
+      that exactly touch each protected section.
+    commit: ""
+
+  - id: F-101
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/engine.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      unlock_impl calls std::fs::read to load the entire vault file into
+      memory before enforcing any maximum file size policy. Any caller
+      that provides a path to an oversized file can cause the process to
+      allocate arbitrarily large memory before the format parser reaches
+      the first structural bounds check at parse_header.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Check file metadata length before std::fs::read and return a format
+      error for vault files exceeding a documented maximum size constant.
+      Consider streaming or bounded prefix reads for initial header
+      validation before allocating the full file.
+    verification: >-
+      Add tests using oversized sparse or fixture files and assert unlock
+      returns a format error without reading the entire file into memory.
+    commit: ""
+
+  - id: F-102
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/ (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Vault module tests cover create/unlock roundtrips, fixed WRK frame
+      placement, schema V2 header, MEK-sealed table authentication,
+      patched WRK identifiers, crash-safe mutation rewrite, and concurrent
+      temp file ownership. Not covered: duplicate header TLVs, unsupported
+      aead_profile and pqc_profile values, frame_version and frame AEAD
+      profile drift in parse_record_frame, stored AAD mismatch, item frame
+      offset inside the WRK frame body, item frame overlap with the sealed
+      table section, inter-frame overlap, duplicate record IDs in the
+      authenticated table, vault file permission mode under permissive
+      umask, and oversized vault file rejection.
+    cwe: "CWE-310"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend vault format and engine tests with table-driven malformed
+      fixtures for every parser and persistence invariant listed above.
+      Prefer real serialized vault blobs mutated at the byte level over
+      helper-only unit fixtures where possible.
+    verification: >-
+      CI should fail if a non-canonical header, unsupported algorithm
+      profile, drifted frame metadata, WRK-overlapping table entry,
+      inter-frame overlap, permission-widening rewrite, or oversized vault
+      file is accepted without error.
+    commit: ""
