@@ -26,21 +26,35 @@ use meissnerseal_core::vault::format::{
     build_aad, open_sealed_record_table_v2, parse_header, parse_kdf_profile_params,
     ARGON2_VERSION_0X13, HEADER_MIN_LEN, KDF_ARGON2ID_V1, SCHEMA_MEISSNER_RECORDS_V2,
 };
+use meissnerseal_core::{
+    error::CoreError,
+    export::{export, import},
+    item::{add, list, with_item, ItemKind, PlainItem},
+    vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
+};
 use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key};
+use meissnerseal_security::secret_lifecycle::SecretBytes;
 use serde_json::Value;
-use std::path::PathBuf;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn vectors_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vectors")
-}
-
 fn load(name: &str) -> Value {
-    let path = vectors_dir().join(name);
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    serde_json::from_str(&text).expect("valid JSON vector file")
+    let text = match name {
+        "vault_kdf_param_tlv_v1.json" => {
+            include_str!("../../../test-vectors/vault_kdf_param_tlv_v1.json")
+        }
+        "vault_kdf_v1.json" => include_str!("../../../test-vectors/vault_kdf_v1.json"),
+        "vault_format_v1.json" => include_str!("../../../test-vectors/vault_format_v1.json"),
+        "vault_format_struct_v1.json" => {
+            include_str!("../../../test-vectors/vault_format_struct_v1.json")
+        }
+        "vault_format_negative_v1.json" => {
+            include_str!("../../../test-vectors/vault_format_negative_v1.json")
+        }
+        "export_import_v1.json" => include_str!("../../../test-vectors/export_import_v1.json"),
+        _ => panic!("unknown vector file {name}"),
+    };
+    serde_json::from_str(text).expect("valid JSON vector file")
 }
 
 fn unhex(s: &str) -> Vec<u8> {
@@ -146,6 +160,101 @@ fn vector_subkeys(keys: &UnlockedKeys) -> [&Key<32>; 7] {
         &keys.recovery_wrapping_key,
         &keys.export_key,
     ]
+}
+
+const TEST_VAULT_PASSWORD: &[u8] = b"vectors-vault-password-never-real";
+
+fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
+    let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    path.push(format!(
+        "meissnerseal-core-vectors-{label}-{}-{nanos}.msv",
+        std::process::id()
+    ));
+    path
+}
+
+fn unlocked_session(label: &str) -> (std::path::PathBuf, Vault<Unlocked>) {
+    let path = unique_temp_vault_path(label);
+    let _ = std::fs::remove_file(&path);
+    Vault::<Locked>::create(CreateVaultParams {
+        path: path.clone(),
+        password: SecretBytes::new(TEST_VAULT_PASSWORD.to_vec()),
+    })
+    .expect("create vector test vault");
+    let session = Vault::<Locked>::open(path.clone())
+        .expect("open locked vault")
+        .unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(TEST_VAULT_PASSWORD.to_vec()),
+        })
+        .expect("unlock vector test vault");
+    (path, session)
+}
+
+fn cleanup(path: &std::path::Path, session: Vault<Unlocked>) {
+    let _ = session.lock();
+    let _ = std::fs::remove_file(path);
+}
+
+fn plain_item_from_vector(item: &Value) -> PlainItem {
+    PlainItem {
+        kind: parse_item_kind(item["kind"].as_str().expect("item kind")),
+        label: item["label"].as_str().expect("item label").to_string(),
+        secret: SecretBytes::new(unhex(item["secret_hex"].as_str().expect("item secret hex"))),
+        tags: item["tags"]
+            .as_array()
+            .expect("item tags array")
+            .iter()
+            .map(|tag| tag.as_str().expect("tag string").to_string())
+            .collect(),
+    }
+}
+
+fn parse_item_kind(kind: &str) -> ItemKind {
+    match kind {
+        "Password" => ItemKind::Password,
+        "SeedPhrase" => ItemKind::SeedPhrase,
+        "SshPrivateKey" => ItemKind::SshPrivateKey,
+        "ApiToken" => ItemKind::ApiToken,
+        "SecureNote" => ItemKind::SecureNote,
+        _ => panic!("unknown vector item kind {kind}"),
+    }
+}
+
+fn assert_imported_items(session: &Vault<Unlocked>, expected_items: &[Value]) {
+    let summaries = list(session).expect("imported items must be listed");
+    assert_eq!(
+        summaries.len(),
+        expected_items.len(),
+        "imported item count must match vector"
+    );
+    for expected in expected_items {
+        let expected_label = expected["label"].as_str().expect("expected label");
+        let expected_tags: Vec<String> = expected["tags"]
+            .as_array()
+            .expect("expected tags")
+            .iter()
+            .map(|tag| tag.as_str().expect("tag string").to_string())
+            .collect();
+        let expected_secret = unhex(expected["secret_hex"].as_str().expect("expected secret"));
+        let imported = summaries
+            .iter()
+            .find(|summary| summary.label == expected_label)
+            .unwrap_or_else(|| panic!("missing imported summary for label {expected_label}"));
+        with_item(session, imported.id, |view| {
+            assert_eq!(view.label, expected_label);
+            assert_eq!(view.tags, expected_tags);
+            view.secret.with_secret(|secret| {
+                assert_eq!(secret, expected_secret.as_slice());
+                Ok(())
+            })
+        })
+        .expect("imported item decrypts only inside closure");
+    }
 }
 
 // ── vault_format_v1.json — canonical 79-byte AAD construction (§7) ───────────
@@ -607,4 +716,96 @@ fn vault_format_negative_v1_vectors() {
             "case {id}: sealed record table must reject ({reason})"
         );
     }
+}
+
+// ── export_import_v1.json — encrypted .msexp export/import KATs ──────────────
+
+#[test]
+#[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+fn export_import_v1_roundtrip_and_kat_bundle_vectors() {
+    let vectors = load("export_import_v1.json");
+    let case = find(&vectors, "export-import-roundtrip-v1");
+    let export_passphrase = case["inputs"]["export_passphrase_utf8"]
+        .as_str()
+        .expect("export passphrase")
+        .as_bytes();
+    let expected_items = case["expected"]["expected_items"]
+        .as_array()
+        .expect("expected items");
+    let bundle = unhex(case["expected"]["bundle_hex"].as_str().expect("bundle hex"));
+
+    let (source_path, source) = unlocked_session("export-import-roundtrip-source");
+    let (target_path, target) = unlocked_session("export-import-roundtrip-target");
+    let (kat_path, kat_target) = unlocked_session("export-import-roundtrip-kat");
+
+    for item in case["inputs"]["items"].as_array().expect("input items") {
+        add(&source, plain_item_from_vector(item)).expect("vector item add must succeed");
+    }
+
+    let exported = export(&source, export_passphrase).expect("production export must succeed");
+    let imported_ids =
+        import(&target, &exported, export_passphrase).expect("production import must succeed");
+    assert_eq!(
+        imported_ids.len(),
+        expected_items.len(),
+        "round-trip import count must match vector"
+    );
+    assert_imported_items(&target, expected_items);
+
+    let kat_imported_ids =
+        import(&kat_target, &bundle, export_passphrase).expect("KAT bundle import must succeed");
+    assert_eq!(
+        kat_imported_ids.len(),
+        expected_items.len(),
+        "KAT bundle import count must match vector"
+    );
+    assert_imported_items(&kat_target, expected_items);
+
+    cleanup(&source_path, source);
+    cleanup(&target_path, target);
+    cleanup(&kat_path, kat_target);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+fn export_import_v1_ciphertext_corruption_rejects_with_auth() {
+    let vectors = load("export_import_v1.json");
+    let case = find(&vectors, "export-import-ciphertext-corruption-v1");
+    let export_passphrase = case["inputs"]["export_passphrase_utf8"]
+        .as_str()
+        .expect("export passphrase")
+        .as_bytes();
+    let bundle = unhex(case["inputs"]["bundle_hex"].as_str().expect("bundle hex"));
+    let (path, session) = unlocked_session("export-import-corruption");
+
+    let err =
+        import(&session, &bundle, export_passphrase).expect_err("tampered bundle must reject");
+    assert!(
+        matches!(err, CoreError::Auth),
+        "tampered bundle must reject with CoreError::Auth"
+    );
+
+    cleanup(&path, session);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+fn export_import_v1_wrong_decryption_key_rejects_with_auth() {
+    let vectors = load("export_import_v1.json");
+    let case = find(&vectors, "export-import-wrong-decryption-key-v1");
+    let wrong_passphrase = case["inputs"]["wrong_passphrase_utf8"]
+        .as_str()
+        .expect("wrong passphrase")
+        .as_bytes();
+    let bundle = unhex(case["inputs"]["bundle_hex"].as_str().expect("bundle hex"));
+    let (path, session) = unlocked_session("export-import-wrong-key");
+
+    let err =
+        import(&session, &bundle, wrong_passphrase).expect_err("wrong decryption key must reject");
+    assert!(
+        matches!(err, CoreError::Auth),
+        "wrong decryption key must reject with CoreError::Auth"
+    );
+
+    cleanup(&path, session);
 }
