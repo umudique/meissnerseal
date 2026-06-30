@@ -17,9 +17,7 @@ use crate::{
         with_item,
     },
     vault::engine::{Unlocked, Vault},
-    vault::format::{
-        parse_header, parse_kdf_profile_params, serialize_kdf_profile_params, HeaderKdfParams,
-    },
+    vault::format::{parse_kdf_profile_params, serialize_kdf_profile_params, HeaderKdfParams},
 };
 
 /// Magic bytes for the encrypted MeissnerSeal export container.
@@ -86,7 +84,7 @@ pub fn export(session: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>> {
         return Err(CoreError::InvalidState("empty export passphrase".into()));
     }
 
-    let source_vault_id = session_vault_id(session)?;
+    let source_vault_id = session.context().vault_id;
     let kdf_params = HeaderKdfParams::canonical_argon2id_v1();
     let kdf_params_bytes = serialize_kdf_profile_params(&kdf_params)?;
     let mut plaintext = serialize_live_item_set(session)?;
@@ -187,11 +185,6 @@ struct ParsedBundle<'a> {
     kdf_params: &'a [u8],
     nonce: [u8; 24],
     ciphertext_and_tag: &'a [u8],
-}
-
-fn session_vault_id(session: &Vault<Unlocked>) -> Result<[u8; 16]> {
-    let bytes = std::fs::read(session.path())?;
-    Ok(parse_header(&bytes)?.vault_id)
 }
 
 fn derive_export_key(

@@ -67,6 +67,12 @@ pub const TAG_HEADER_NONCE: u16 = 0x0007;
 /// Supported KDF profile: KDF_ARGON2ID_V1.
 pub const KDF_ARGON2ID_V1: u16 = 0x0001;
 
+/// Supported AEAD profile: AEAD_XCHACHA20_POLY1305_V1.
+pub const AEAD_XCHACHA20_POLY1305_V1: u16 = 0x0001;
+
+/// Supported PQC profile in MVP-0: none.
+pub const PQC_NONE: u16 = 0x0000;
+
 /// Pre-release cleartext-table schema profile. MVP-0 readers reject it.
 pub const SCHEMA_MEISSNER_RECORDS_V1: u16 = 0x0001;
 
@@ -116,6 +122,87 @@ impl HeaderKdfParams {
     }
 }
 
+/// Validated AEAD profile identifier from the vault header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct AeadProfileId(u16);
+
+impl AeadProfileId {
+    pub(crate) fn new(value: u16) -> Result<Self> {
+        if value == AEAD_XCHACHA20_POLY1305_V1 {
+            Ok(Self(value))
+        } else {
+            Err(format_error("unsupported aead profile"))
+        }
+    }
+
+    pub(crate) const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Validated PQC profile identifier from the vault header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PqcProfileId(u16);
+
+impl PqcProfileId {
+    pub(crate) fn new(value: u16) -> Result<Self> {
+        if value == PQC_NONE {
+            Ok(Self(value))
+        } else {
+            Err(format_error("unsupported pqc profile"))
+        }
+    }
+
+    pub(crate) const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Validated KDF profile identifier from the vault header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct KdfProfileId(u16);
+
+impl KdfProfileId {
+    pub(crate) fn new(value: u16) -> Result<Self> {
+        if value == KDF_ARGON2ID_V1 {
+            Ok(Self(value))
+        } else {
+            Err(format_error("unsupported kdf profile"))
+        }
+    }
+
+    pub(crate) const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Validated schema profile identifier from the vault header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SchemaProfileId(u16);
+
+impl SchemaProfileId {
+    pub(crate) fn new(value: u16) -> Result<Self> {
+        if value == SCHEMA_MEISSNER_RECORDS_V2 {
+            Ok(Self(value))
+        } else {
+            Err(format_error("unsupported schema profile"))
+        }
+    }
+
+    pub(crate) const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Typed, validated vault profile set established at the header parse boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct VaultProfileSet {
+    pub(crate) aead_profile: AeadProfileId,
+    pub(crate) pqc_profile: PqcProfileId,
+    pub(crate) kdf_profile: KdfProfileId,
+    pub(crate) schema: SchemaProfileId,
+}
+
 /// Parsed vault header.
 ///
 /// No secret material — all fields are public vault metadata from the
@@ -148,6 +235,9 @@ pub struct VaultHeader {
 
     /// 24-byte vault header nonce.
     pub header_nonce: [u8; 24],
+
+    /// Validated vault protocol suite captured at parse time.
+    pub(crate) profile_set: VaultProfileSet,
 }
 
 /// Parsed record table entry.
@@ -316,7 +406,19 @@ pub fn serialize_header(header: &VaultHeader) -> Result<Vec<u8>> {
     if header.format_version != FORMAT_VERSION {
         return Err(format_error("unsupported format version"));
     }
-    if header.schema_profile != SCHEMA_MEISSNER_RECORDS_V2 {
+    if header.schema_profile != header.profile_set.schema.value() {
+        return Err(format_error("schema profile set mismatch"));
+    }
+    if header.aead_profile != header.profile_set.aead_profile.value() {
+        return Err(format_error("aead profile set mismatch"));
+    }
+    if header.kdf_profile != header.profile_set.kdf_profile.value() {
+        return Err(format_error("kdf profile set mismatch"));
+    }
+    if header.pqc_profile != header.profile_set.pqc_profile.value() {
+        return Err(format_error("pqc profile set mismatch"));
+    }
+    if header.profile_set.schema.value() != SCHEMA_MEISSNER_RECORDS_V2 {
         return Err(format_error("unsupported schema profile"));
     }
     if header.kdf_profile != header.kdf_params.profile_id {
@@ -337,19 +439,19 @@ pub fn serialize_header(header: &VaultHeader) -> Result<Vec<u8>> {
         &mut bytes,
         TAG_AEAD_PROFILE,
         CRITICAL_FLAG,
-        &header.aead_profile.to_le_bytes(),
+        &header.profile_set.aead_profile.value().to_le_bytes(),
     )?;
     write_header_tlv(
         &mut bytes,
         TAG_PQC_PROFILE,
         0,
-        &header.pqc_profile.to_le_bytes(),
+        &header.profile_set.pqc_profile.value().to_le_bytes(),
     )?;
     write_header_tlv(
         &mut bytes,
         TAG_SCHEMA_PROFILE,
         CRITICAL_FLAG,
-        &header.schema_profile.to_le_bytes(),
+        &header.profile_set.schema.value().to_le_bytes(),
     )?;
     write_header_tlv(
         &mut bytes,
@@ -1102,21 +1204,50 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
         return Err(format_error("trailing garbage"));
     }
 
-    let schema_profile = schema_profile.ok_or_else(|| format_error("missing schema_profile"))?;
-    if schema_profile != SCHEMA_MEISSNER_RECORDS_V2 {
-        return Err(format_error("unsupported schema profile"));
-    }
-
-    Ok(VaultHeader {
+    let header = VaultHeader {
         vault_id: vault_id.ok_or_else(|| format_error("missing vault_id"))?,
         created_at: created_at.ok_or_else(|| format_error("missing created_at"))?,
         format_version,
-        schema_profile,
+        schema_profile: schema_profile.ok_or_else(|| format_error("missing schema_profile"))?,
         aead_profile: aead_profile.ok_or_else(|| format_error("missing aead_profile"))?,
         kdf_profile: kdf_profile.ok_or_else(|| format_error("missing kdf_profile"))?,
         kdf_params: kdf_params.ok_or_else(|| format_error("missing kdf params"))?,
         pqc_profile: pqc_profile.ok_or_else(|| format_error("missing pqc_profile"))?,
         header_nonce: header_nonce.ok_or_else(|| format_error("missing header_nonce"))?,
+        profile_set: VaultProfileSet {
+            aead_profile: AeadProfileId(AEAD_XCHACHA20_POLY1305_V1),
+            pqc_profile: PqcProfileId(PQC_NONE),
+            kdf_profile: KdfProfileId(KDF_ARGON2ID_V1),
+            schema: SchemaProfileId(SCHEMA_MEISSNER_RECORDS_V2),
+        },
+    };
+    let profile_set = validate_profile_set(&header)?;
+
+    Ok(VaultHeader {
+        profile_set,
+        ..header
+    })
+}
+
+/// Validate the header's four protocol/profile identifiers as one supported suite.
+///
+/// # Contract
+/// ## Preconditions
+/// - `header` contains all required header profile fields parsed from the vault
+///   TLV section.
+/// ## Postconditions
+/// - Returns a fully validated `VaultProfileSet` when every profile field is
+///   supported by MVP-0.
+/// - Returns `Err(CoreError::Format(_))` for any unsupported or pre-release
+///   profile identifier before `parse_header` returns success.
+/// ## Invariants
+/// - Profile validation is fail-closed and occurs at the parse trust boundary.
+pub(crate) fn validate_profile_set(header: &VaultHeader) -> Result<VaultProfileSet> {
+    Ok(VaultProfileSet {
+        aead_profile: AeadProfileId::new(header.aead_profile)?,
+        pqc_profile: PqcProfileId::new(header.pqc_profile)?,
+        kdf_profile: KdfProfileId::new(header.kdf_profile)?,
+        schema: SchemaProfileId::new(header.schema_profile)?,
     })
 }
 
@@ -1606,6 +1737,17 @@ mod prop_tests {
     use super::*;
     use proptest::prelude::*;
 
+    fn supported_profile_set() -> VaultProfileSet {
+        VaultProfileSet {
+            aead_profile: AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1)
+                .expect("supported AEAD profile"),
+            pqc_profile: PqcProfileId::new(PQC_NONE).expect("supported PQC profile"),
+            kdf_profile: KdfProfileId::new(KDF_ARGON2ID_V1).expect("supported KDF profile"),
+            schema: SchemaProfileId::new(SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("supported schema profile"),
+        }
+    }
+
     fn arbitrary_header() -> impl Strategy<Value = VaultHeader> {
         (
             proptest::array::uniform16(0u8..),
@@ -1613,14 +1755,15 @@ mod prop_tests {
             proptest::num::u64::ANY,
         )
             .prop_map(|(vault_id, header_nonce, created_at)| VaultHeader {
+                profile_set: supported_profile_set(),
                 vault_id,
                 created_at,
                 format_version: FORMAT_VERSION,
                 schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
-                aead_profile: 1, // AEAD_XCHACHA20_POLY1305_V1
+                aead_profile: AEAD_XCHACHA20_POLY1305_V1,
                 kdf_profile: KDF_ARGON2ID_V1,
                 kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
-                pqc_profile: 0, // PQC_NONE
+                pqc_profile: PQC_NONE,
                 header_nonce,
             })
     }
@@ -1649,6 +1792,7 @@ mod prop_tests {
             prop_assert!(recovered.kdf_profile == header.kdf_profile);
             prop_assert!(recovered.pqc_profile == header.pqc_profile);
             prop_assert!(recovered.header_nonce == header.header_nonce);
+            prop_assert!(recovered.profile_set == header.profile_set);
         }
 
         // Property: parse_header never panics on arbitrary input.
@@ -1687,16 +1831,28 @@ mod tests {
         }
     }
 
+    fn supported_profile_set() -> VaultProfileSet {
+        VaultProfileSet {
+            aead_profile: AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1)
+                .expect("supported AEAD profile"),
+            pqc_profile: PqcProfileId::new(PQC_NONE).expect("supported PQC profile"),
+            kdf_profile: KdfProfileId::new(KDF_ARGON2ID_V1).expect("supported KDF profile"),
+            schema: SchemaProfileId::new(SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("supported schema profile"),
+        }
+    }
+
     fn header_fixture(schema_profile: u16) -> VaultHeader {
         VaultHeader {
+            profile_set: supported_profile_set(),
             vault_id: VAULT_ID,
             created_at: 1_725_000_000_000,
             format_version: FORMAT_VERSION,
             schema_profile,
-            aead_profile: 1,
+            aead_profile: AEAD_XCHACHA20_POLY1305_V1,
             kdf_profile: KDF_ARGON2ID_V1,
             kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
-            pqc_profile: 0,
+            pqc_profile: PQC_NONE,
             header_nonce: [0x42; 24],
         }
     }
@@ -1843,16 +1999,33 @@ mod tests {
     }
 
     #[test]
+    fn aead_profile_id_rejects_unknown_value() {
+        assert!(matches!(
+            AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1 + 1),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn pqc_profile_id_rejects_unknown_value() {
+        assert!(matches!(
+            PqcProfileId::new(PQC_NONE + 1),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
     fn serialize_header_roundtrip_parses_same_header() {
         let header = VaultHeader {
+            profile_set: supported_profile_set(),
             vault_id: VAULT_ID,
             created_at: 1_725_000_000_000,
             format_version: FORMAT_VERSION,
             schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
-            aead_profile: 1,
+            aead_profile: AEAD_XCHACHA20_POLY1305_V1,
             kdf_profile: KDF_ARGON2ID_V1,
             kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
-            pqc_profile: 0,
+            pqc_profile: PQC_NONE,
             header_nonce: [0x42; 24],
         };
         let serialized_header = serialize_header(&header);
@@ -1881,9 +2054,46 @@ mod tests {
                     assert_eq!(parsed.kdf_profile, header.kdf_profile);
                     assert_eq!(parsed.pqc_profile, header.pqc_profile);
                     assert_eq!(parsed.header_nonce, header.header_nonce);
+                    assert_eq!(parsed.profile_set, header.profile_set);
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_header_rejects_unsupported_aead_profile() {
+        let mut header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        header.aead_profile = AEAD_XCHACHA20_POLY1305_V1 + 1;
+        let bytes = vault_bytes_for_header(&header, 4, 4);
+
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_unsupported_pqc_profile() {
+        let mut header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        header.pqc_profile = PQC_NONE + 1;
+        let bytes = vault_bytes_for_header(&header, 4, 4);
+
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_accepts_supported_profile_set() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = vault_bytes_for_header(&header, 4, 4);
+        let parsed = parse_header(&bytes).expect("supported profile set must parse");
+
+        assert_eq!(
+            parsed.profile_set.aead_profile.value(),
+            AEAD_XCHACHA20_POLY1305_V1
+        );
+        assert_eq!(parsed.profile_set.pqc_profile.value(), PQC_NONE);
+        assert_eq!(parsed.profile_set.kdf_profile.value(), KDF_ARGON2ID_V1);
+        assert_eq!(
+            parsed.profile_set.schema.value(),
+            SCHEMA_MEISSNER_RECORDS_V2
+        );
     }
 
     #[test]

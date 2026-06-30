@@ -9,11 +9,14 @@ use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
 #[cfg(test)]
 use crate::vault::format::RecordTableEntry;
+use meissnerseal_crypto::types::XChaCha20Nonce;
+
 use crate::vault::format::{
     build_aad, open_sealed_record_table_v2, parse_header, parse_record_frame, serialize_header,
-    serialize_record_frame, serialize_sealed_record_table_v2, serialize_vault_file,
-    HeaderKdfParams, RecordFrame, VaultHeader, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
-    RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_MEISSNER_RECORDS_V2,
+    serialize_record_frame, serialize_sealed_record_table_v2, serialize_vault_file, AeadProfileId,
+    HeaderKdfParams, KdfProfileId, PqcProfileId, RecordFrame, SchemaProfileId, VaultHeader,
+    VaultProfileSet, AEAD_XCHACHA20_POLY1305_V1, FORMAT_VERSION, HEADER_MIN_LEN, KDF_ARGON2ID_V1,
+    PQC_NONE, RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_MEISSNER_RECORDS_V2,
 };
 
 // Byte offsets within the 26-byte vault file prefix (vault_format_v1.md §2).
@@ -40,6 +43,15 @@ pub struct Locked;
 ///   fields.
 pub struct Unlocked {
     keys: UnlockedKeys,
+    context: AuthenticatedVaultContext,
+}
+
+/// Authenticated vault context captured once at unlock and carried with the session.
+#[derive(Clone)]
+pub(crate) struct AuthenticatedVaultContext {
+    pub(crate) vault_id: [u8; 16],
+    pub(crate) header_nonce: XChaCha20Nonce,
+    pub(crate) profile_set: VaultProfileSet,
 }
 
 /// Vault value parameterized by lock state.
@@ -68,6 +80,11 @@ impl Vault<Unlocked> {
     /// Borrow the unlocked vault's derived key hierarchy (crate-internal item ops only).
     pub(crate) fn keys(&self) -> &UnlockedKeys {
         &self.state.keys
+    }
+
+    /// Borrow the immutable authenticated context captured during unlock.
+    pub(crate) fn context(&self) -> &AuthenticatedVaultContext {
+        &self.state.context
     }
 }
 
@@ -407,15 +424,22 @@ fn persist_vault_inner(
     metadata_key: &meissnerseal_crypto::types::AeadKey,
 ) -> Result<()> {
     let created_at = unix_time_millis()?;
+    let profile_set = VaultProfileSet {
+        aead_profile: AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1)?,
+        pqc_profile: PqcProfileId::new(PQC_NONE)?,
+        kdf_profile: KdfProfileId::new(KDF_ARGON2ID_V1)?,
+        schema: SchemaProfileId::new(SCHEMA_MEISSNER_RECORDS_V2)?,
+    };
     let header = VaultHeader {
+        profile_set,
         vault_id: *vault_id,
         created_at,
         format_version: FORMAT_VERSION,
         schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
-        aead_profile: 1,
+        aead_profile: AEAD_XCHACHA20_POLY1305_V1,
         kdf_profile: KDF_ARGON2ID_V1,
         kdf_params: *kdf_params,
-        pqc_profile: 0,
+        pqc_profile: PQC_NONE,
         header_nonce: *header_nonce,
     };
     let header_bytes = serialize_header(&header)?;
@@ -546,6 +570,11 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
 
     // Parse and validate vault header.
     let header = parse_header(&bytes)?;
+    let context = AuthenticatedVaultContext {
+        vault_id: header.vault_id,
+        header_nonce: XChaCha20Nonce::from_bytes(header.header_nonce),
+        profile_set: header.profile_set,
+    };
 
     // Compute record table offset and length from the binary prefix.
     // Offsets are fixed by vault_format_v1.md §2: header_len @ 10, record_table_len @ 14.
@@ -579,12 +608,12 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
     let frame = parse_record_frame(frame_slice, wrk_frame_len)?;
 
     let aad = build_aad(
-        &header.vault_id,
+        &context.vault_id,
         header.format_version,
-        header.schema_profile,
-        header.aead_profile,
-        header.kdf_profile,
-        header.pqc_profile,
+        context.profile_set.schema.value(),
+        context.profile_set.aead_profile.value(),
+        context.profile_set.kdf_profile.value(),
+        context.profile_set.pqc_profile.value(),
         &frame.record_id,
         &frame.revision_id,
         RECORD_KIND_WRAPPED_ROOT_KEY,
@@ -594,8 +623,8 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
     let keys = params.password.with_secret(|pw| {
         derive_session_keys(
             pw,
-            &header.vault_id,
-            &header.header_nonce,
+            &context.vault_id,
+            context.header_nonce.as_bytes(),
             &header.kdf_params,
             &frame.ciphertext,
             &frame.nonce,
@@ -613,15 +642,15 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         record_table_offset,
         record_table_len,
         &keys.metadata_key,
-        &header.vault_id,
-        header.schema_profile,
+        &context.vault_id,
+        context.profile_set.schema.value(),
         wrk_frame_offset,
         bytes.len(),
     )?;
 
     Ok(Vault {
         path: params.path,
-        state: Unlocked { keys },
+        state: Unlocked { keys, context },
         _state: PhantomData,
     })
 }
@@ -1184,6 +1213,72 @@ mod tests {
         let header = parsed_header_for_test(&path);
         assert_eq!(header.schema_profile, SCHEMA_MEISSNER_RECORDS_V2);
 
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// The unlocked session must snapshot the authenticated vault_id from the
+    /// header at unlock time and expose that exact value through context().
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn vault_context_vault_id_matches_header_at_unlock() {
+        let path = unique_temp_vault_path("context-vault-id");
+        let tmp_path = tmp_path_for(&path);
+        let password = b"context-vault-id-password-never-real";
+        create_test_vault(&path, password);
+
+        let header = parsed_header_for_test(&path);
+        let session = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(password.to_vec()),
+        })
+        .expect("unlock session fixture");
+
+        assert_eq!(session.context().vault_id, header.vault_id);
+        assert_eq!(
+            session.context().header_nonce.as_bytes(),
+            &header.header_nonce
+        );
+        assert_eq!(session.context().profile_set, header.profile_set);
+
+        lock(session).expect("lock fixture");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// The session-bound authenticated context is immutable after unlock even
+    /// if the on-disk header is mutated later.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn vault_context_is_immutable_after_header_mutation() {
+        let path = unique_temp_vault_path("context-immutable");
+        let tmp_path = tmp_path_for(&path);
+        let password = b"context-immutable-password-never-real";
+        create_test_vault(&path, password);
+
+        let session = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(password.to_vec()),
+        })
+        .expect("unlock session fixture");
+        let original_context = session.context().clone();
+
+        let mut bytes = std::fs::read(&path).expect("read vault fixture");
+        let vault_id_offset = HEADER_MIN_LEN + 7;
+        let first_byte = bytes
+            .get_mut(vault_id_offset)
+            .expect("vault_id patch fixture");
+        *first_byte ^= 0x01;
+        std::fs::write(&path, bytes).expect("write mutated vault fixture");
+
+        assert_eq!(session.context().vault_id, original_context.vault_id);
+        assert_eq!(
+            session.context().header_nonce.as_bytes(),
+            original_context.header_nonce.as_bytes()
+        );
+        assert_eq!(session.context().profile_set, original_context.profile_set);
+
+        lock(session).expect("lock fixture");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
     }

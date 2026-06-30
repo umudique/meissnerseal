@@ -56,6 +56,12 @@ impl<const N: usize> Key<N> {
     }
 }
 
+impl<const N: usize> Clone for Key<N> {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
 /// Redacted debug output. Secret bytes are never logged.
 impl<const N: usize> core::fmt::Debug for Key<N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
