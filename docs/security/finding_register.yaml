@@ -1841,3 +1841,31 @@ findings:
       crate revision, and that editing any vector file forces recompilation or
       an explicit drift-check failure.
     commit: ""
+
+# ── meissnerseal-security zeroization test review (2026-06-30) ───────────────
+
+  - id: F-72
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "code review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      test_secret_bytes_zeroize obtains a raw pointer to the SecretBytes
+      backing buffer before drop, then discards it with `let _ = ptr` without
+      reading the memory after drop. The test passes unconditionally regardless
+      of whether ZeroizeOnDrop zeroes the buffer, providing false assurance that
+      zeroization is verified. No corresponding test exists for SecretString or
+      for Key<N> types in meissnerseal-crypto.
+    cwe: "CWE-14"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace test_secret_bytes_zeroize with a ManuallyDrop + raw pointer test
+      that asserts all bytes are zero after drop, as specified in ADR-040.
+      Add equivalent tests for SecretString and Key<N>. See ADR-040 for the
+      accepted verification strategy and UB trade-off rationale.
+    verification: >-
+      The replacement test must fail when the ZeroizeOnDrop derive is removed
+      from SecretBytes. Confirm under Miri that volatile writes are present.
+    commit: ""
