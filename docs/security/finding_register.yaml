@@ -1869,3 +1869,142 @@ findings:
       The replacement test must fail when the ZeroizeOnDrop derive is removed
       from SecretBytes. Confirm under Miri that volatile writes are present.
     commit: ""
+
+# ── meissnerseal-core export/import security review (2026-06-29) ─────────────
+
+  - id: F-73
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
+    date: 2026-06-29
+    description: >-
+      derive_export_key calls derive(passphrase, source_vault_id, argon2_params)
+      using the same Argon2id salt domain (meissnerseal-argon2id-salt-v1 ||
+      vault_id) as vault MUK derivation. If a user supplies the vault password
+      as the export passphrase for the same vault_id, the export AEAD key bytes
+      are identical to the MUK bytes. No export-specific KDF domain or HKDF
+      purpose step separates the two derivation paths.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Add an export-specific salt domain such as
+      meissnerseal-export-argon2id-salt-v1, or derive the export AEAD key
+      through an HKDF expand step from the Argon2id output using an explicit
+      meissnerseal:export-bundle:v1 info string. Do not reuse MUK-shaped bytes
+      directly as an AEAD key without a separating domain step.
+    verification: >-
+      Add tests proving that export key derivation differs from vault MUK/VKEK
+      derivation even when passphrase == vault password and source_vault_id ==
+      vault_id. Add a KAT for the export-specific derivation chain.
+    commit: ""
+
+  - id: F-74
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
+    date: 2026-06-29
+    description: >-
+      deserialize_item_set calls Vec::with_capacity(item_count) and
+      Vec::with_capacity(tag_count) before verifying that the remaining payload
+      bytes can satisfy those counts. item_count and tag_count are u32 values
+      cast to usize; a crafted but correctly authenticated bundle (e.g. a
+      cross-vault import from an attacker-controlled source) can force
+      excessive allocation or OOM before the payload is validated.
+    cwe: "CWE-400"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Enforce maximum item count, tag count, label length, tag length, and
+      secret length before any allocation. Prefer bounded incremental parsing
+      that verifies remaining bytes are sufficient before reserving capacity,
+      or cap Vec::with_capacity at a conservative maximum.
+    verification: >-
+      Add negative import tests for item_count = u32::MAX, tag_count = u32::MAX,
+      oversized label/tag/secret lengths, and short payloads that reach
+      Vec::with_capacity before exhausting the buffer.
+    commit: ""
+
+  - id: F-75
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
+    date: 2026-06-29
+    description: >-
+      session_vault_id re-reads and re-parses the vault file header from
+      session.path() at export time to obtain source_vault_id. The vault_id
+      is not carried inside Vault<Unlocked> from the time of unlock. If the
+      vault file header is replaced, modified, or raced between unlock and
+      export, the export AEAD key is derived from a vault_id that differs from
+      the one used to establish the session, creating a TOCTOU drift between
+      the session identity and the export AAD.
+    cwe: "CWE-367"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Store the authenticated vault_id inside Vault<Unlocked> at unlock time
+      and surface it through the session type. Export should read vault_id from
+      the live session rather than re-parsing mutable on-disk state.
+    verification: >-
+      Add a test that modifies the on-disk vault header after unlock and asserts
+      that export either uses the session-bound vault_id or returns Err.
+    commit: ""
+
+  - id: F-76
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
+    date: 2026-06-29
+    description: >-
+      Export/import tests cover same-vault and cross-vault round-trip, wrong
+      passphrase, wrong magic, unknown version, truncated bundle, and tampered
+      ciphertext. Not covered: oversized KDF params length, ciphertext_len
+      overrun, bundle trailing garbage (parse_bundle checks it but no test
+      exercises it), and malformed decrypted item-set payloads including
+      item_count overflow, tag_count overflow, truncated label/tag/secret,
+      and inner trailing garbage.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend parser tests to cover every length-prefixed field in both the
+      outer bundle framing and the inner item-set payload, including overflow,
+      truncation, exact boundary, and trailing-garbage cases. Tests should
+      assert specific CoreError variants, not just is_err().
+    verification: >-
+      CI should fail if parse_bundle accepts trailing bytes or length fields
+      that overrun the input, and if deserialize_item_set allocates from
+      unbounded attacker-controlled counts before validating remaining bytes.
+    commit: ""
+
+  - id: F-77
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-06-29)"
+    date: 2026-06-29
+    description: >-
+      CoreError carries String payloads in Format, NotFound, and InvalidState
+      variants, and wraps std::io::Error (which can expose filesystem paths) in
+      the Io variant. Current export.rs callers use static strings only, but
+      the public error type structurally permits future call sites to embed
+      attacker-controlled labels, item names, record IDs, or filesystem paths
+      in Display output, which can reach user logs or audit records.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Prefer structured error codes with static Display messages. Attach
+      dynamic context only through internal diagnostics that cannot reach user
+      logs or audit records by default. At minimum, add a lint or review
+      convention forbidding secrets, item labels, tags, passphrases, record
+      IDs, and filesystem paths in CoreError display strings.
+    verification: >-
+      Add tests for export/import error paths asserting that no plaintext item
+      metadata, passphrase material, or filesystem path appears in formatted
+      CoreError output.
+    commit: ""
