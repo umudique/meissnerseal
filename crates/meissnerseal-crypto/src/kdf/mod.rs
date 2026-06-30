@@ -7,7 +7,7 @@
 pub mod argon2;
 pub mod hkdf;
 
-pub use argon2::Argon2Params;
+pub use argon2::{derive_export_bundle_key, Argon2Params};
 pub use hkdf::{derive_root_prk, Prk, SubKey, SubkeyPurpose};
 
 /// KDF module error.

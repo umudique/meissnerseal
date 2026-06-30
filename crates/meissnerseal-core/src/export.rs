@@ -3,7 +3,7 @@
 
 use meissnerseal_crypto::{
     aead::{decrypt, encrypt, Ciphertext},
-    kdf::argon2::derive,
+    kdf::derive_export_bundle_key,
     types::{AeadKey, XChaCha20Nonce},
 };
 use meissnerseal_security::secret_lifecycle::SecretBytes;
@@ -192,13 +192,12 @@ fn derive_export_key(
     source_vault_id: &[u8; 16],
     kdf_params: &HeaderKdfParams,
 ) -> Result<AeadKey> {
-    let muk =
-        derive(passphrase, source_vault_id, &kdf_params.argon2).map_err(|_| CoreError::Crypto)?;
-    let mut raw: [u8; 32] = muk.as_slice().try_into().map_err(|_| CoreError::Crypto)?;
-    let export_key = AeadKey::from_bytes(raw);
-    raw.zeroize();
-    drop(muk);
-    Ok(export_key)
+    // Argon2id → MUK → HKDF-SHA256-Expand(info="meissnerseal:export-bundle:v1") → AeadKey.
+    // The HKDF step provides export-specific domain separation (F-73): the
+    // resulting key is distinct from the vault MUK even when passphrase == vault
+    // password and source_vault_id == vault_id.
+    derive_export_bundle_key(passphrase, source_vault_id, &kdf_params.argon2)
+        .map_err(|_| CoreError::Crypto)
 }
 
 fn export_aad(source_vault_id: &[u8; 16], version: u16) -> [u8; 26] {
