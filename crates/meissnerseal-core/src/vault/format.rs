@@ -138,6 +138,11 @@ impl AeadProfileId {
     pub(crate) const fn value(self) -> u16 {
         self.0
     }
+
+    #[cfg(test)]
+    pub(crate) const fn new_unchecked(value: u16) -> Self {
+        Self(value)
+    }
 }
 
 /// Validated PQC profile identifier from the vault header.

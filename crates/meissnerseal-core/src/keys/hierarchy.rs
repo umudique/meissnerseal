@@ -15,10 +15,7 @@ use meissnerseal_crypto::{
 };
 
 use crate::error::CoreError;
-use crate::vault::format::{HeaderKdfParams, ARGON2_VERSION_0X13, KDF_ARGON2ID_V1};
-
-/// Profile ID for AEAD_XCHACHA20_POLY1305_V1.
-const AEAD_ID: u16 = 1;
+use crate::vault::format::{AeadProfileId, HeaderKdfParams, ARGON2_VERSION_0X13, KDF_ARGON2ID_V1};
 
 /// Unlocked key material for a vault session.
 ///
@@ -132,6 +129,8 @@ pub fn derive_master_unlock_key_with_header_params(
 /// - `vault_id` is the canonical 128-bit vault UUID from the header TLV.
 /// - `header_nonce` is the 24-byte nonce stored in the vault header TLV tag
 ///   `0x0007`.
+/// - `aead_profile` is the validated header-bound AEAD profile ID captured from
+///   the authenticated vault header.
 /// - `kdf_params` was parsed and validated from the vault header TLV tag
 ///   `0x0003`; no hardcoded KDF parameters are used on unlock.
 /// - `wrapped_root_key_ciphertext` is the VKEK-encrypted `VaultRootKey`
@@ -152,12 +151,16 @@ pub fn derive_master_unlock_key_with_header_params(
 ///   the `meissnerseal_crypto` API (CONTRACT A-01).
 /// - All derived keys are represented by `meissnerseal_crypto::types::Key<32>`
 ///   (ZeroizeOnDrop).
+/// - AEAD-scoped HKDF subkeys are bound to `aead_profile.value()`, not to a
+///   module-level literal.
 /// - Fails closed: any intermediate failure returns `Err` without partial output
 ///   (CONTRACT G-06).
-pub fn derive_session_keys(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn derive_session_keys(
     password: &[u8],
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
+    aead_profile: AeadProfileId,
     kdf_params: &HeaderKdfParams,
     wrapped_root_key_ciphertext: &[u8],
     wrapped_root_key_nonce: &[u8; 24],
@@ -188,7 +191,7 @@ pub fn derive_session_keys(
     let vrk = VaultRootKey::from_bytes(*vault_root_key.as_bytes());
     let hn = HeaderNonce::from_bytes(*header_nonce);
     let root_prk = derive_root_prk(&vrk, vault_id, &hn);
-    derive_subkeys(&root_prk, vault_id, AEAD_ID)
+    derive_subkeys(&root_prk, vault_id, aead_profile.value())
 }
 
 /// Wrap a freshly generated `VaultRootKey` for storage in a new vault.
@@ -204,6 +207,8 @@ pub fn derive_session_keys(
 /// - `vault_id` is the canonical 128-bit vault UUID assigned to the new vault.
 /// - `header_nonce` is a fresh 24-byte random nonce generated for the vault
 ///   header (not reused from any prior vault).
+/// - `aead_profile` is the validated AEAD profile that will be serialized into
+///   the new vault header and authenticated at unlock time.
 /// - `kdf_params` is the explicit KDF parameter set that will be serialized into
 ///   the new vault header.
 /// - `aad` is the canonical 79-byte AAD for the `WrappedRootKey` record,
@@ -221,11 +226,14 @@ pub fn derive_session_keys(
 /// - `VaultRootKey` is generated from OS CSPRNG via `meissnerseal_crypto::rng`.
 /// - Never calls cryptographic primitives directly — delegates exclusively to
 ///   the `meissnerseal_crypto` API.
+/// - AEAD-scoped HKDF subkeys are bound to `aead_profile.value()`, not to a
+///   module-level literal.
 /// - Never writes `VaultRootKey` in plaintext to any output (CONTRACT I-02).
-pub fn create_session_keys(
+pub(crate) fn create_session_keys(
     password: &[u8],
     vault_id: &[u8; 16],
     header_nonce: &[u8; 24],
+    aead_profile: AeadProfileId,
     kdf_params: &HeaderKdfParams,
     aad: &[u8; 79],
 ) -> crate::error::Result<(UnlockedKeys, Vec<u8>, [u8; 24])> {
@@ -246,7 +254,7 @@ pub fn create_session_keys(
     let vrk = VaultRootKey::from_bytes(*vault_root_key.as_bytes());
     let hn = HeaderNonce::from_bytes(*header_nonce);
     let root_prk = derive_root_prk(&vrk, vault_id, &hn);
-    let unlocked = derive_subkeys(&root_prk, vault_id, AEAD_ID)?;
+    let unlocked = derive_subkeys(&root_prk, vault_id, aead_profile.value())?;
 
     Ok((unlocked, ciphertext.as_ref().to_vec(), nonce_bytes))
 }
@@ -325,7 +333,7 @@ pub fn derive_subkeys(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::vault::format::build_aad;
+    use crate::vault::format::{build_aad, AeadProfileId, AEAD_XCHACHA20_POLY1305_V1};
 
     const VAULT_ID: [u8; 16] = [
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -333,6 +341,7 @@ mod tests {
     ];
     const HEADER_NONCE: [u8; 24] = [0u8; 24];
     const ZERO_RECORD_ID: [u8; 16] = [0u8; 16];
+    const TEST_AEAD_PROFILE: AeadProfileId = AeadProfileId::new_unchecked(0x0002);
 
     fn test_aad() -> [u8; 79] {
         build_aad(
@@ -365,6 +374,7 @@ mod tests {
             password,
             &VAULT_ID,
             &HEADER_NONCE,
+            AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile"),
             &kdf_params,
             &ciphertext,
             &nonce,
@@ -380,7 +390,14 @@ mod tests {
         let password = b"test-password-never-real";
         let aad = test_aad();
         let kdf_params = test_kdf_params();
-        let result = create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &kdf_params, &aad);
+        let result = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile"),
+            &kdf_params,
+            &aad,
+        );
         let (_keys, ciphertext, nonce) = result.expect("create_session_keys must succeed");
         // 32-byte VRK + 16-byte Poly1305 tag = 48 bytes
         assert_eq!(
@@ -399,14 +416,22 @@ mod tests {
         let aad = test_aad();
         let kdf_params = test_kdf_params();
 
-        let (created, ciphertext, wrk_nonce) =
-            create_session_keys(password, &VAULT_ID, &HEADER_NONCE, &kdf_params, &aad)
-                .expect("create must succeed");
+        let profile = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile");
+        let (created, ciphertext, wrk_nonce) = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create must succeed");
 
         let derived = derive_session_keys(
             password,
             &VAULT_ID,
             &HEADER_NONCE,
+            profile,
             &kdf_params,
             &ciphertext,
             &wrk_nonce,
@@ -430,6 +455,125 @@ mod tests {
         assert!(
             bool::from(created.export_key.ct_eq(&derived.export_key)),
             "export_key must match"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_session_keys_aead_profile_id_is_bound_to_header() {
+        let password = b"test-password-never-real";
+        let aad = test_aad();
+        let kdf_params = test_kdf_params();
+        let profile_v1 = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile");
+
+        let (_created, ciphertext, wrk_nonce) = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile_v1,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create must succeed");
+
+        let derived_v1 = derive_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile_v1,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .expect("derive with matching profile must succeed");
+        let derived_v2 = derive_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            TEST_AEAD_PROFILE,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .expect("derive with alternate profile must still derive a distinct subkey set");
+
+        assert!(
+            !bool::from(derived_v1.item_wrap_key.ct_eq(&derived_v2.item_wrap_key)),
+            "item_wrap_key must differ across AEAD profile IDs"
+        );
+        assert!(
+            !bool::from(derived_v1.metadata_key.ct_eq(&derived_v2.metadata_key)),
+            "metadata_key must differ across AEAD profile IDs"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn create_session_keys_aead_profile_id_is_bound() {
+        let password = b"test-password-never-real";
+        let aad = test_aad();
+        let kdf_params = test_kdf_params();
+        let profile_v1 = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile");
+
+        let (created_v1, ciphertext, wrk_nonce) = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile_v1,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create must succeed");
+        let created_v2 = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            TEST_AEAD_PROFILE,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create with alternate profile must succeed")
+        .0;
+        let derived_match = derive_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile_v1,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .expect("derive with matching profile must succeed");
+        let derived_mismatch = derive_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            TEST_AEAD_PROFILE,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .expect("derive with mismatched profile must still produce a distinct subkey set");
+
+        assert!(
+            bool::from(created_v1.item_wrap_key.ct_eq(&derived_match.item_wrap_key)),
+            "matching profile must reproduce item_wrap_key"
+        );
+        assert!(
+            !bool::from(
+                created_v1
+                    .item_wrap_key
+                    .ct_eq(&derived_mismatch.item_wrap_key)
+            ),
+            "mismatched profile must change item_wrap_key"
+        );
+        assert!(
+            !bool::from(created_v1.item_wrap_key.ct_eq(&created_v2.item_wrap_key)),
+            "create_session_keys must bind item_wrap_key to AEAD profile ID"
         );
     }
 }
