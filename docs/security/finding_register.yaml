@@ -4,7 +4,7 @@
 # with finding -> remediation -> verification traceability.
 # Maps to NIST SSDF RV.1/RV.2/RV.3 (see docs/security/standards_conformance.md §3).
 #
-# kind:      security_review | coverage_gap | consistency | design
+# kind:      security_review | coverage_gap | consistency | design | security_architecture
 # status:    open | resolved | accepted | deferred | rejected
 # component: crate or subsystem the finding belongs to (e.g. meissnerseal-pqc)
 # blocking:  true if it blocks a named gate
@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-29
+updated: 2026-06-30
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -1939,7 +1939,7 @@ findings:
       vault file header is replaced, modified, or raced between unlock and
       export, the export AEAD key is derived from a vault_id that differs from
       the one used to establish the session, creating a TOCTOU drift between
-      the session identity and the export AAD.
+      the session identity and the export AAD. (see F-105)
     cwe: "CWE-367"
     severity: low
     blocking: false
@@ -2223,7 +2223,7 @@ findings:
       registry design supports crypto-agile derivation, but neither call site
       plumbs the actual header AEAD profile ID through. If a new AEAD profile
       is introduced, both paths will silently derive subkeys under the wrong
-      profile binding.
+      profile binding. (see F-108)
     cwe: "CWE-325"
     severity: medium
     blocking: true
@@ -2626,7 +2626,7 @@ findings:
       rejection. The rest of the implementation continues under the fixed
       XChaCha20-Poly1305 and inactive-PQC assumptions regardless of the
       parsed profile values, creating a gap between the accepted header
-      and the implemented cryptographic behavior.
+      and the implemented cryptographic behavior. (see F-108)
     cwe: "CWE-327"
     severity: medium
     blocking: true
@@ -2659,7 +2659,7 @@ findings:
       them without comparing the stored content to the canonical AAD that
       callers will reconstruct from the frame metadata. Mutable frame
       metadata can therefore drift from the authenticated interpretation
-      used for decryption without triggering a parser rejection.
+      used for decryption without triggering a parser rejection. (see F-108)
     cwe: "CWE-345"
     severity: medium
     blocking: true
@@ -2764,4 +2764,231 @@ findings:
       profile, drifted frame metadata, WRK-overlapping table entry,
       inter-frame overlap, permission-widening rewrite, or oversized vault
       file is accepted without error.
+    commit: ""
+
+# ── meissnerseal-core cross-protocol trust boundary review (2026-06-30) ───────
+
+  - id: F-103
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — meissnerseal-core cross-protocol analysis (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Core has no single trust-boundary gatekeeper for external protocol
+      objects. Vault files, export bundles, transfer envelopes, replay stores,
+      identity text, and device keypair bytes each implement local parsing and
+      validation rules independently. The result is uneven enforcement across
+      protocols: provenance is not tracked, canonical encoding is not enforced,
+      maximum sizes lack a unified policy (F-74, F-80, F-94), duplicate-field
+      rejection is absent at the outer layer (F-97), domain separation is
+      inconsistent (F-85, F-86), frame overlap is not checked (F-100), and
+      commit timing relative to authentication varies (F-89). Each new protocol
+      surface reproduces this pattern from scratch, accumulating blind spots
+      rather than inheriting a common security baseline.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Introduce typed boundary constructors for each external protocol surface:
+      UntrustedVaultFile::parse_and_validate, UntrustedExportBundle::authenticate,
+      UntrustedTransferEnvelope::validate_for_open, SealedDeviceKeyFile::open.
+      Each boundary type must document and enforce: data provenance, maximum
+      size policy, canonical encoding requirement, duplicate-field rejection,
+      authentication status at each stage, and permitted state mutations before
+      full validation completes. The existing specific findings (F-74, F-80,
+      F-89, F-94, F-97, F-100) are subsumed into this architectural requirement
+      and should be closed as each boundary constructor is implemented.
+    verification: >-
+      Add a trust-boundary matrix review checklist requiring every public parser
+      or deserializer to answer: where did this data come from, what size limit
+      applies, what canonical form is enforced, what cryptographic context
+      authenticates it, and at what point state mutation is permitted. CI should
+      block new public-facing parse functions that do not satisfy this matrix.
+    commit: ""
+
+# ── meissnerseal-core security architecture review (2026-06-30) ───────────────
+
+  - id: F-104
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Transfer authorization is not tied to a typed trusted-device boundary.
+      open_envelope accepts OpenEnvelopeParams.sender_signing_public_key as a
+      bare SigningPublicKey without requiring that the key originate from a
+      DeviceIdentity with a Verified or Approved DeviceTrustState. The full
+      DeviceTrustState enum (Untrusted, PendingInbound, PendingOutbound,
+      Verified, Approved, Revoked, Expired) is defined in the system, but the
+      transfer open boundary does not gate on it. A caller may pass a signing
+      key from a Revoked or Expired device and open_envelope will verify the
+      signature as cryptographically valid without rejecting the non-trusted
+      trust state.
+    cwe: "CWE-284"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Introduce a typed ApprovedSender or TrustedSender wrapper produced only
+      after DeviceIdentity validation and trust-state enforcement
+      (state == Verified || state == Approved). Require this type at
+      OpenEnvelopeParams instead of a bare SigningPublicKey. The trust-state
+      check must occur before open_envelope is callable, not inside it.
+    verification: >-
+      Add compile-fail or API tests proving open_envelope cannot be called
+      with an arbitrary SigningPublicKey not wrapped in an approval-proved
+      type. Add positive tests for Verified and Approved devices, and negative
+      tests asserting Untrusted, PendingInbound, PendingOutbound, Revoked, and
+      Expired devices are rejected before AEAD decryption begins.
+    commit: ""
+
+  - id: F-105
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/engine.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Vault<Unlocked> carries live session keys but not the authenticated vault
+      identity and protocol suite established at unlock time. The struct holds
+      only path and UnlockedKeys; vault_id, header_nonce, schema_profile,
+      aead_profile, kdf_profile, and pqc_profile are not stored. Subsequent
+      operations re-derive these values by re-reading and re-parsing the vault
+      file by path. export.rs session_vault_id() is a confirmed instance:
+      std::fs::read(session.path()) followed by parse_header() re-runs after
+      unlock, creating a TOCTOU window for vault_id drift between unlock and
+      export AAD construction (see F-75). The same pattern applies to any
+      future operation that needs header-bound context.
+    cwe: "CWE-367"
+    severity: medium
+    blocking: true
+    status: open
+    remediation: >-
+      Store an AuthenticatedVaultContext inside Vault<Unlocked> at the time of
+      unlock, capturing vault_id, header_nonce, schema_profile, aead_profile,
+      kdf_profile, pqc_profile, and WRK metadata as immutable authenticated
+      state. All operations on the unlocked session should read these fields
+      from the session struct rather than re-parsing the on-disk file. See
+      also F-75 (specific export instance) and F-106 (ProtocolSuite typing).
+    verification: >-
+      Add tests that mutate or replace the on-disk vault header after unlock
+      and assert that item, export, and any future operation either use the
+      session-bound authenticated values or fail closed on a detected mismatch.
+      Verify vault_id in AAD construction always equals the value parsed at
+      unlock, regardless of on-disk header state at operation time.
+    commit: ""
+
+  - id: F-106
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Device identity and device keypair material are stored in separate
+      formats without a sealed cryptographic binding between them. The .ms-kp
+      file produced by serialize_keypair_bytes contains device_id,
+      classical_public_key, and private keys but not signing_public_key;
+      the .ms-id text carries the public identity including signing_public_key.
+      deserialize_keypair_bytes reconstructs (DeviceId, X25519PublicKey,
+      DeviceKeypair) from the keypair file alone without proving that the
+      recovered material matches the DeviceIdentity being used in the calling
+      context. An attacker or accidental swap can pair an identity file from
+      device A with a keypair file from device B, and the system will proceed
+      without detecting the mismatch. This is distinct from F-84 (intra-file
+      X25519 public/private coherence) and F-83 (unencrypted keypair storage).
+    cwe: "CWE-345"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Include an authenticated identity fingerprint (e.g. BLAKE2/SHA-256 of
+      the canonical DeviceIdentity public fields) inside the sealed keypair
+      file, or merge identity and keypair into a single AEAD-sealed envelope.
+      On load, recompute all derivable public keys from the private key bytes
+      and compare them against the identity in use before any pairing, transfer,
+      or signing operation proceeds. See also F-83 (unencrypted storage) and
+      F-84 (intra-file coherence checks).
+    verification: >-
+      Add tests for mismatched identity/keypair file pairs, swapped .ms-id
+      content, and corrupted signing or classical private key sections.
+      All must produce a rejected-load error before pairing, transfer create,
+      or transfer receive can proceed with the compromised material.
+    commit: ""
+
+  - id: F-107
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — meissnerseal-core cross-module analysis (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Secret-bearing intermediate buffers are not consistently represented by
+      secret types across core protocols. Confirmed instances: (1)
+      CreateEnvelopeParams.plaintext_payload is Vec<u8> (envelope.rs line 116),
+      requiring callers to zeroize manually; (2) open_envelope returns
+      Vec<u8> (line 368, payload.to_vec()), delivering decrypted item secrets
+      to callers as a non-zeroizing buffer; (3) serialize_live_item_set in
+      export.rs builds a Vec<u8> plaintext with manual plaintext.zeroize()
+      after encrypt. The AEAD crate returns a Zeroizing type, but callers
+      frequently extract plain slices or build new Vec<u8> allocations from
+      them. This makes plaintext lifetime a code discipline rather than a
+      type-system invariant, and creates residue risk when callers
+      misuse or extend these APIs. See also F-92 (encode_signed_payload
+      returns Vec<u8> rather than Zeroizing).
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Introduce SecretPayload or PlaintextBuffer wrappers with ZeroizeOnDrop
+      for all buffers that carry decrypted item secrets, export plaintext,
+      transfer plaintext, or intermediate signed payloads. Replace
+      CreateEnvelopeParams.plaintext_payload with a typed secret input, and
+      change open_envelope to return a ZeroizingVec or SecretPayload rather
+      than Vec<u8>. Enforce via clippy lint or review convention: raw Vec<u8>
+      is forbidden for known plaintext-secret payloads outside parser-owned
+      ciphertext input buffers.
+    verification: >-
+      Add static assertions or lint checks proving secret-bearing buffers
+      implement ZeroizeOnDrop. Add tests asserting that the return value of
+      open_envelope and the intermediate buffers in export zeroize on drop
+      without requiring manual caller action.
+    commit: ""
+
+  - id: F-108
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "security review — meissnerseal-core cross-module analysis (2026-06-30)"
+    date: 2026-06-30
+    description: >-
+      Protocol-suite and algorithm-profile state is scattered across vault
+      header fields, hardcoded constants, key hierarchy derivation, frame
+      parsing, and transfer transcript construction with no single typed
+      VaultProfileSet object that normalizes, validates, and carries the active
+      suite through all boundaries. Confirmed scatter points: AEAD_ID is
+      hardcoded as const 1 in hierarchy.rs and never sourced from the parsed
+      header (F-85); aead_profile and pqc_profile are parsed in format.rs but
+      not validated against supported values (F-98); the frame-local AEAD
+      profile field in parse_record_frame is discarded with _ (F-99). Each
+      call site that needs a profile ID either re-reads a raw u16 from a struct
+      or ignores it, making crypto-agility evolution error-prone and
+      correctness hard to audit.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Parse and validate all profile fields once at vault open time into a
+      typed VaultProfileSet struct containing validated aead_profile,
+      pqc_profile, kdf_profile, and schema_profile values. Store this struct
+      in AuthenticatedVaultContext (see F-105) and thread it through key
+      hierarchy derivation, AAD construction, frame parsing, and export/transfer
+      boundaries. Reject unsupported profile combinations fail-closed before
+      any session key material is derived. This resolves the scatter points
+      documented in F-85, F-98, and F-99.
+    verification: >-
+      Add tests proving unsupported or mismatched suite IDs fail closed before
+      WRK decryption or item-wrap key derivation. Add vectors showing distinct
+      aead_profile values produce distinct AEAD-scoped subkeys. Add tests that
+      a vault with a valid header but unsupported aead_profile or pqc_profile
+      is rejected at the VaultProfileSet parse step.
     commit: ""
