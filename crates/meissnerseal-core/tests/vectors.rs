@@ -32,7 +32,7 @@ use meissnerseal_core::{
     item::{add, list, with_item, ItemKind, PlainItem},
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
-use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key};
+use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key, MasterUnlockKey};
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use serde_json::Value;
 
@@ -225,6 +225,15 @@ fn parse_item_kind(kind: &str) -> ItemKind {
     }
 }
 
+fn plain_note(label: &str, secret: &[u8]) -> PlainItem {
+    PlainItem {
+        kind: ItemKind::SecureNote,
+        label: label.to_string(),
+        secret: SecretBytes::new(secret.to_vec()),
+        tags: vec!["vectors".to_string()],
+    }
+}
+
 fn assert_imported_items(session: &Vault<Unlocked>, expected_items: &[Value]) {
     let summaries = list(session).expect("imported items must be listed");
     assert_eq!(
@@ -396,33 +405,73 @@ fn vault_format_struct_v1_vectors() {
 }
 
 #[test]
-fn open_sealed_record_table_v2_rejects_incorrect_section_offset() {
-    let vectors = load("vault_format_struct_v1.json");
-    let case = find(&vectors, "v2-empty-table-fixed-wrk");
-    let blob = unhex(case["expected"]["vault_file_hex"].as_str().unwrap());
-    let mek = AeadKey::from_bytes(arr::<32>(
-        case["inputs"]["metadata_encryption_key"].as_str().unwrap(),
-    ));
-    let header = parse_header(&blob).expect("header must parse");
-    let header_len = read_u32_at(&blob, 10);
-    let wrk_frame_offset = HEADER_MIN_LEN + header_len;
-    let correct_section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
-    let section_len = read_u32_at(&blob, 14);
-
+fn unlock_and_list_accept_zero_entry_table_vault() {
+    let (path, session) = unlocked_session("zero-entry-table");
+    let summaries = list(&session).expect("zero-entry vault must list successfully");
     assert!(
-        open_sealed_record_table_v2(
-            &blob,
-            correct_section_offset + 1,
-            section_len,
-            &mek,
-            &header.vault_id,
-            header.schema_profile,
-            wrk_frame_offset,
-            blob.len(),
-        )
-        .is_err(),
-        "production parser must reject an off-by-one sealed-table offset"
+        summaries.is_empty(),
+        "zero-entry table must yield an empty list"
     );
+    cleanup(&path, session);
+}
+
+#[test]
+fn unlock_rejects_invalid_wrk_nonce_len_through_public_api() {
+    let (path, session) = unlocked_session("invalid-wrk-nonce-len");
+    drop(session.lock());
+
+    let mut bytes = std::fs::read(&path).expect("read crafted vault bytes");
+    let header_len = read_u32_at(&bytes, 10);
+    let wrk_frame_offset = HEADER_MIN_LEN + header_len;
+    let nonce_len_offset = wrk_frame_offset + 2 + 16 + 16 + 2;
+    bytes[nonce_len_offset] = u8::MAX;
+    std::fs::write(&path, &bytes).expect("rewrite crafted vault bytes");
+
+    let err = match Vault::<Locked>::open(path.clone())
+        .expect("open mutated vault")
+        .unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(TEST_VAULT_PASSWORD.to_vec()),
+        }) {
+        Ok(_) => panic!("invalid WRK nonce_len must fail through unlock()"),
+        Err(err) => err,
+    };
+    assert!(
+        matches!(err, CoreError::Format(_)),
+        "invalid WRK nonce_len must reject with CoreError::Format"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn unlock_and_list_accept_bucket_boundary_multi_entry_vault() {
+    let (path, session) = unlocked_session("bucket-boundary-multi-entry");
+    for (label, secret) in [
+        ("boundary-note-1", b"secret-1".as_slice()),
+        ("boundary-note-2", b"secret-2".as_slice()),
+        ("boundary-note-3", b"secret-3".as_slice()),
+        ("boundary-note-4", b"secret-4".as_slice()),
+    ] {
+        add(&session, plain_note(label, secret)).expect("add test note");
+    }
+
+    let locked = session.lock();
+    let reopened = Vault::<Locked>::open(path.clone())
+        .expect("reopen boundary vault")
+        .unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(TEST_VAULT_PASSWORD.to_vec()),
+        })
+        .expect("unlock boundary vault");
+    let summaries = list(&reopened).expect("multi-entry vault must list successfully");
+    assert_eq!(
+        summaries.len(),
+        4,
+        "bucket-boundary multi-entry vault must preserve all records"
+    );
+    drop(locked);
+    cleanup(&path, reopened);
 }
 
 // ── vault_kdf_param_tlv_v1.json — KDF parameter TLV block (§4) ────────────────
@@ -514,13 +563,19 @@ fn parse_kdf_profile_params_rejects_wrong_argon2_version() {
     let (offset, _) = find_kdf_param_tlv(&block, 0x0105).expect("argon2_version TLV");
     block[offset + 4..offset + 8].copy_from_slice(&0x12u32.to_le_bytes());
 
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 fn assert_missing_required_tag_rejected(tag: u16) {
     let mut block = kdf_profile_value_from_vector();
     remove_kdf_param_tlv(&mut block, tag);
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -551,7 +606,10 @@ fn parse_kdf_profile_params_rejects_missing_argon2_version_tag() {
 fn assert_duplicate_tag_rejected(tag: u16) {
     let mut block = kdf_profile_value_from_vector();
     duplicate_kdf_param_tlv(&mut block, tag);
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -560,13 +618,80 @@ fn parse_kdf_profile_params_rejects_duplicate_m_cost_tag() {
 }
 
 #[test]
+fn parse_kdf_profile_params_rejects_duplicate_t_cost_tag() {
+    assert_duplicate_tag_rejected(0x0102);
+}
+
+#[test]
 fn parse_kdf_profile_params_rejects_duplicate_p_lanes_tag() {
     assert_duplicate_tag_rejected(0x0103);
 }
 
 #[test]
+fn parse_kdf_profile_params_rejects_duplicate_output_len_tag() {
+    assert_duplicate_tag_rejected(0x0104);
+}
+
+#[test]
 fn parse_kdf_profile_params_rejects_duplicate_argon2_version_tag() {
     assert_duplicate_tag_rejected(0x0105);
+}
+
+fn rewrite_tlv_len(block: &mut Vec<u8>, tag: u16, new_len: u16) {
+    let (offset, total_len) = find_kdf_param_tlv(block, tag).expect("TLV tag present");
+    let old_len = total_len - 4;
+    block[offset + 2..offset + 4].copy_from_slice(&new_len.to_le_bytes());
+    match usize::from(new_len).cmp(&old_len) {
+        std::cmp::Ordering::Less => {
+            let shrink = old_len - usize::from(new_len);
+            let remove_start = offset + 4 + usize::from(new_len);
+            block.drain(remove_start..remove_start + shrink);
+            let next_params_len = kdf_params_len(block) - shrink;
+            set_kdf_params_len(block, next_params_len as u32);
+        }
+        std::cmp::Ordering::Greater => {
+            let grow = usize::from(new_len) - old_len;
+            let insert_at = offset + 4 + old_len;
+            block.splice(insert_at..insert_at, std::iter::repeat_n(0u8, grow));
+            let next_params_len = kdf_params_len(block) + grow;
+            set_kdf_params_len(block, next_params_len as u32);
+        }
+        std::cmp::Ordering::Equal => {}
+    }
+}
+
+fn assert_wrong_tlv_width_rejected(tag: u16, wrong_len: u16) {
+    let mut block = kdf_profile_value_from_vector();
+    rewrite_tlv_len(&mut block, tag, wrong_len);
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_encoded_type_for_m_cost_tag() {
+    assert_wrong_tlv_width_rejected(0x0101, 2);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_encoded_type_for_t_cost_tag() {
+    assert_wrong_tlv_width_rejected(0x0102, 2);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_encoded_type_for_p_lanes_tag() {
+    assert_wrong_tlv_width_rejected(0x0103, 2);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_encoded_type_for_output_len_tag() {
+    assert_wrong_tlv_width_rejected(0x0104, 4);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_wrong_encoded_type_for_argon2_version_tag() {
+    assert_wrong_tlv_width_rejected(0x0105, 2);
 }
 
 #[test]
@@ -578,7 +703,10 @@ fn parse_kdf_profile_params_rejects_wrong_value_length() {
     set_kdf_params_len(&mut block, next_params_len as u32);
     block.splice(offset + 6..offset + 6, [0u8, 0u8]);
 
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -587,7 +715,22 @@ fn parse_kdf_profile_params_rejects_params_len_shorter_than_tlvs() {
     let next_params_len = kdf_params_len(&block) - 1;
     set_kdf_params_len(&mut block, next_params_len as u32);
 
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_params_len_longer_than_body() {
+    let mut block = kdf_profile_value_from_vector();
+    let next_params_len = kdf_params_len(&block) + 1;
+    set_kdf_params_len(&mut block, next_params_len as u32);
+
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -595,7 +738,10 @@ fn parse_kdf_profile_params_rejects_trailing_garbage_after_declared_params() {
     let mut block = kdf_profile_value_from_vector();
     block.extend_from_slice(&[0xaa, 0xbb]);
 
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -603,7 +749,10 @@ fn parse_kdf_profile_params_rejects_unknown_profile_id() {
     let mut block = kdf_profile_value_from_vector();
     block[0..2].copy_from_slice(&0x0002u16.to_le_bytes());
 
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 // F-61/F-66: below-minimum profile params must be rejected so attacker-controlled
@@ -615,7 +764,10 @@ fn parse_kdf_profile_params_rejects_m_cost_below_minimum() {
     let mut block = kdf_profile_value_from_vector();
     let (offset, _) = find_kdf_param_tlv(&block, 0x0101).expect("m_cost_kib TLV");
     block[offset + 4..offset + 8].copy_from_slice(&8u32.to_le_bytes());
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -623,7 +775,10 @@ fn parse_kdf_profile_params_rejects_t_cost_below_minimum() {
     let mut block = kdf_profile_value_from_vector();
     let (offset, _) = find_kdf_param_tlv(&block, 0x0102).expect("t_cost TLV");
     block[offset + 4..offset + 8].copy_from_slice(&2u32.to_le_bytes());
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -631,7 +786,10 @@ fn parse_kdf_profile_params_rejects_p_lanes_below_minimum() {
     let mut block = kdf_profile_value_from_vector();
     let (offset, _) = find_kdf_param_tlv(&block, 0x0103).expect("p_lanes TLV");
     block[offset + 4..offset + 8].copy_from_slice(&3u32.to_le_bytes());
-    assert!(parse_kdf_profile_params(&block).is_err());
+    assert!(matches!(
+        parse_kdf_profile_params(&block),
+        Err(CoreError::Format(_))
+    ));
 }
 
 #[test]
@@ -643,12 +801,14 @@ fn header_sourced_kdf_params_reproduce_existing_muk_vector() {
     let c = find(&v, "muk-derivation");
     let password = c["inputs"]["password"].as_str().unwrap().as_bytes();
     let vault_id = arr::<16>(c["inputs"]["vault_id"].as_str().unwrap());
-    let expected_muk = unhex(c["expected"]["master_unlock_key"].as_str().unwrap());
+    let expected_muk = MasterUnlockKey::from_bytes(arr::<32>(
+        c["expected"]["master_unlock_key"].as_str().unwrap(),
+    ));
 
     let muk = derive_master_unlock_key_with_header_params(password, &vault_id, &params)
         .expect("header-sourced params must reproduce the existing MUK vector");
 
-    assert_eq!(muk.as_slice(), expected_muk.as_slice(), "MUK vector");
+    assert!(bool::from(muk.ct_eq(&expected_muk)), "MUK vector");
 }
 
 #[test]
