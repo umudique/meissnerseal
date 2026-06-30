@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import struct
 from pathlib import Path
@@ -75,8 +76,28 @@ def argon2id_salt(vault_id: bytes) -> bytes:
     return domain + vault_id
 
 
+EXPORT_BUNDLE_INFO = b"meissnerseal:export-bundle:v1"
+
+
+def hkdf_expand_32(prk: bytes, info: bytes) -> bytes:
+    """HKDF-SHA256-Expand for exactly 32 bytes (one round, RFC 5869 §2.3).
+
+    T(1) = HMAC-SHA256(PRK, T(0) || info || 0x01) where T(0) = b"".
+    """
+    return hmac.new(prk, info + b"\x01", hashlib.sha256).digest()
+
+
 def derive_export_key(passphrase: str, vault_id: bytes) -> bytes:
-    return hash_secret_raw(
+    """Derive the 32-byte export AEAD key.
+
+    Chain: Argon2id(passphrase, salt=ARGON2ID_SALT_DOMAIN_V1||vault_id) → MUK
+           HKDF-SHA256-Expand(PRK=MUK, info="meissnerseal:export-bundle:v1") → AeadKey
+
+    The HKDF-Expand step provides export-specific domain separation (F-73):
+    the resulting key is distinct from the vault MUK and from all HKDF session
+    subkeys even when passphrase == vault_password and vault_id == source_vault_id.
+    """
+    muk = hash_secret_raw(
         secret=passphrase.encode("utf-8"),
         salt=argon2id_salt(vault_id),
         time_cost=ARGON2_T_COST,
@@ -86,6 +107,7 @@ def derive_export_key(passphrase: str, vault_id: bytes) -> bytes:
         type=Type.ID,
         version=ARGON2_VERSION,
     )
+    return hkdf_expand_32(muk, EXPORT_BUNDLE_INFO)
 
 
 def export_aad(source_vault_id: bytes, version: int) -> bytes:
@@ -217,9 +239,11 @@ def main() -> int:
             "vault and assert the imported plaintext matches expected_items. "
             "Use bundle_hex directly for import KATs. The corruption and wrong-"
             "decryption-key cases should call import(...) and assert a specific "
-            "authentication rejection. In the current .msexp design, the "
-            "'recipient key' is the Argon2-derived AEAD key from the export "
-            "passphrase, source_vault_id, and bundled kdf_params."
+            "authentication rejection. The export AEAD key is derived as: "
+            "Argon2id(passphrase, salt=meissnerseal-argon2id-salt-v1||source_vault_id) "
+            "→ MUK; HKDF-SHA256-Expand(PRK=MUK, "
+            "info=meissnerseal:export-bundle:v1) → AeadKey. "
+            "The HKDF-Expand step provides export-specific domain separation (F-73)."
         ),
         "cases": [
             {

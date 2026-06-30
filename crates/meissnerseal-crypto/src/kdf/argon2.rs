@@ -2,7 +2,7 @@
 //! Argon2id key derivation contracts.
 
 use crate::kdf::{KdfError, Result};
-use crate::types::{MasterUnlockKey, VaultKeyEncKey};
+use crate::types::{AeadKey, MasterUnlockKey, VaultKeyEncKey};
 use argon2::{Algorithm, Argon2, Params, Version};
 use zeroize::Zeroizing;
 
@@ -133,6 +133,46 @@ pub fn derive_vkek(
     Ok(VaultKeyEncKey::from_bytes(*vkek.as_bytes()))
 }
 
+/// HKDF info string for export bundle key expansion.
+const EXPORT_BUNDLE_INFO: &[u8] = b"meissnerseal:export-bundle:v1";
+
+/// Derive the 32-byte export bundle AEAD key.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `passphrase` is the user-supplied export passphrase (non-empty).
+/// - `source_vault_id` is the canonical 128-bit vault UUID of the source vault.
+/// - `params` is the KDF_ARGON2ID_V1 parameter set serialized into the bundle.
+///
+/// ## Postconditions
+/// - On success, returns exactly one `AeadKey` containing 32 bytes.
+/// - The derivation chain is:
+///   1. Argon2id(passphrase, salt=`ARGON2ID_SALT_DOMAIN_V1 || source_vault_id`,
+///      params) → MUK (32 bytes)
+///   2. HKDF-SHA256-Expand(PRK=MUK, info=`"meissnerseal:export-bundle:v1"`,
+///      len=32) → AeadKey
+/// - The HKDF-Expand step provides export-specific domain separation: the
+///   resulting key is distinct from the vault MUK and from all HKDF session
+///   subkeys even when `passphrase == vault_password` and
+///   `source_vault_id == vault_id` (F-73).
+/// - On failure, returns `Err` without exposing partial key material.
+///
+/// ## Invariants
+/// - MUK is used as PRK directly (RFC 5869 §3.3 — MUK is uniform 32-byte output
+///   from Argon2id, valid as HKDF-SHA256 PRK without a prior extract step).
+/// - Secret bytes are never logged, printed, or written to any output.
+pub fn derive_export_bundle_key(
+    passphrase: &[u8],
+    source_vault_id: &[u8; 16],
+    params: &Argon2Params,
+) -> Result<AeadKey> {
+    let muk = derive(passphrase, source_vault_id, params)?;
+    let prk = crate::kdf::hkdf::Prk::from_bytes(*muk.as_bytes());
+    let key = crate::kdf::hkdf::expand::<32>(&prk, EXPORT_BUNDLE_INFO)?;
+    Ok(AeadKey::from_bytes(*key.as_bytes()))
+}
+
 pub(crate) fn construct_argon2id_salt(vault_id: &[u8; 16]) -> [u8; ARGON2ID_SALT_LEN] {
     let mut salt = [0u8; ARGON2ID_SALT_LEN];
     let (domain, vault) = salt.split_at_mut(ARGON2ID_SALT_DOMAIN_V1.len());
@@ -223,6 +263,41 @@ mod tests {
         let expected = VaultKeyEncKey::from_bytes(EXPECTED_VKEK);
 
         assert!(bool::from(vault_key_encryption_key.ct_eq(&expected)));
+    }
+
+    /// KAT: export bundle key is domain-separated from vault MUK (F-73).
+    ///
+    /// When the same passphrase and vault_id are supplied to both `derive` and
+    /// `derive_export_bundle_key`, the outputs must be distinct. This prevents
+    /// an attacker from using a known vault password to decrypt the export bundle
+    /// for the same vault without the explicit export passphrase.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn export_bundle_key_differs_from_vault_muk_same_passphrase_same_vault_id() {
+        let vault_muk = derive(PASSWORD, &VAULT_ID, &PARAMS).expect("MUK derivation");
+        let export_key =
+            derive_export_bundle_key(PASSWORD, &VAULT_ID, &PARAMS).expect("export key derivation");
+
+        // Must NOT be equal — HKDF-Expand info string provides domain separation.
+        let vault_muk_as_aead = AeadKey::from_bytes(*vault_muk.as_bytes());
+        assert!(
+            !bool::from(vault_muk_as_aead.ct_eq(&export_key)),
+            "export bundle key must differ from vault MUK with same passphrase+vault_id"
+        );
+    }
+
+    /// Export bundle key derivation is deterministic: same inputs → same output.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn export_bundle_key_is_deterministic() {
+        let key1 =
+            derive_export_bundle_key(PASSWORD, &VAULT_ID, &PARAMS).expect("first derivation");
+        let key2 =
+            derive_export_bundle_key(PASSWORD, &VAULT_ID, &PARAMS).expect("second derivation");
+        assert!(
+            bool::from(key1.ct_eq(&key2)),
+            "export bundle key must be deterministic"
+        );
     }
 
     // Each guard condition is tested in isolation (exactly one invalid field,
