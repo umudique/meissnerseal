@@ -274,6 +274,7 @@ Begin Phase 2 before Phase 1 is approved
 - cargo check:  PASS / FAIL
 - cargo clippy: PASS (0 warnings) / FAIL
 - cargo test:   PASS (N tests) / FAIL
+- cargo deny:   PASS / FAIL
 - cargo audit:  PASS / FAIL
 - Miri:         PASS / FAIL / N/A
 

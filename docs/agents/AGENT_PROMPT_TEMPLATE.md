@@ -97,6 +97,7 @@ common:
     cargo check --workspace --all-targets
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace
+    cargo deny check
     cargo audit
   done: >
     Implementation matches the cited spec section; the tests written first pass;
@@ -404,9 +405,18 @@ roles:
         there a fuzz target for every parser? are property tests present for
         behavioral invariants?
 
+      - Authenticated Context Integrity — is authenticated context (session
+        identity, protocol suite, verified security parameters) established once
+        at the trust boundary and carried through a typed session value for the
+        lifetime of that session? are security parameters validated against an
+        enforced minimum profile before any cryptographic operation consumes
+        them? do operations gated on trust or authorization state accept typed
+        proof values rather than raw keys or flags the callee re-validates?
+
       - Supply Chain Posture — do all dependencies appear in Cargo.lock? does
-        cargo audit pass with no vulnerabilities? is every unsafe block justified
-        with a // SAFETY: comment? are new dependencies gated by ADR-020?
+        cargo deny check and cargo audit pass with no vulnerabilities? is every
+        unsafe block justified with a // SAFETY: comment? are new dependencies
+        gated by ADR-020?
 
       Scoring standard: 0 absent/broken · 1 serious deficiency · 2 partial,
       insufficient · 3 adequate with reservations · 4 strong, minor reservations ·
@@ -430,7 +440,7 @@ roles:
       ```yaml
       # paste into docs/security/finding_register.yaml
       - id: F-??          # human assigns sequential ID
-        kind: security_review   # or coverage_gap | design | test_quality
+        kind: security_review   # or coverage_gap | consistency | design | security_architecture
         component: [crate name]
         source: "[agent role] — [file reviewed] ([date])"
         date: [YYYY-MM-DD]

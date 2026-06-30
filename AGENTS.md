@@ -126,6 +126,9 @@ MEMORY
   [ ] No plaintext secrets in error messages
   [ ] No plaintext secrets in test fixtures or test output
   [ ] No long-lived plaintext in Flutter/Dart widget state
+  [ ] Intermediate buffers carrying decrypted or plaintext secret material use
+      typed wrappers with ZeroizeOnDrop — raw Vec<u8> or [u8;N] are not
+      acceptable for plaintext that outlives the decryption or derivation call
 
 PARSER
   [ ] Every parser fails closed — no partial output on malformed input
@@ -137,6 +140,18 @@ PROTOCOL
   [ ] Downgrade attempts are rejected before any decryption
   [ ] Expired envelopes are rejected
   [ ] Replay protection is enforced
+  [ ] Security parameters ingested from external sources (algorithm IDs, cost
+      factors, format versions, profile tags) are validated against an enforced
+      minimum profile before they are consumed by any cryptographic operation —
+      read → validate-with-profile → use, never read → use → validate
+  [ ] State mutations and observable side-effects occur only after the
+      operation that triggers them has been fully cryptographically
+      authenticated — no persistent state change may precede AEAD verification
+      or signature validation in the same operation
+  [ ] Authenticated context established at a trust boundary (session identity,
+      negotiated protocol suite, verified parameters) is captured once into the
+      session type and carried through the lifetime of that session — it is
+      never re-derived from mutable or external state mid-session
 
 API SURFACE
   [ ] Secret-bearing types have no public method that returns raw secret bytes
@@ -144,6 +159,10 @@ API SURFACE
   [ ] Wire-level encoding helpers (e.g. to_le_bytes / from_le_bytes) are part of the public API, not caller responsibility
   [ ] Error variants are specific enough to distinguish failure modes in tests — no catch-all Err for structurally different failures
   [ ] Every cross-verifier script in test-vectors/ is executed in a CI job
+  [ ] Operations gated on trust, authorization, or authentication state accept
+      typed proof values produced by the authorizing subsystem — callers do not
+      pass raw keys, identifiers, or boolean flags that the callee must
+      re-validate; the type itself is the proof
 
 UNSAFE RUST
   [ ] Every unsafe block has a // SAFETY: comment explaining why it is sound
@@ -177,6 +196,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 
 # Dependency security
+cargo deny check
 cargo audit
 ```
 
@@ -490,6 +510,7 @@ No task is complete without a completion report.
 - cargo check:  [PASS / FAIL]
 - cargo clippy: [PASS (N warnings) / FAIL]
 - cargo test:   [PASS (N tests) / FAIL]
+- cargo deny:   [PASS / FAIL]
 - cargo audit:  [PASS / FAIL]
 - Miri:         [PASS / FAIL / N/A]
 
@@ -502,7 +523,7 @@ No task is complete without a completion report.
 
 | location | kind | severity | description |
 |---|---|---|---|
-| [file:line] | [security_review \| coverage_gap \| design] | [Critical/High/Medium/Low] | [description] |
+| [file:line] | [security_review \| coverage_gap \| consistency \| design \| security_architecture] | [high/medium/low] | [description] |
 
 If None, omit the table.
 ```
