@@ -296,6 +296,10 @@ fn read_u32_at(bytes: &[u8], offset: usize) -> usize {
 /// (§6: version || record_id || revision_id || aead_profile || nonce_len ||
 /// nonce || aad_len || aad || ciphertext_len || ciphertext). Used to skip the
 /// fixed-position WrappedRootKey frame and locate the sealed table section.
+// SHADOW PARSER: this helper duplicates production frame-layout knowledge in
+// test code. It must stay in sync with the real record-frame boundary or the
+// section_offset fed into open_sealed_record_table_v2 can become misleading and
+// make coverage look stronger than it is.
 fn record_frame_len_at(bytes: &[u8], offset: usize) -> usize {
     let nonce_len = bytes[offset + 2 + 16 + 16 + 2] as usize;
     let aad_len_offset = offset + 2 + 16 + 16 + 2 + 1 + nonce_len;
@@ -391,6 +395,36 @@ fn vault_format_struct_v1_vectors() {
     }
 }
 
+#[test]
+fn open_sealed_record_table_v2_rejects_incorrect_section_offset() {
+    let vectors = load("vault_format_struct_v1.json");
+    let case = find(&vectors, "v2-empty-table-fixed-wrk");
+    let blob = unhex(case["expected"]["vault_file_hex"].as_str().unwrap());
+    let mek = AeadKey::from_bytes(arr::<32>(
+        case["inputs"]["metadata_encryption_key"].as_str().unwrap(),
+    ));
+    let header = parse_header(&blob).expect("header must parse");
+    let header_len = read_u32_at(&blob, 10);
+    let wrk_frame_offset = HEADER_MIN_LEN + header_len;
+    let correct_section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
+    let section_len = read_u32_at(&blob, 14);
+
+    assert!(
+        open_sealed_record_table_v2(
+            &blob,
+            correct_section_offset + 1,
+            section_len,
+            &mek,
+            &header.vault_id,
+            header.schema_profile,
+            wrk_frame_offset,
+            blob.len(),
+        )
+        .is_err(),
+        "production parser must reject an off-by-one sealed-table offset"
+    );
+}
+
 // ── vault_kdf_param_tlv_v1.json — KDF parameter TLV block (§4) ────────────────
 
 #[test]
@@ -483,20 +517,56 @@ fn parse_kdf_profile_params_rejects_wrong_argon2_version() {
     assert!(parse_kdf_profile_params(&block).is_err());
 }
 
-#[test]
-fn parse_kdf_profile_params_rejects_missing_required_tag() {
+fn assert_missing_required_tag_rejected(tag: u16) {
     let mut block = kdf_profile_value_from_vector();
-    remove_kdf_param_tlv(&mut block, 0x0102);
-
+    remove_kdf_param_tlv(&mut block, tag);
     assert!(parse_kdf_profile_params(&block).is_err());
 }
 
 #[test]
-fn parse_kdf_profile_params_rejects_duplicate_tag() {
-    let mut block = kdf_profile_value_from_vector();
-    duplicate_kdf_param_tlv(&mut block, 0x0101);
+fn parse_kdf_profile_params_rejects_missing_m_cost_tag() {
+    assert_missing_required_tag_rejected(0x0101);
+}
 
+#[test]
+fn parse_kdf_profile_params_rejects_missing_t_cost_tag() {
+    assert_missing_required_tag_rejected(0x0102);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_missing_p_lanes_tag() {
+    assert_missing_required_tag_rejected(0x0103);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_missing_output_len_tag() {
+    assert_missing_required_tag_rejected(0x0104);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_missing_argon2_version_tag() {
+    assert_missing_required_tag_rejected(0x0105);
+}
+
+fn assert_duplicate_tag_rejected(tag: u16) {
+    let mut block = kdf_profile_value_from_vector();
+    duplicate_kdf_param_tlv(&mut block, tag);
     assert!(parse_kdf_profile_params(&block).is_err());
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_duplicate_m_cost_tag() {
+    assert_duplicate_tag_rejected(0x0101);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_duplicate_p_lanes_tag() {
+    assert_duplicate_tag_rejected(0x0103);
+}
+
+#[test]
+fn parse_kdf_profile_params_rejects_duplicate_argon2_version_tag() {
+    assert_duplicate_tag_rejected(0x0105);
 }
 
 #[test]
@@ -586,40 +656,52 @@ fn vault_kdf_v1_all_seven_subkeys_match_vectors() {
     let c = subkey_derivation_case();
     let expected = &c["expected"];
     let keys = derive_vector_unlocked_keys();
+    let item_wrap_key = Key::<32>::from_bytes(arr::<32>(
+        expected["item_key_wrapping_key"].as_str().unwrap(),
+    ));
+    let metadata_key = Key::<32>::from_bytes(arr::<32>(
+        expected["metadata_encryption_key"].as_str().unwrap(),
+    ));
+    let audit_key = Key::<32>::from_bytes(arr::<32>(
+        expected["local_audit_event_key"].as_str().unwrap(),
+    ));
+    let sync_envelope_key =
+        Key::<32>::from_bytes(arr::<32>(expected["sync_envelope_key"].as_str().unwrap()));
+    let device_enrollment_key = Key::<32>::from_bytes(arr::<32>(
+        expected["device_enrollment_key"].as_str().unwrap(),
+    ));
+    let recovery_wrapping_key = Key::<32>::from_bytes(arr::<32>(
+        expected["recovery_wrapping_key"].as_str().unwrap(),
+    ));
+    let export_key =
+        Key::<32>::from_bytes(arr::<32>(expected["export_bundle_key"].as_str().unwrap()));
 
-    assert_eq!(
-        keys.item_wrap_key.as_slice(),
-        unhex(expected["item_key_wrapping_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.item_wrap_key.ct_eq(&item_wrap_key)),
         "item key wrapping key"
     );
-    assert_eq!(
-        keys.metadata_key.as_slice(),
-        unhex(expected["metadata_encryption_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.metadata_key.ct_eq(&metadata_key)),
         "metadata encryption key"
     );
-    assert_eq!(
-        keys.audit_key.as_slice(),
-        unhex(expected["local_audit_event_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.audit_key.ct_eq(&audit_key)),
         "local audit event key"
     );
-    assert_eq!(
-        keys.sync_envelope_key.as_slice(),
-        unhex(expected["sync_envelope_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.sync_envelope_key.ct_eq(&sync_envelope_key)),
         "sync envelope key"
     );
-    assert_eq!(
-        keys.device_enrollment_key.as_slice(),
-        unhex(expected["device_enrollment_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.device_enrollment_key.ct_eq(&device_enrollment_key)),
         "device enrollment key"
     );
-    assert_eq!(
-        keys.recovery_wrapping_key.as_slice(),
-        unhex(expected["recovery_wrapping_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.recovery_wrapping_key.ct_eq(&recovery_wrapping_key)),
         "recovery wrapping key"
     );
-    assert_eq!(
-        keys.export_key.as_slice(),
-        unhex(expected["export_bundle_key"].as_str().unwrap()).as_slice(),
+    assert!(
+        bool::from(keys.export_key.ct_eq(&export_key)),
         "export bundle key"
     );
 }
