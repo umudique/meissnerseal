@@ -856,12 +856,23 @@ findings:
     component: meissnerseal-cli
     source: "External E2E test review — crates/meissnerseal-cli/tests/e2e.rs (2026-06-25)"
     date: 2026-06-25
+    status: open
+    blocking: false
     description: >-
       list_label_with_newline_does_not_inject: assertion assert!(!first_row.contains('\n'))
       is a tautology. stdout.lines() strips line separators by contract, so first_row
       can never contain '\n'. The test passes vacuously and does not verify that the
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
+    commit: ""
+    remediation: >-
+      Replace the tautological assert!(!first_row.contains(chr(10))) with an
+      assertion that the label's embedded newline was escaped or rejected in
+      stdout output. Use raw output capture instead of stdout.lines() so the
+      separator is preserved and the escape can be verified.
+    verification: >-
+      Test must fail when list_command outputs an unescaped embedded newline
+      in a label.
 
   - id: F-49
     kind: test_quality
@@ -1807,7 +1818,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add export_bundle_v1.json vectors covering canonical export sealing,
       import/decrypt, wrong passphrase, wrong AAD/framing, malformed KDF
@@ -1817,7 +1828,7 @@ findings:
       CI consumes the new .msexp vectors through the real public export/import
       APIs and fails on any change to export AAD bytes, KDF derivation bytes,
       nonce/ciphertext framing, or item-set parser behavior.
-    commit: ""
+    commit: "254bec2"
 
   - id: F-68
     kind: coverage_gap
@@ -1835,7 +1846,7 @@ findings:
     cwe: null
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add negative vectors that pass complete malformed vault blobs directly
       into the highest-level production open/parse path, including invalid
@@ -1845,7 +1856,7 @@ findings:
       CI asserts these malformed vault files return Err from the production API
       rather than panicking in test helpers or being filtered by shadow parsing
       logic.
-    commit: ""
+    commit: "54c2746"
 
   - id: F-69
     kind: coverage_gap
@@ -1862,7 +1873,7 @@ findings:
     cwe: "CWE-327"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add table-driven negative vectors for every required Argon2id TLV tag
       (0x0101–0x0105) as missing and duplicated, exact minimum and maximum
@@ -1872,7 +1883,7 @@ findings:
     verification: >-
       CI fails if parse_kdf_profile_params accepts any malformed, duplicated,
       unknown, below-floor, or over-bound KDF parameter encoding.
-    commit: ""
+    commit: "54c2746"
 
   - id: F-70
     kind: consistency
@@ -1891,7 +1902,7 @@ findings:
     cwe: "CWE-312"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace key-byte assert_eq! calls with constant-time comparisons and
       failure messages that include only the case label, or update the header
@@ -1899,7 +1910,7 @@ findings:
     verification: >-
       Grep vectors.rs for assert_eq! over MUK, PRK, subkey, AEAD key, or
       plaintext-secret byte slices and confirm no side is printed on failure.
-    commit: ""
+    commit: "54c2746"
 
   - id: F-71
     kind: coverage_gap
@@ -1917,7 +1928,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Embed vector JSON with include_str! as done in meissnerseal-crypto, or
       add a mandatory CI drift guard that regenerates vectors and fails on
@@ -1926,7 +1937,7 @@ findings:
       CI proves that the vectors tested are the same bytes committed with the
       crate revision, and that editing any vector file forces recompilation or
       an explicit drift-check failure.
-    commit: ""
+    commit: "4ba888b"
 
 # ── meissnerseal-security zeroization test review (2026-06-30) ───────────────
 
@@ -1974,7 +1985,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add an export-specific salt domain such as
       meissnerseal-export-argon2id-salt-v1, or derive the export AEAD key
@@ -1985,7 +1996,7 @@ findings:
       Add tests proving that export key derivation differs from vault MUK/VKEK
       derivation even when passphrase == vault password and source_vault_id ==
       vault_id. Add a KAT for the export-specific derivation chain.
-    commit: ""
+    commit: "5c03c8b"
 
   - id: F-74
     kind: security_review
@@ -2002,7 +2013,7 @@ findings:
     cwe: "CWE-400"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Enforce maximum item count, tag count, label length, tag length, and
       secret length before any allocation. Prefer bounded incremental parsing
@@ -2012,7 +2023,7 @@ findings:
       Add negative import tests for item_count = u32::MAX, tag_count = u32::MAX,
       oversized label/tag/secret lengths, and short payloads that reach
       Vec::with_capacity before exhausting the buffer.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-75
     kind: design
@@ -2031,7 +2042,7 @@ findings:
     cwe: "CWE-367"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Store the authenticated vault_id inside Vault<Unlocked> at unlock time
       and surface it through the session type. Export should read vault_id from
@@ -2039,7 +2050,7 @@ findings:
     verification: >-
       Add a test that modifies the on-disk vault header after unlock and asserts
       that export either uses the session-bound vault_id or returns Err.
-    commit: ""
+    commit: "613f37f"
 
   - id: F-76
     kind: coverage_gap
@@ -2084,7 +2095,7 @@ findings:
     cwe: "CWE-312"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Prefer structured error codes with static Display messages. Attach
       dynamic context only through internal diagnostics that cannot reach user
@@ -2095,7 +2106,7 @@ findings:
       Add tests for export/import error paths asserting that no plaintext item
       metadata, passphrase material, or filesystem path appears in formatted
       CoreError output.
-    commit: ""
+    commit: "536c82c"
 
 # ── meissnerseal-core item store security review (2026-06-30) ────────────────
 
@@ -2170,7 +2181,7 @@ findings:
     cwe: "CWE-400"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Define and enforce explicit maximum label length, tag count, tag length,
       secret length, and total plaintext payload length. Reject payloads
@@ -2180,7 +2191,7 @@ findings:
       Add negative tests for tag_count and label/tag/secret lengths at and
       beyond the defined maxima. Confirm deserialization rejects over-limit
       payloads before entering allocation loops.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-81
     kind: consistency
@@ -2197,7 +2208,7 @@ findings:
     cwe: "CWE-325"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the "74-byte" references in item_record_aad and the add contract
       with the correct "79-byte" value, or introduce a shared RECORD_AAD_LEN
@@ -2206,7 +2217,7 @@ findings:
       Add an assertion or test confirming item_record_aad(...).len() == 79.
       Grep the codebase for stale "74-byte AAD" references and confirm none
       remain in item store code or contracts.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-82
     kind: coverage_gap
@@ -2286,7 +2297,7 @@ findings:
     cwe: CWE-20
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       During deserialization, reject signing key lengths that do not match the
       declared algorithm (Ed25519V1 must be exactly 32 bytes; Unimplemented
@@ -2297,7 +2308,7 @@ findings:
       Add malformed keypair tests for wrong Ed25519V1 signing key length,
       unimplemented signing algorithm, X25519 public/private mismatch, and
       trailing garbage bytes after the final field.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-85
     kind: security_review
@@ -2318,7 +2329,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add an aead_profile parameter to derive_session_keys and
       create_session_keys and pass it to derive_subkeys. Parse and validate the
@@ -2328,7 +2339,7 @@ findings:
       Add vectors showing that different header AEAD profile IDs produce
       distinct item-wrap and metadata subkeys. Add tests proving that unlock
       fails closed for an unsupported AEAD profile ID.
-    commit: ""
+    commit: "75c0f43"
 
   - id: F-86
     kind: design
@@ -2348,7 +2359,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add a dedicated pairing signing domain constant such as
       meissnerseal.device.pairing.v1\0 and a sign_pairing_message helper
@@ -2359,7 +2370,7 @@ findings:
       Add tests proving that the same transcript bytes signed under enrollment
       and pairing domains produce distinct signatures, and that pairing
       verification rejects enrollment-domain signatures.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-87
     kind: security_review
@@ -2377,7 +2388,7 @@ findings:
     cwe: "CWE-284"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Remove the Revoked -> Expired and Expired -> Revoked arms from
       validate_trust_transition. Allow only idempotent self-transitions
@@ -2388,7 +2399,7 @@ findings:
       Add a complete transition-matrix test covering every DeviceTrustState
       source/target pair and asserting that Revoked and Expired cannot
       transition to any state other than themselves.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-88
     kind: coverage_gap
@@ -2440,7 +2451,7 @@ findings:
     cwe: CWE-696
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Split replay handling into a check-only phase before expensive work and a
       commit phase only after AEAD authentication and sender signature
@@ -2450,7 +2461,7 @@ findings:
       Add a test that submits a transcriptvalid envelope with garbage
       encrypted_payload first, then submits the authentic envelope with the
       same envelope_id and verifies it is still accepted without replay error.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-90
     kind: consistency
@@ -2470,7 +2481,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add an explicit recipient mode to CreateEnvelopeParams and the
       transcript. For anonymous mode, require and transcript-bind the anonymous
@@ -2483,7 +2494,7 @@ findings:
       they produce distinct hashes, and negative tests proving anonymous
       envelopes fail validation when the bound anonymous key is absent or
       modified.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-91
     kind: consistency
@@ -2502,7 +2513,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add a version check to validate_envelope (reject version != 1 before
       transcript comparison) and include the version field in the transcript
@@ -2513,7 +2524,7 @@ findings:
       Add tests proving validate_envelope rejects version != 1 when the struct
       is constructed directly, and that changing the version field changes the
       transcript hash.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-92
     kind: security_review
@@ -2592,7 +2603,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Before allocating, verify that bytes.len() >= 4 + count * 24 (with
       overflow-safe arithmetic) and that count does not exceed a defined
@@ -2602,7 +2613,7 @@ findings:
       Add tests for count = u32::MAX, count values whose declared size exceeds
       the actual input, exact-boundary valid stores, and trailing garbage.
       Confirm no allocation occurs before the bounds check passes.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-95
     kind: coverage_gap
@@ -2657,7 +2668,7 @@ findings:
     cwe: "CWE-276"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Create vault and temporary files with explicit owner-only permissions
       on Unix (0o600 via OpenOptionsExt::mode). Preserve or intentionally
@@ -2669,7 +2680,7 @@ findings:
       (set via libc::umask) and assert the resulting vault file and
       temporary file have mode 0o600. Add a regression test proving
       mutation does not widen an existing restrictive vault file mode.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-97
     kind: security_review
@@ -2690,7 +2701,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Track whether each known header TLV has already appeared and call
       reject_duplicate for every registered top-level tag before assigning
@@ -2701,7 +2712,7 @@ findings:
       TAG_KDF_PROFILE, TAG_AEAD_PROFILE, TAG_PQC_PROFILE,
       TAG_SCHEMA_PROFILE, and TAG_HEADER_NONCE TLVs. CI should fail if
       any duplicate known header field parses successfully.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-98
     kind: security_review
@@ -2723,7 +2734,7 @@ findings:
     cwe: "CWE-327"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       After the TLV loop, reject aead_profile values other than
       AEAD_XCHACHA20_POLY1305_V1 and pqc_profile values other than
@@ -2735,7 +2746,7 @@ findings:
       Add tests that construct or patch headers with unsupported AEAD
       and PQC profile values and assert parse_header or unlock fails
       closed before record frame decryption or session key derivation.
-    commit: ""
+    commit: "613f37f"
 
   - id: F-99
     kind: security_review
@@ -2756,7 +2767,7 @@ findings:
     cwe: "CWE-345"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Validate frame_version == FORMAT_VERSION and the frame-local AEAD
       profile == AEAD_XCHACHA20_POLY1305_V1 inside parse_record_frame.
@@ -2769,7 +2780,7 @@ findings:
       aad_len, and stored AAD bytes while leaving ciphertext unchanged.
       Each case should fail before or during unlock or list instead of
       silently accepting drift.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-100
     kind: security_review
@@ -2788,7 +2799,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Pass wrk_frame_end and the sealed-table section end into
       open_sealed_record_table_v2, then reject entries whose frame spans
@@ -2800,7 +2811,7 @@ findings:
       frame body, frame_offset inside the sealed table section,
       overlapping item frames, duplicate record IDs, and frame bounds
       that exactly touch each protected section.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-101
     kind: security_review
@@ -2816,7 +2827,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Check file metadata length before std::fs::read and return a format
       error for vault files exceeding a documented maximum size constant.
@@ -2825,7 +2836,7 @@ findings:
     verification: >-
       Add tests using oversized sparse or fixture files and assert unlock
       returns a format error without reading the entire file into memory.
-    commit: ""
+    commit: "536c82c"
 
   - id: F-102
     kind: coverage_gap
@@ -2958,7 +2969,7 @@ findings:
     cwe: "CWE-367"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Store an AuthenticatedVaultContext inside Vault<Unlocked> at the time of
       unlock, capturing vault_id, header_nonce, schema_profile, aead_profile,
@@ -2972,7 +2983,7 @@ findings:
       session-bound authenticated values or fail closed on a detected mismatch.
       Verify vault_id in AAD construction always equals the value parsed at
       unlock, regardless of on-disk header state at operation time.
-    commit: ""
+    commit: "613f37f"
 
   - id: F-106
     kind: security_architecture
@@ -3074,7 +3085,7 @@ findings:
     cwe: "CWE-325"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Parse and validate all profile fields once at vault open time into a
       typed VaultProfileSet struct containing validated aead_profile,
@@ -3090,7 +3101,7 @@ findings:
       aead_profile values produce distinct AEAD-scoped subkeys. Add tests that
       a vault with a valid header but unsupported aead_profile or pqc_profile
       is rejected at the VaultProfileSet parse step.
-    commit: ""
+    commit: "613f37f"
 
   - id: F-109
     kind: coverage_gap
