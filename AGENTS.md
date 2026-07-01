@@ -22,12 +22,12 @@ The protocols and tools in this file are the substitute.
 meissnerseal-crypto/       Cryptographic primitives only.
                       Argon2id, XChaCha20-Poly1305, HKDF, RNG.
                       No application logic.
-                      API Status: Unstable
+                      API Status: Stable
 
 meissnerseal-pqc/          Post-quantum primitives only.
                       ML-KEM-768, ML-DSA, hybrid key derivation.
                       No application logic.
-                      API Status: Unstable
+                      API Status: Stable
 
 meissnerseal-security/     Secret lifecycle enforcement.
                       Zeroization, redaction, hardware adapter,
@@ -82,7 +82,10 @@ No step may be skipped. See full detail in:
 
 ```
 1. Read this file (AGENTS.md)
-2. Read role prompt (docs/agents/AGENT_PROMPT_TEMPLATE.md)
+2. The rendered role prompt is your task context
+   (source: docs/agents/AGENT_PROMPT_TEMPLATE.md — render recipe §1).
+   It is provided at spawn time. Do not read the template file directly;
+   it is a rendering source, not a reference document.
 3. Read CONTRACT.md of every crate being modified
 4. Read relevant spec files
 5. Declare scope (Section 10)
@@ -373,6 +376,12 @@ Dependency order:
   meissnerseal-core      must be Stable before:
                       meissnerseal-ffi, meissnerseal-cli, meissnerseal-sync-server start
 ```
+
+**In-progress exception.** Crates that began implementation before their dependency
+reached Stable (meissnerseal-cli, meissnerseal-ffi, meissnerseal-sync-server while
+meissnerseal-core is Unstable) may continue to their next milestone boundary. The gate
+re-enforces at GATE-MVP2: no new Stable marking for meissnerseal-ffi,
+meissnerseal-cli, or meissnerseal-sync-server until meissnerseal-core is Stable.
 
 To mark a crate Stable, update its CONTRACT.md header:
 ```
