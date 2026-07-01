@@ -65,6 +65,19 @@ pub fn x25519_keypair() -> (X25519PrivateKey, X25519PublicKey) {
     )
 }
 
+/// Derive the X25519 public key corresponding to a static private key.
+///
+/// Used by boundary validators (e.g. device-keypair deserializer) to verify
+/// that a stored X25519 public key matches its private key material before
+/// accepting the file (F-84). Callers in meissnerseal-core must not import
+/// x25519-dalek directly — use this function instead.
+#[must_use]
+pub fn x25519_public_from_private(private: &X25519PrivateKey) -> X25519PublicKey {
+    X25519PublicKey::from_bytes(
+        PublicKey::from(&StaticSecret::from(*private.as_bytes())).to_bytes(),
+    )
+}
+
 /// Derive the sender-side transfer key with the ADR-035 UG combiner.
 ///
 /// # Contract
