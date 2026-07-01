@@ -192,12 +192,18 @@ cargo check --workspace --all-targets
 # Lint — warnings are failures
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Tests
-cargo test --workspace
+# Unit and integration tests — nextest is the CI runner; cargo test diverges
+cargo nextest run --workspace
+
+# Doctests — nextest does not run these; run separately
+cargo test --doc --workspace
 
 # Dependency security
 cargo deny check
 cargo audit
+
+# Unused dependencies — unexpanded supply chain attack surface
+cargo machete
 ```
 
 Additional tools for cryptographic crates (meissnerseal-crypto, meissnerseal-pqc,
@@ -210,6 +216,13 @@ cargo +nightly miri test -p <crate-name>
 # Bounded model checking — proves length and bounds properties (ADR-015)
 cargo kani --package <crate-name>
 ```
+
+CI-only (not required locally; run on every push to main — see `.github/workflows/ci-fast.yml`):
+- `cargo geiger --workspace` — unsafe inventory; advisory, continue-on-error
+- `shellcheck scripts/setup-dev.sh .githooks/pre-commit` — shell script correctness
+- `yamllint .github/workflows/` — malformed workflows silently degrade security gates
+- `python3 test-vectors/cross_verify.py` and PQC cross-verifiers (`mlkem_cross_verify.py`,
+  `transfer_hybrid_cross_verify.py`, `signing_ed25519_cross_verify.py`) — see `vectors` CI job
 
 ---
 
@@ -388,7 +401,7 @@ The agent writes only:
 - `proptest` property test (rule, not example)
 - Fuzz target skeleton (if the task involves a parser)
 
-Run: `cargo test --workspace` — tests must compile, may fail.
+Run: `cargo nextest run --workspace` — tests must compile, may fail.
 Do not write implementation code in Phase 1.
 
 Phase 1 ends with a structured handoff report — do not commit:
@@ -506,13 +519,15 @@ No task is complete without a completion report.
 - [test name]: [what it tests]
 
 **Tool results:**
-- cargo fmt:    [PASS / FAIL]
-- cargo check:  [PASS / FAIL]
-- cargo clippy: [PASS (N warnings) / FAIL]
-- cargo test:   [PASS (N tests) / FAIL]
-- cargo deny:   [PASS / FAIL]
-- cargo audit:  [PASS / FAIL]
-- Miri:         [PASS / FAIL / N/A]
+- cargo fmt:         [PASS / FAIL]
+- cargo check:       [PASS / FAIL]
+- cargo clippy:      [PASS (N warnings) / FAIL]
+- cargo nextest run: [PASS (N tests) / FAIL]
+- cargo test --doc:  [PASS (N tests) / FAIL]
+- cargo deny:        [PASS / FAIL]
+- cargo audit:       [PASS / FAIL]
+- cargo machete:     [PASS / FAIL / N/A]
+- Miri:              [PASS / FAIL / N/A]
 
 **CONTRACT.md changes:** [None / describe changes]
 **Spec deviations:** [None / describe and open ADR]
