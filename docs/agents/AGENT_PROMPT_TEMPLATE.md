@@ -100,9 +100,11 @@ common:
     cargo fmt --all
     cargo check --workspace --all-targets
     cargo clippy --workspace --all-targets --all-features -- -D warnings
-    cargo test --workspace
+    cargo nextest run --workspace
+    cargo test --doc --workspace
     cargo deny check
     cargo audit
+    cargo machete
   done: >
     Implementation matches the cited spec section; the tests written first pass;
     every static tool above passes with zero warnings; no plaintext secret appears
