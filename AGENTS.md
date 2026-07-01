@@ -227,7 +227,7 @@ NEVER commit code that fails cargo audit
 NEVER use == to compare secret values
 NEVER derive Debug on a type that holds secret material
 NEVER place plaintext secrets in route arguments, global state, or analytics
-NEVER change a dependency version without human approval
+NEVER add or change a Cargo.toml dependency without human approval
 NEVER begin implementation on a crate before its dependencies are Stable
 NEVER create a git commit — produce a completion report and stop.
   Commits are created by the human after reviewing the output.

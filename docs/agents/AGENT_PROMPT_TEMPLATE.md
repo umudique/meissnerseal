@@ -90,8 +90,12 @@ common:
     this crate's own CONTRACT.md when the task requires it), fuzz/**, or
     test-vectors/** (write vectors there only if the task explicitly requires it).
   before: >
-    Write precondition/postcondition/invariant as `/// # Contract` doc comments,
-    then write the test(s) before the implementation.
+    Before defining a new constant or importing a new type, grep the workspace
+    for an existing definition — do not redefine what already exists in a
+    dependency crate. Before adding a Cargo.toml dependency, confirm human
+    approval (AGENTS.md §6). Then write precondition/postcondition/invariant
+    as `/// # Contract` doc comments, then write the test(s) before the
+    implementation.
   checks_base: |
     cargo fmt --all
     cargo check --workspace --all-targets
