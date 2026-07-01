@@ -43,8 +43,13 @@ mldsa::  SigningAlgorithmId
          Signature { algorithm_id, signature_bytes }
 
          ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey)
-         sign(private_key, message) -> Result<Signature>
-         verify(public_key, message, signature) -> Result<()>
+         sign(private_key, message: &[u8]) -> Result<Signature>
+           // low-level: message must already contain domain prefix
+         sign_with_domain(private_key, domain: &[u8], payload: &[u8]) -> Result<Signature>
+           // preferred: prepends domain || payload before signing (F-39, P-04)
+         verify(public_key, message: &[u8], signature) -> Result<()>
+         verify_with_domain(public_key, domain: &[u8], payload: &[u8], signature) -> Result<()>
+           // preferred: mirrors sign_with_domain; rejects cross-domain signatures
          SigningAlgorithmId::from_u16(u16) -> Result<SigningAlgorithmId>
 
          SigningError (load-bearing variants — changes are breaking):
@@ -216,14 +221,15 @@ Zeroization:  The "zeroize" feature MUST remain enabled (workspace Cargo.toml).
 [P-03] X25519 ephemeral key must be freshly generated per transfer.
        Reusing ephemeral keys breaks forward secrecy.
 
-[P-04] The `message` argument to mldsa::sign() MUST be a domain-separated
-       protocol transcript. Callers are responsible for including a context
-       string that identifies the protocol, role, and algorithm version before
-       the payload bytes (e.g. "meissnerseal.device.enrollment.v1\x00" ||
-       payload). Passing raw payload bytes without domain context creates
-       cross-protocol replay risk. mldsa::sign() does not add its own prefix;
-       domain separation is the caller's responsibility so XFER-1 and
-       DEVICE-1 can each control their own transcript format.
+[P-04] All protocol signing MUST use sign_with_domain / verify_with_domain.
+       The `domain` argument must be a NUL-terminated context string that
+       identifies the protocol, role, and version (e.g.
+       "meissnerseal.device.enrollment.v1\x00"). Domain constants are owned
+       by the calling crate (meissnerseal-core), not by this crate.
+       Passing raw payload to sign() without a domain prefix creates
+       cross-protocol replay risk.
+       sign() / verify() remain available as low-level primitives but MUST
+       NOT be called directly from protocol code after SEC-1.
        See F-39 in docs/security/finding_register.yaml.
 ```
 

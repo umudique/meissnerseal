@@ -31,15 +31,36 @@ export::
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
 keys::device::
+  DEVICE_ENROLLMENT_SIGNING_DOMAIN: &[u8]
+    // b"meissnerseal.device.enrollment.v1\x00" — owned here, passed to mldsa P-04
   DeviceIdentity
   DeviceKeypair
   DeviceTrustState
   generate(display_name: String) -> Result<(DeviceIdentity, DeviceKeypair)>
   try_new_ed25519_signing_public_key(bytes: [u8; 32]) -> Result<SigningPublicKey>
   try_new_signing_public_key(algorithm, bytes: &[u8]) -> Result<SigningPublicKey>
-  sign_enrollment_message(private_key, message) -> Result<Signature>
+  enrollment_signing_message(message: &[u8]) -> Vec<u8>
+    // convenience: prepends DEVICE_ENROLLMENT_SIGNING_DOMAIN || message
+  sign_enrollment_message(private_key, message: &[u8]) -> Result<Signature>
+    // calls mldsa::sign_with_domain with DEVICE_ENROLLMENT_SIGNING_DOMAIN
+  serialize_keypair_bytes(identity, keypair) -> Zeroizing<Vec<u8>>
+    // PLANNED pub(crate) in SEC-6 Phase 3 (F-83/F-106); avoid new callers
+  deserialize_keypair_bytes(bytes: &[u8]) -> Result<(DeviceId, X25519PublicKey, DeviceKeypair)>
+    // PLANNED pub(crate) in SEC-6 Phase 3
+  create_signed_transfer_envelope(
+    sender_device_id, sender_keypair, recipient_device_id,
+    recipient_classical_public_key, recipient_pqc_public_key,
+    plaintext: Vec<u8>, expires_at) -> Result<TransferEnvelope, TransferError>
+    // convenience wrapper over transfer::create_envelope
+  open_received_transfer_envelope(
+    envelope, recipient_keypair, recipient_classical_public_key,
+    sender_signing_public_key, seen: &mut SeenEnvelopeIds)
+    -> Result<Vec<u8>, TransferError>
+    // convenience wrapper over transfer::open_envelope
 
 keys::pairing::
+  DEVICE_PAIRING_SIGNING_DOMAIN: &[u8]
+    // b"meissnerseal.device.pairing.v1\x00" — used internally by sign_pairing_message
   PairingPayload
   PairingTranscript
   PairingSession
@@ -50,6 +71,8 @@ keys::pairing::
   validate_trust_transition(from, to) -> Result<()>
 
 transfer::
+  TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8]
+    // b"meissnerseal.transfer.envelope.v1\x00" — used internally by create/open_envelope
   TransferProfileId
   TransferEnvelope
   SeenEnvelopeIds
