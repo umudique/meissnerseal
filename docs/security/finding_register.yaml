@@ -3091,3 +3091,40 @@ findings:
       a vault with a valid header but unsupported aead_profile or pqc_profile
       is rejected at the VaultProfileSet parse step.
     commit: ""
+
+  - id: F-109
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "compliance review — AGENTS.md §fuzz / crates/meissnerseal-core/src/export.rs (2026-07-02)"
+    date: 2026-07-02
+    description: >-
+      AGENTS.md requires one fuzz target per parser ("fuzz/ — One target per
+      parser"; checklist item "Every parser has a fuzz target"). export.rs
+      exposes two parsers that accept untrusted bytes with no corresponding
+      fuzz target: parse_bundle(bundle: &[u8]) (called from the public
+      import() entry point) and deserialize_item_set(bytes: &[u8]) (called
+      from parse_bundle). All other core parsers have coverage: vault_header,
+      encrypted_item, transfer_envelope, seen_envelope_ids, device_pairing,
+      native_message, sync_envelope. The export bundle parser is the only
+      missing target. Note: F-76 covers unit-test gaps for the same parsers;
+      this finding is separate — fuzz coverage vs. unit-test coverage are
+      distinct requirements.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add fuzz/fuzz_targets/export_bundle.rs. The target should call
+      meissnerseal_core::export::import() (or an exposed parse_bundle wrapper)
+      with arbitrary bytes as the bundle argument and a fixed dummy passphrase.
+      A second target or a separate harness within the same file should feed
+      arbitrary bytes to deserialize_item_set if it can be reached without a
+      full Vault<Unlocked> context. Cover truncation, trailing garbage, wrong
+      magic, length-field overruns, and item_count / tag_count overflow.
+      Add the target to fuzz/Cargo.toml. Run a 30-second smoke check (no
+      crashes) before marking resolved.
+    verification: >-
+      cargo +nightly fuzz list shows export_bundle. Smoke run of at least
+      30 seconds produces zero crashes. The target exercises parse_bundle and
+      deserialize_item_set reachable from the public import() surface.
+    commit: ""
