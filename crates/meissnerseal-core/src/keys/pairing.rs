@@ -2,9 +2,11 @@
 //! DEVICE-2 out-of-band pairing payload and session contracts.
 
 use crate::keys::device::{DeviceId, DeviceIdentity, DeviceTrustState};
+use meissnerseal_pqc::mldsa::{self, Signature, SigningPrivateKey, SigningPublicKey};
 
 /// DEVICE-2 pairing payload protocol version.
 pub const PAIRING_PROTOCOL_VERSION_V1: u16 = 0x0001;
+pub const DEVICE_PAIRING_SIGNING_DOMAIN: &[u8] = b"meissnerseal.device.pairing.v1\x00";
 
 /// SHA-256 public key fingerprint length.
 pub const PAIRING_FINGERPRINT_LEN: usize = 32;
@@ -302,16 +304,25 @@ pub fn validate_trust_transition(from: DeviceTrustState, to: DeviceTrustState) -
         | (DeviceTrustState::Verified, DeviceTrustState::Revoked)
         | (DeviceTrustState::Approved, DeviceTrustState::Revoked)
         | (DeviceTrustState::Revoked, DeviceTrustState::Revoked)
-        | (DeviceTrustState::Expired, DeviceTrustState::Revoked)
         | (DeviceTrustState::Untrusted, DeviceTrustState::Expired)
         | (DeviceTrustState::PendingInbound, DeviceTrustState::Expired)
         | (DeviceTrustState::PendingOutbound, DeviceTrustState::Expired)
         | (DeviceTrustState::Verified, DeviceTrustState::Expired)
         | (DeviceTrustState::Approved, DeviceTrustState::Expired)
-        | (DeviceTrustState::Revoked, DeviceTrustState::Expired)
         | (DeviceTrustState::Expired, DeviceTrustState::Expired) => Ok(()),
         _ => Err(PairingError::InvalidTrustTransition),
     }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn sign_pairing_message(key: &SigningPrivateKey, msg: &[u8]) -> Result<Signature> {
+    mldsa::sign_with_domain(key, DEVICE_PAIRING_SIGNING_DOMAIN, msg)
+        .map_err(|_| PairingError::Unimplemented)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn verify_pairing_message(key: &SigningPublicKey, msg: &[u8], sig: &Signature) -> bool {
+    mldsa::verify_with_domain(key, DEVICE_PAIRING_SIGNING_DOMAIN, msg, sig).is_ok()
 }
 
 fn generate_pairing_nonce() -> Result<PairingNonce> {
@@ -338,6 +349,7 @@ fn random_nonce_candidate() -> Result<PairingNonce> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::keys::device::DEVICE_ENROLLMENT_SIGNING_DOMAIN;
     use meissnerseal_crypto::types::Key;
     use meissnerseal_pqc::mldsa::{SigningAlgorithmId, SigningPublicKey};
     use proptest::prelude::*;
@@ -490,6 +502,40 @@ mod tests {
                 Ok(())
             );
         }
+    }
+
+    #[test]
+    fn expired_to_revoked_is_invalid() {
+        assert_eq!(
+            validate_trust_transition(DeviceTrustState::Expired, DeviceTrustState::Revoked),
+            Err(PairingError::InvalidTrustTransition)
+        );
+    }
+
+    #[test]
+    fn revoked_to_expired_is_invalid() {
+        assert_eq!(
+            validate_trust_transition(DeviceTrustState::Revoked, DeviceTrustState::Expired),
+            Err(PairingError::InvalidTrustTransition)
+        );
+    }
+
+    #[test]
+    fn pairing_verify_rejects_enrollment_domain_signature() {
+        let (public_key, private_key) = mldsa::ed25519_keypair();
+        let message = b"pairing transcript";
+        let signature =
+            mldsa::sign_with_domain(&private_key, DEVICE_ENROLLMENT_SIGNING_DOMAIN, message)
+                .expect("enrollment-domain signature");
+
+        assert!(!verify_pairing_message(&public_key, message, &signature));
+        let pairing_signature =
+            sign_pairing_message(&private_key, message).expect("pairing-domain signature");
+        assert!(verify_pairing_message(
+            &public_key,
+            message,
+            &pairing_signature
+        ));
     }
 
     fn payload_fixture() -> PairingPayload {

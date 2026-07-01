@@ -8,7 +8,7 @@ use crate::transfer::{
 };
 use meissnerseal_crypto::types::Key;
 use meissnerseal_pqc::{
-    hybrid::{X25519PrivateKey, X25519PublicKey},
+    hybrid::{x25519_public_from_private, X25519PrivateKey, X25519PublicKey},
     mldsa::{self, SigningAlgorithmId, SigningPrivateKey, SigningPublicKey},
     mlkem::{MlKemPrivateKey, MlKemPublicKey},
 };
@@ -371,9 +371,16 @@ pub fn deserialize_keypair_bytes(
     let signing_algorithm = SigningAlgorithmId::from_u16(parser.take_u16_le()?)
         .map_err(|_| DeviceIdentityError::InvalidFileFormat)?;
     let signing_len = parser.take_u32_le()? as usize;
+    if signing_algorithm == SigningAlgorithmId::Ed25519V1 && signing_len != 32 {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
     let signing_private_key =
         SigningPrivateKey::new(signing_algorithm, parser.take_vec(signing_len)?);
     if !parser.is_empty() {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let recomputed_classical_public_key = x25519_public_from_private(&classical_private_key);
+    if !bool::from(classical_public_key.ct_eq(&recomputed_classical_public_key)) {
         return Err(DeviceIdentityError::InvalidFileFormat);
     }
     Ok((
@@ -704,6 +711,37 @@ mod tests {
         assert!(matches!(
             generate(String::new()),
             Err(DeviceIdentityError::EmptyDisplayName)
+        ));
+    }
+
+    #[test]
+    fn deserialize_keypair_bytes_rejects_wrong_length_ed25519_private_key() {
+        let (identity, keypair) = generate("phase1-device".to_owned()).expect("generate fixture");
+        let mut serialized = serialize_keypair_bytes(&identity, &keypair).to_vec();
+        let len_offset = 1 + DEVICE_ID_LEN + 32 + 32 + 2400 + 2;
+        serialized
+            .get_mut(len_offset..len_offset + 4)
+            .expect("signing length field")
+            .copy_from_slice(&31u32.to_le_bytes());
+        serialized.truncate(len_offset + 4 + 31);
+
+        assert!(matches!(
+            deserialize_keypair_bytes(&serialized),
+            Err(DeviceIdentityError::InvalidFileFormat)
+        ));
+    }
+
+    #[test]
+    fn deserialize_keypair_bytes_rejects_mismatched_x25519_public_key() {
+        let (identity, keypair) = generate("phase1-device".to_owned()).expect("generate fixture");
+        let mut serialized = serialize_keypair_bytes(&identity, &keypair).to_vec();
+        *serialized
+            .get_mut(1 + DEVICE_ID_LEN)
+            .expect("classical public key byte") ^= 0x01;
+
+        assert!(matches!(
+            deserialize_keypair_bytes(&serialized),
+            Err(DeviceIdentityError::InvalidFileFormat)
         ));
     }
 

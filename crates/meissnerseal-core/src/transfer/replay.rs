@@ -6,6 +6,8 @@ use crate::{
     transfer::protocol::{EnvelopeId, TransferError},
 };
 
+const MAX_REPLAY_ENTRIES: u32 = 65_536;
+
 /// Store of previously accepted transfer envelope IDs.
 ///
 /// # Contract
@@ -120,7 +122,11 @@ impl SeenEnvelopeIds {
     /// - Parser is fail-closed and returns no partial store on malformed input.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, TransferError> {
         let mut parser = ReplayByteParser::new(bytes);
-        let count = parser.take_u32_le()? as usize;
+        let count = parser.take_u32_le()?;
+        if count > MAX_REPLAY_ENTRIES {
+            return Err(TransferError::MalformedReplayStore);
+        }
+        let count = count as usize;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             let id = parser.take_array()?;
@@ -274,6 +280,16 @@ mod tests {
     fn seen_ids_from_bytes_rejects_trailing_garbage() {
         let mut bytes = SeenEnvelopeIds::new().to_bytes();
         bytes.push(0xFF);
+
+        assert_eq!(
+            SeenEnvelopeIds::from_bytes(&bytes),
+            Err(TransferError::MalformedReplayStore)
+        );
+    }
+
+    #[test]
+    fn seen_ids_from_bytes_rejects_u32_max_entry_count_before_allocation() {
+        let bytes = u32::MAX.to_le_bytes();
 
         assert_eq!(
             SeenEnvelopeIds::from_bytes(&bytes),

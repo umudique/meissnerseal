@@ -57,7 +57,7 @@ impl ItemKind {
             0x0003 => Ok(Self::SshPrivateKey),
             0x0004 => Ok(Self::ApiToken),
             0x0005 => Ok(Self::SecureNote),
-            _ => Err(CoreError::Format(format!("unknown item kind: {v:#06x}"))),
+            _ => Err(CoreError::Format("unknown item kind".into())),
         }
     }
 }

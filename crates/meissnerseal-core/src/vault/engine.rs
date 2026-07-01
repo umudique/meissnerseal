@@ -19,9 +19,15 @@ use crate::vault::format::{
     PQC_NONE, RECORD_KIND_WRAPPED_ROOT_KEY, SCHEMA_MEISSNER_RECORDS_V2,
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 // Byte offsets within the 26-byte vault file prefix (vault_format_v1.md §2).
 const HEADER_LEN_OFFSET: usize = 10;
 const RECORD_TABLE_LEN_OFFSET: usize = 14;
+// F-101: spec is silent on a maximum vault size; 64 MiB is a conservative
+// operational ceiling that rejects malformed amplification inputs before read.
+const MAX_VAULT_FILE_LEN: u64 = 64 * 1024 * 1024;
 
 /// Locked vault state.
 ///
@@ -320,10 +326,11 @@ fn persist_vault(
     let tmp_path = unique_tmp_path(path, record_id);
     let mut target_claimed = false;
     let result = (|| -> Result<()> {
-        let target_claim = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
+        let mut target_claim = std::fs::OpenOptions::new();
+        target_claim.write(true).create_new(true);
+        #[cfg(unix)]
+        target_claim.mode(0o600);
+        let target_claim = target_claim.open(path)?;
         target_claimed = true;
         persist_vault_inner(
             path,
@@ -385,10 +392,11 @@ pub(crate) fn persist_vault_mutation_v2(
 ) -> Result<()> {
     let tmp_path = unique_tmp_path(path, unique_seed);
     let result = (|| -> Result<()> {
-        let mut tmp_file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp_path)?;
+        let mut tmp_file = std::fs::OpenOptions::new();
+        tmp_file.write(true).create_new(true);
+        #[cfg(unix)]
+        tmp_file.mode(0o600);
+        let mut tmp_file = tmp_file.open(&tmp_path)?;
         tmp_file.write_all(vault_bytes)?;
         tmp_file.sync_all()?;
         drop(tmp_file);
@@ -465,10 +473,11 @@ fn persist_vault_inner(
         serialize_sealed_record_table_v2(&[], metadata_key, vault_id, SCHEMA_MEISSNER_RECORDS_V2)?;
     let vault_bytes = serialize_vault_file(&header_bytes, &record_table_bytes, &frame_bytes)?;
 
-    let mut tmp_file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(tmp_path)?;
+    let mut tmp_file = std::fs::OpenOptions::new();
+    tmp_file.write(true).create_new(true);
+    #[cfg(unix)]
+    tmp_file.mode(0o600);
+    let mut tmp_file = tmp_file.open(tmp_path)?;
     tmp_file.write_all(&vault_bytes)?;
     tmp_file.sync_all()?;
     drop(tmp_file);
@@ -573,6 +582,13 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         Ok(())
     })?;
 
+    let file_len = params.path.metadata()?.len();
+    if file_len > MAX_VAULT_FILE_LEN {
+        return Err(CoreError::Format(
+            "vault file exceeds maximum length".into(),
+        ));
+    }
+
     // Read vault file.
     let bytes = std::fs::read(&params.path)?;
 
@@ -643,6 +659,9 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
 
     let wrk_frame_len_usize = usize::try_from(wrk_frame_len)
         .map_err(|_| CoreError::Format("WRK frame length overflow".into()))?;
+    let wrk_frame_end = wrk_frame_offset
+        .checked_add(wrk_frame_len_usize)
+        .ok_or_else(|| CoreError::Format("record table offset overflow".into()))?;
     let record_table_offset = wrk_frame_offset
         .checked_add(wrk_frame_len_usize)
         .ok_or_else(|| CoreError::Format("record table offset overflow".into()))?;
@@ -653,7 +672,7 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         &keys.metadata_key,
         &context.vault_id,
         context.profile_set.schema.value(),
-        wrk_frame_offset,
+        wrk_frame_end,
         bytes.len(),
     )?;
 
@@ -719,6 +738,14 @@ mod tests {
     use meissnerseal_crypto::types::AeadKey;
     use meissnerseal_security::secret_lifecycle::SecretBytes;
     use static_assertions::assert_not_impl_any;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    #[cfg(unix)]
+    #[allow(unsafe_code)] // REASON: test-only libc umask declaration for file-mode verification.
+    unsafe extern "C" {
+        fn umask(mask: u32) -> u32;
+    }
 
     fn unique_temp_vault_path(label: &str) -> std::path::PathBuf {
         let mut path = std::env::temp_dir(); // nosemgrep: rust.lang.security.temp-dir.temp-dir
@@ -1288,6 +1315,65 @@ mod tests {
         assert_eq!(session.context().profile_set, original_context.profile_set);
 
         lock(session).expect("lock fixture");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    #[allow(unsafe_code)] // REASON: test-only umask manipulation validates Unix create permissions.
+    fn create_persists_vault_file_with_mode_0o600_under_permissive_umask() {
+        struct UmaskGuard(u32);
+        impl Drop for UmaskGuard {
+            fn drop(&mut self) {
+                // SAFETY: Restoring the prior umask is the documented contract
+                // of umask(2), and the saved value came from a previous call.
+                unsafe { umask(self.0) };
+            }
+        }
+
+        // SAFETY: This test temporarily sets the process umask to 0 to verify
+        // create-time permissions and restores the previous value via UmaskGuard.
+        let _guard = UmaskGuard(unsafe { umask(0) });
+
+        let path = unique_temp_vault_path("mode-600");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        create_test_vault(&path, b"mode-600-password-never-real");
+
+        let mode = std::fs::metadata(&path)
+            .expect("vault metadata fixture")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    fn unlock_rejects_vault_file_exceeding_max_size_before_read() {
+        let path = unique_temp_vault_path("oversize-file");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let file = std::fs::File::create(&path).expect("create oversize fixture");
+        file.set_len(64 * 1024 * 1024 + 1)
+            .expect("set oversize fixture length");
+
+        let result = unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"oversize-password-never-real".to_vec()),
+        });
+        assert!(matches!(
+            result,
+            Err(CoreError::Format(message)) if message == "vault file exceeds maximum length"
+        ));
+
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
     }

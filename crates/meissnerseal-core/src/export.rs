@@ -14,6 +14,7 @@ use crate::{
     item::{
         add, delete, list,
         model::{ItemId, ItemKind, PlainItem},
+        store::MAX_TAG_COUNT,
         with_item,
     },
     vault::engine::{Unlocked, Vault},
@@ -34,6 +35,8 @@ const VAULT_ID_LEN: usize = 16;
 const KDF_PARAMS_LEN_FIELD: usize = 4;
 const NONCE_LEN: usize = 24;
 const CIPHERTEXT_LEN_FIELD: usize = 4;
+// F-74: spec is silent on export-set ceilings; cap import-side allocation growth.
+const MAX_EXPORT_ITEM_COUNT: usize = 4096;
 const MIN_BUNDLE_LEN: usize = MAGIC_LEN
     + VERSION_LEN
     + VAULT_ID_LEN
@@ -351,11 +354,19 @@ fn serialize_live_item_set(session: &Vault<Unlocked>) -> Result<Vec<u8>> {
 fn deserialize_item_set(bytes: &[u8]) -> Result<Vec<PlainItem>> {
     let mut cursor = 0usize;
     let item_count = take_u32(bytes, &mut cursor, "export item count")?;
+    if item_count > MAX_EXPORT_ITEM_COUNT {
+        return Err(CoreError::Format(
+            "export item count exceeds maximum".into(),
+        ));
+    }
     let mut items = Vec::with_capacity(item_count);
     for _ in 0..item_count {
         let kind = ItemKind::from_u16(take_u16(bytes, &mut cursor, "export item kind")?)?;
         let label = take_utf8(bytes, &mut cursor, "export item label")?;
         let tag_count = take_u32(bytes, &mut cursor, "export tag count")?;
+        if tag_count > MAX_TAG_COUNT {
+            return Err(CoreError::Format("export tag count exceeds maximum".into()));
+        }
         let mut tags = Vec::with_capacity(tag_count);
         for _ in 0..tag_count {
             tags.push(take_utf8(bytes, &mut cursor, "export item tag")?);
@@ -384,27 +395,27 @@ fn write_len_bytes(out: &mut Vec<u8>, bytes: &[u8], overflow: &'static str) -> R
     Ok(())
 }
 
-fn read_u16(bytes: &[u8], offset: usize, field: &'static str) -> Result<u16> {
+fn read_u16(bytes: &[u8], offset: usize, _field: &'static str) -> Result<u16> {
     let end = offset
         .checked_add(2)
-        .ok_or_else(|| CoreError::Format(format!("{field} offset overflow")))?;
+        .ok_or(CoreError::Format("field offset overflow".into()))?;
     let raw: [u8; 2] = bytes
         .get(offset..end)
-        .ok_or_else(|| CoreError::Format(format!("truncated {field}")))?
+        .ok_or(CoreError::Format("truncated field".into()))?
         .try_into()
-        .map_err(|_| CoreError::Format(format!("{field} read error")))?;
+        .map_err(|_| CoreError::Format("field read error".into()))?;
     Ok(u16::from_le_bytes(raw))
 }
 
-fn read_u32(bytes: &[u8], offset: usize, field: &'static str) -> Result<u32> {
+fn read_u32(bytes: &[u8], offset: usize, _field: &'static str) -> Result<u32> {
     let end = offset
         .checked_add(4)
-        .ok_or_else(|| CoreError::Format(format!("{field} offset overflow")))?;
+        .ok_or(CoreError::Format("field offset overflow".into()))?;
     let raw: [u8; 4] = bytes
         .get(offset..end)
-        .ok_or_else(|| CoreError::Format(format!("truncated {field}")))?
+        .ok_or(CoreError::Format("truncated field".into()))?
         .try_into()
-        .map_err(|_| CoreError::Format(format!("{field} read error")))?;
+        .map_err(|_| CoreError::Format("field read error".into()))?;
     Ok(u32::from_le_bytes(raw))
 }
 
@@ -412,7 +423,7 @@ fn take_u16(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<u16
     let value = read_u16(bytes, *cursor, field)?;
     *cursor = cursor
         .checked_add(2)
-        .ok_or_else(|| CoreError::Format(format!("{field} cursor overflow")))?;
+        .ok_or(CoreError::Format("field cursor overflow".into()))?;
     Ok(value)
 }
 
@@ -420,18 +431,18 @@ fn take_u32(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<usi
     let value = read_u32(bytes, *cursor, field)?;
     *cursor = cursor
         .checked_add(4)
-        .ok_or_else(|| CoreError::Format(format!("{field} cursor overflow")))?;
-    usize::try_from(value).map_err(|_| CoreError::Format(format!("{field} length overflow")))
+        .ok_or(CoreError::Format("field cursor overflow".into()))?;
+    usize::try_from(value).map_err(|_| CoreError::Format("field length overflow".into()))
 }
 
 fn take_vec(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<Vec<u8>> {
     let len = take_u32(bytes, cursor, field)?;
     let end = cursor
         .checked_add(len)
-        .ok_or_else(|| CoreError::Format(format!("{field} length overflow")))?;
+        .ok_or(CoreError::Format("field length overflow".into()))?;
     let value = bytes
         .get(*cursor..end)
-        .ok_or_else(|| CoreError::Format(format!("truncated {field}")))?
+        .ok_or(CoreError::Format("truncated field".into()))?
         .to_vec();
     *cursor = end;
     Ok(value)
@@ -439,7 +450,7 @@ fn take_vec(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<Vec
 
 fn take_utf8(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<String> {
     String::from_utf8(take_vec(bytes, cursor, field)?)
-        .map_err(|_| CoreError::Format(format!("invalid {field} encoding")))
+        .map_err(|_| CoreError::Format("invalid field encoding".into()))
 }
 
 #[cfg(test)]
@@ -654,5 +665,32 @@ mod tests {
 
         assert!(import(&session, &bundle, EXPORT_PASSPHRASE).is_err());
         cleanup(&path, session);
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_oversized_item_count() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&10_000u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "export item count exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_oversized_tag_count() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&10_000u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "export tag count exceeds maximum"
+        ));
     }
 }

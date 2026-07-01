@@ -4,6 +4,9 @@
 /// Error type for meissnerseal-core operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    // INVARIANT: meissnerseal-core constructs Format and InvalidState from
+    // static strings only. The public payload remains owned for now because
+    // non-core crates in the workspace still depend on the existing type.
     /// Vault binary format parsing or validation failed.
     #[error("vault format error: {0}")]
     Format(String),

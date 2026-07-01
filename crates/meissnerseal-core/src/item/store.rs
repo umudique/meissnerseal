@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Item store API contracts.
 
-use meissnerseal_crypto::aead::{decrypt, encrypt, Ciphertext};
+use meissnerseal_crypto::aead::{decrypt, encrypt, Ciphertext, RECORD_AAD_LEN};
 use meissnerseal_crypto::types::{AeadKey, XChaCha20Nonce};
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use zeroize::Zeroize;
+
+// F-80: spec is silent on item payload ceilings; these values cap allocation
+// growth to operationally safe bounds for MVP storage.
+pub(crate) const MAX_LABEL_LEN: usize = 1024;
+pub(crate) const MAX_TAG_COUNT: usize = 64;
+pub(crate) const MAX_TAG_LEN: usize = 256;
+pub(crate) const MAX_SECRET_LEN: usize = 64 * 1024;
+// RECORD_AAD_LEN is the canonical 79-byte value from meissnerseal-crypto::aead.
 
 use crate::{
     error::{CoreError, Result},
@@ -105,7 +113,7 @@ fn load_vault(session: &Vault<Unlocked>) -> Result<LoadedVault> {
         &session.keys().metadata_key,
         &header.vault_id,
         header.schema_profile,
-        wrk_frame_offset,
+        table_offset,
         bytes.len(),
     )?;
     Ok(LoadedVault {
@@ -117,14 +125,14 @@ fn load_vault(session: &Vault<Unlocked>) -> Result<LoadedVault> {
     })
 }
 
-/// Canonical 74-byte per-record AAD (§7) for an item or tombstone record.
+/// Canonical 79-byte per-record AAD (§7) for an item or tombstone record.
 fn item_record_aad(
     header: &VaultHeader,
     record_id: &[u8; 16],
     revision_id: &[u8; 16],
     record_kind: u16,
-) -> [u8; 79] {
-    build_aad(
+) -> [u8; RECORD_AAD_LEN] {
+    let aad = build_aad(
         &header.vault_id,
         header.format_version,
         header.schema_profile,
@@ -134,7 +142,9 @@ fn item_record_aad(
         record_id,
         revision_id,
         record_kind,
-    )
+    );
+    debug_assert_eq!(aad.len(), RECORD_AAD_LEN);
+    aad
 }
 
 fn u32_len(value: usize, error: &'static str) -> Result<u32> {
@@ -205,19 +215,35 @@ fn deserialize_item_payload(bytes: &[u8]) -> Result<DecodedItem> {
     let kind = ItemKind::from_u16(kind_raw)?;
 
     let label_len = take_u32(bytes, &mut cursor)?;
+    if label_len > MAX_LABEL_LEN {
+        return Err(CoreError::Format(
+            "item label exceeds maximum length".into(),
+        ));
+    }
     let label = String::from_utf8(take_bytes(bytes, &mut cursor, label_len)?.to_vec())
         .map_err(|_| CoreError::Format("invalid item label encoding".into()))?;
 
     let tag_count = take_u32(bytes, &mut cursor)?;
-    let mut tags = Vec::new();
+    if tag_count > MAX_TAG_COUNT {
+        return Err(CoreError::Format("item tag count exceeds maximum".into()));
+    }
+    let mut tags = Vec::with_capacity(tag_count);
     for _ in 0..tag_count {
         let tag_len = take_u32(bytes, &mut cursor)?;
+        if tag_len > MAX_TAG_LEN {
+            return Err(CoreError::Format("item tag exceeds maximum length".into()));
+        }
         let tag = String::from_utf8(take_bytes(bytes, &mut cursor, tag_len)?.to_vec())
             .map_err(|_| CoreError::Format("invalid item tag encoding".into()))?;
         tags.push(tag);
     }
 
     let secret_len = take_u32(bytes, &mut cursor)?;
+    if secret_len > MAX_SECRET_LEN {
+        return Err(CoreError::Format(
+            "item secret exceeds maximum length".into(),
+        ));
+    }
     let secret = SecretBytes::new(take_bytes(bytes, &mut cursor, secret_len)?.to_vec());
 
     if cursor != bytes.len() {
@@ -459,7 +485,7 @@ fn stage_records(
         if position == Some(index) {
             let pending = replacement
                 .take()
-                .ok_or_else(|| CoreError::InvalidState("missing record replacement".into()))?;
+                .ok_or(CoreError::InvalidState("missing record replacement".into()))?;
             records.push(pending);
         } else {
             records.push(PendingRecord {
@@ -970,5 +996,68 @@ mod tests {
             "expected Err for substituted record_id in frame"
         );
         cleanup(&path, session);
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_oversized_label() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&8192u32.to_le_bytes());
+        bytes.extend(std::iter::repeat_n(b'l', 8192));
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "item label exceeds maximum length"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_oversized_tag_count() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&10_000u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "item tag count exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_oversized_tag_len() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&8192u32.to_le_bytes());
+        bytes.extend(std::iter::repeat_n(b't', 8192));
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "item tag exceeds maximum length"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_oversized_secret() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&(2 * 1024 * 1024u32).to_le_bytes());
+        bytes.extend(std::iter::repeat_n(0xAB, 2 * 1024 * 1024));
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "item secret exceeds maximum length"
+        ));
     }
 }

@@ -3,7 +3,7 @@
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
 use meissnerseal_crypto::{
-    aead::{decrypt, encrypt, Ciphertext, TAG_LEN},
+    aead::{decrypt, encrypt, Ciphertext, RECORD_AAD_LEN, TAG_LEN},
     kdf::argon2::{
         Argon2Params, ARGON2_MAX_M_COST_KIB, ARGON2_MAX_P_LANES, ARGON2_MAX_T_COST,
         ARGON2_MIN_M_COST_KIB, ARGON2_MIN_P_LANES, ARGON2_MIN_T_COST,
@@ -688,7 +688,7 @@ pub fn open_sealed_record_table_v2(
     metadata_key: &AeadKey,
     vault_id: &[u8; 16],
     schema_profile: u16,
-    wrk_frame_offset: usize,
+    wrk_frame_end: usize,
     file_len: usize,
 ) -> Result<Vec<RecordTableEntry>> {
     let table_aad = build_table_aad_v2(vault_id, schema_profile)?;
@@ -743,7 +743,12 @@ pub fn open_sealed_record_table_v2(
         return Err(format_error("entry count exceeds padding bucket"));
     }
 
+    let sealed_table_end = offset
+        .checked_add(len)
+        .ok_or_else(|| format_error("sealed table bounds overflow"))?;
     let mut entries = Vec::with_capacity(entry_count);
+    let mut live_record_ids = std::collections::BTreeSet::new();
+    let mut frame_extents = Vec::with_capacity(entry_count);
     let mut cursor = RECORD_TABLE_COUNT_LEN;
     for _ in 0..entry_count {
         let record_id = read_array::<16>(
@@ -792,9 +797,16 @@ pub fn open_sealed_record_table_v2(
         let frame_end = frame_offset_usize
             .checked_add(frame_len_usize)
             .ok_or_else(|| format_error("frame bounds overflow"))?;
-        if frame_end > file_len || frame_offset_usize <= wrk_frame_offset {
+        if frame_offset_usize < wrk_frame_end || frame_end > file_len {
             return Err(format_error("record frame offset out of bounds"));
         }
+        if frame_offset_usize < sealed_table_end {
+            return Err(format_error("record frame overlaps sealed table"));
+        }
+        if !live_record_ids.insert(record_id) {
+            return Err(format_error("duplicate live record id"));
+        }
+        frame_extents.push((frame_offset_usize, frame_end));
 
         entries.push(RecordTableEntry {
             record_id,
@@ -807,6 +819,14 @@ pub fn open_sealed_record_table_v2(
 
     if plaintext[cursor..].iter().any(|byte| *byte != 0) {
         return Err(format_error("non-zero sealed table padding"));
+    }
+    frame_extents.sort_unstable_by_key(|(start, _)| *start);
+    for window in frame_extents.windows(2) {
+        if let [(_, left_end), (right_start, _)] = window {
+            if *right_start < *left_end {
+                return Err(format_error("record frames overlap"));
+            }
+        }
     }
 
     Ok(entries)
@@ -1154,6 +1174,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let mut pqc_profile = Some(0);
     let mut schema_profile = None;
     let mut header_nonce = None;
+    let mut seen_header_tags = 0u16;
     let mut cursor = HEADER_MIN_LEN;
 
     while cursor < header_end {
@@ -1177,23 +1198,55 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
 
         let value = &bytes[value_start..value_end];
         match tag {
-            TAG_VAULT_ID => vault_id = Some(read_array::<16>(value, "invalid vault_id length")?),
-            TAG_CREATED_AT => created_at = Some(read_tlv_u64(value, "invalid created_at length")?),
+            TAG_VAULT_ID => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate vault_id",
+                )?;
+                vault_id = Some(read_array::<16>(value, "invalid vault_id length")?);
+            }
+            TAG_CREATED_AT => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate created_at",
+                )?;
+                created_at = Some(read_tlv_u64(value, "invalid created_at length")?);
+            }
             TAG_KDF_PROFILE => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate kdf_profile",
+                )?;
                 let parsed = parse_kdf_profile_params(value)?;
                 kdf_profile = Some(parsed.profile_id);
                 kdf_params = Some(parsed);
             }
             TAG_AEAD_PROFILE => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate aead_profile",
+                )?;
                 aead_profile = Some(read_tlv_u16(value, "invalid aead_profile length")?);
             }
             TAG_PQC_PROFILE => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate pqc_profile",
+                )?;
                 pqc_profile = Some(read_tlv_u16(value, "invalid pqc_profile length")?);
             }
             TAG_SCHEMA_PROFILE => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate schema_profile",
+                )?;
                 schema_profile = Some(read_tlv_u16(value, "invalid schema_profile length")?);
             }
             TAG_HEADER_NONCE => {
+                reject_duplicate(
+                    mark_seen_header_tag(&mut seen_header_tags, tag),
+                    "duplicate header_nonce",
+                )?;
                 header_nonce = Some(read_array::<24>(value, "invalid header_nonce length")?);
             }
             _ if flags & CRITICAL_FLAG != 0 => {
@@ -1481,13 +1534,19 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
 
     let frame = &bytes[..frame_len];
     let frame_version = read_u16_le(frame, 0)?;
+    if frame_version != FORMAT_VERSION {
+        return Err(format_error("unsupported record frame version"));
+    }
     let mut cursor = 2;
     let record_id = read_array_at::<16>(frame, cursor)?;
     cursor += 16;
     let revision_id = read_array_at::<16>(frame, cursor)?;
     cursor += 16;
-    let _aead_profile = read_u16_le(frame, cursor)?;
+    let aead_profile = read_u16_le(frame, cursor)?;
     cursor += 2;
+    if aead_profile != AEAD_XCHACHA20_POLY1305_V1 {
+        return Err(format_error("unsupported record frame AEAD profile"));
+    }
     let nonce_len = usize::from(frame[cursor]);
     cursor += 1;
 
@@ -1506,6 +1565,7 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
     if aad_end > frame_len {
         return Err(format_error("truncated record frame AAD"));
     }
+    validate_stored_record_aad(&frame[cursor..aad_end], &record_id, &revision_id)?;
     cursor = aad_end;
 
     let ciphertext_len = read_u32_le(frame, cursor)?;
@@ -1531,6 +1591,49 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
         ciphertext_len,
         ciphertext: frame[cursor..ciphertext_end].to_vec(),
     })
+}
+
+fn validate_stored_record_aad(
+    aad: &[u8],
+    record_id: &[u8; 16],
+    revision_id: &[u8; 16],
+) -> Result<()> {
+    if aad.len() != RECORD_AAD_LEN {
+        return Err(format_error("invalid record AAD length"));
+    }
+    let mut cursor = 0usize;
+    if &aad[cursor..cursor + AAD_DOMAIN.len()] != AAD_DOMAIN {
+        return Err(format_error("invalid record AAD bytes"));
+    }
+    cursor += AAD_DOMAIN.len();
+    cursor += 16;
+    if u16::from_le_bytes(read_array(
+        &aad[cursor..cursor + 2],
+        "invalid record AAD bytes",
+    )?) != FORMAT_VERSION
+    {
+        return Err(format_error("invalid record AAD bytes"));
+    }
+    cursor += 2;
+    cursor += 2;
+    if u16::from_le_bytes(read_array(
+        &aad[cursor..cursor + 2],
+        "invalid record AAD bytes",
+    )?) != AEAD_XCHACHA20_POLY1305_V1
+    {
+        return Err(format_error("invalid record AAD bytes"));
+    }
+    cursor += 2;
+    cursor += 2;
+    cursor += 2;
+    if &aad[cursor..cursor + 16] != record_id {
+        return Err(format_error("invalid record AAD bytes"));
+    }
+    cursor += 16;
+    if &aad[cursor..cursor + 16] != revision_id {
+        return Err(format_error("invalid record AAD bytes"));
+    }
+    Ok(())
 }
 
 /// Build canonical AAD for a vault record.
@@ -1584,7 +1687,7 @@ pub fn build_aad(
 }
 
 fn format_error(message: &'static str) -> CoreError {
-    CoreError::Format(message.to_string())
+    CoreError::Format(message.into())
 }
 
 fn len_to_u32(value: usize, error: &'static str) -> Result<u32> {
@@ -1664,6 +1767,22 @@ fn reject_duplicate(is_duplicate: bool, error: &'static str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn mark_seen_header_tag(seen: &mut u16, tag: u16) -> bool {
+    let bit = match tag {
+        TAG_VAULT_ID => 1 << 0,
+        TAG_CREATED_AT => 1 << 1,
+        TAG_KDF_PROFILE => 1 << 2,
+        TAG_AEAD_PROFILE => 1 << 3,
+        TAG_PQC_PROFILE => 1 << 4,
+        TAG_SCHEMA_PROFILE => 1 << 5,
+        TAG_HEADER_NONCE => 1 << 6,
+        _ => return false,
+    };
+    let is_duplicate = (*seen & bit) != 0;
+    *seen |= bit;
+    is_duplicate
 }
 
 fn validate_argon2_params(params: &Argon2Params) -> Result<()> {
@@ -1931,6 +2050,21 @@ mod tests {
             0u8,
             usize::try_from(body_len).expect("body len"),
         ));
+        bytes
+    }
+
+    fn duplicate_header_tag_bytes(
+        header: &VaultHeader,
+        tag: u16,
+        flags: u8,
+        value: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = vault_bytes_for_header(header, 4, 4);
+        let mut duplicate = Vec::new();
+        write_header_tlv(&mut duplicate, tag, flags, value).expect("duplicate TLV fixture");
+        bytes.splice(HEADER_MIN_LEN..HEADER_MIN_LEN, duplicate);
+        let header_len = bytes.len() - HEADER_MIN_LEN - 4;
+        bytes[10..14].copy_from_slice(&usize_to_u32_for_test(header_len).to_le_bytes());
         bytes
     }
 
@@ -2345,5 +2479,288 @@ mod tests {
             bytes[0] ^= 0xff;
             assert!(parse_header(&bytes).is_err());
         }
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_vault_id_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes =
+            duplicate_header_tag_bytes(&header, TAG_VAULT_ID, CRITICAL_FLAG, &header.vault_id);
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_kdf_profile_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let kdf_profile = serialize_kdf_profile_params(&header.kdf_params).expect("kdf fixture");
+        let bytes =
+            duplicate_header_tag_bytes(&header, TAG_KDF_PROFILE, CRITICAL_FLAG, &kdf_profile);
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_aead_profile_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = duplicate_header_tag_bytes(
+            &header,
+            TAG_AEAD_PROFILE,
+            CRITICAL_FLAG,
+            &header.aead_profile.to_le_bytes(),
+        );
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_pqc_profile_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = duplicate_header_tag_bytes(
+            &header,
+            TAG_PQC_PROFILE,
+            0,
+            &header.pqc_profile.to_le_bytes(),
+        );
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_schema_profile_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = duplicate_header_tag_bytes(
+            &header,
+            TAG_SCHEMA_PROFILE,
+            CRITICAL_FLAG,
+            &header.schema_profile.to_le_bytes(),
+        );
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_header_nonce_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = duplicate_header_tag_bytes(
+            &header,
+            TAG_HEADER_NONCE,
+            CRITICAL_FLAG,
+            &header.header_nonce,
+        );
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_header_rejects_duplicate_created_at_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = duplicate_header_tag_bytes(
+            &header,
+            TAG_CREATED_AT,
+            CRITICAL_FLAG,
+            &header.created_at.to_le_bytes(),
+        );
+        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_wrong_frame_version() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        bytes[0..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_wrong_aead_profile() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        bytes[34..36].copy_from_slice(&(AEAD_XCHACHA20_POLY1305_V1 + 1).to_le_bytes());
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_wrong_aad_len() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        bytes[61..65].copy_from_slice(&78u32.to_le_bytes());
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_corrupted_stored_aad() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        bytes[65] ^= 0x01;
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn open_sealed_record_table_v2_rejects_frame_offset_inside_wrk_body() {
+        let key = AeadKey::from_bytes([0x71; 32]);
+        let entries = [RecordTableEntry {
+            record_id: [0x51; 16],
+            record_kind: 0x0001,
+            revision_id: [0x61; 16],
+            frame_offset: 120,
+            frame_len: 80,
+        }];
+        let sealed =
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("sealed fixture");
+        assert!(matches!(
+            open_sealed_record_table_v2(
+                &sealed,
+                0,
+                sealed.len(),
+                &key,
+                &VAULT_ID,
+                SCHEMA_MEISSNER_RECORDS_V2,
+                128,
+                1024
+            ),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn open_sealed_record_table_v2_rejects_frame_overlapping_sealed_table_section() {
+        let key = AeadKey::from_bytes([0x72; 32]);
+        let entries = [RecordTableEntry {
+            record_id: [0x52; 16],
+            record_kind: 0x0001,
+            revision_id: [0x62; 16],
+            frame_offset: 8,
+            frame_len: 80,
+        }];
+        let sealed =
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("sealed fixture");
+        assert!(matches!(
+            open_sealed_record_table_v2(
+                &sealed,
+                0,
+                sealed.len(),
+                &key,
+                &VAULT_ID,
+                SCHEMA_MEISSNER_RECORDS_V2,
+                0,
+                2048
+            ),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn open_sealed_record_table_v2_rejects_overlapping_frames() {
+        let key = AeadKey::from_bytes([0x73; 32]);
+        let entries = [
+            RecordTableEntry {
+                record_id: [0x53; 16],
+                record_kind: 0x0001,
+                revision_id: [0x63; 16],
+                frame_offset: 512,
+                frame_len: 96,
+            },
+            RecordTableEntry {
+                record_id: [0x54; 16],
+                record_kind: 0x0001,
+                revision_id: [0x64; 16],
+                frame_offset: 560,
+                frame_len: 96,
+            },
+        ];
+        let sealed =
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("sealed fixture");
+        assert!(matches!(
+            open_sealed_record_table_v2(
+                &sealed,
+                0,
+                sealed.len(),
+                &key,
+                &VAULT_ID,
+                SCHEMA_MEISSNER_RECORDS_V2,
+                128,
+                2048
+            ),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn open_sealed_record_table_v2_rejects_duplicate_live_record_ids() {
+        let key = AeadKey::from_bytes([0x74; 32]);
+        let entries = [
+            RecordTableEntry {
+                record_id: [0x55; 16],
+                record_kind: 0x0001,
+                revision_id: [0x65; 16],
+                frame_offset: 512,
+                frame_len: 80,
+            },
+            RecordTableEntry {
+                record_id: [0x55; 16],
+                record_kind: 0x0006,
+                revision_id: [0x66; 16],
+                frame_offset: 640,
+                frame_len: 80,
+            },
+        ];
+        let sealed =
+            serialize_sealed_record_table_v2(&entries, &key, &VAULT_ID, SCHEMA_MEISSNER_RECORDS_V2)
+                .expect("sealed fixture");
+        assert!(matches!(
+            open_sealed_record_table_v2(
+                &sealed,
+                0,
+                sealed.len(),
+                &key,
+                &VAULT_ID,
+                SCHEMA_MEISSNER_RECORDS_V2,
+                128,
+                2048
+            ),
+            Err(CoreError::Format(_))
+        ));
     }
 }
