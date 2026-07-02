@@ -7,7 +7,7 @@ use meissnerseal_core::{
         device::{
             create_signed_transfer_envelope, deserialize_identity_text, generate,
             open_received_transfer_envelope, serialize_identity_text, DeviceIdentity,
-            DeviceKeypair, SealedDeviceKeyFile,
+            DeviceKeypair, DeviceTrustState, SealedDeviceKeyFile,
         },
         pairing::{
             build_pairing_payload, compute_pairing_transcript, derive_short_authentication_string,
@@ -331,8 +331,15 @@ fn transfer_receive_command(
     let (recipient_identity, recipient_keypair) =
         load_sealed_keypair(&recipient_keypair, keypair_passphrase)?;
     let recipient_classical_public_key = recipient_identity.classical_public_key;
-    let sender = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
-        .map_err(device_parse_error)?;
+    let sender = {
+        let mut s = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
+            .map_err(device_parse_error)?;
+        // Loading an identity file is an explicit user trust grant: the caller
+        // chose to provide this path. Elevate to Verified so TrustedSender can
+        // wrap it (the text format carries no trust state).
+        s.trust_state = DeviceTrustState::Verified;
+        s
+    };
     let trusted_sender = TrustedSender::from_verified(&sender)
         .map_err(|_| CoreError::InvalidState("sender identity is not in a trusted state".into()))?;
     let plaintext = open_received_transfer_envelope(
