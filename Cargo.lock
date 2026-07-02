@@ -715,6 +715,7 @@ dependencies = [
  "anyhow",
  "clap",
  "meissnerseal-core",
+ "meissnerseal-crypto",
  "meissnerseal-security",
  "rpassword",
  "tempfile",
@@ -743,6 +744,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "argon2",
+ "blake2",
  "chacha20poly1305",
  "hkdf",
  "proptest",
