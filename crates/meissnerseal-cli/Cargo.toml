@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 meissnerseal-core.workspace = true
+meissnerseal-crypto.workspace = true
 meissnerseal-security.workspace = true
 clap.workspace = true
 anyhow.workspace = true
