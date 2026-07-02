@@ -2857,7 +2857,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Extend vault format and engine tests with table-driven malformed
       fixtures for every parser and persistence invariant listed above.
@@ -2868,7 +2868,7 @@ findings:
       profile, drifted frame metadata, WRK-overlapping table entry,
       inter-frame overlap, permission-widening rewrite, or oversized vault
       file is accepted without error.
-    commit: ""
+    commit: "536c82c"
 
 # ── meissnerseal-core cross-protocol trust boundary review (2026-06-30) ───────
 
