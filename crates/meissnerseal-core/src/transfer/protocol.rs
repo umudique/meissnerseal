@@ -95,6 +95,8 @@ pub enum TransferError {
     SigningFailed,
     #[error("transfer signature verification failed")]
     VerificationFailed,
+    #[error("sender identity is not trusted for envelope opening")]
+    UntrustedSender,
     #[error("invalid transfer envelope id")]
     InvalidEnvelopeId,
     #[error("transfer transcript hash helper unavailable")]
