@@ -44,10 +44,9 @@ keys::device::
     // convenience: prepends DEVICE_ENROLLMENT_SIGNING_DOMAIN || message
   sign_enrollment_message(private_key, message: &[u8]) -> Result<Signature>
     // calls mldsa::sign_with_domain with DEVICE_ENROLLMENT_SIGNING_DOMAIN
-  serialize_keypair_bytes(identity, keypair) -> Zeroizing<Vec<u8>>
-    // PLANNED pub(crate) in SEC-6 Phase 3 (F-83/F-106); avoid new callers
-  deserialize_keypair_bytes(bytes: &[u8]) -> Result<(DeviceId, X25519PublicKey, DeviceKeypair)>
-    // PLANNED pub(crate) in SEC-6 Phase 3
+  SealedDeviceKeyFile
+  SealedDeviceKeyFile::seal(identity, keypair, dkek: &AeadKey) -> Result<Zeroizing<Vec<u8>>>
+  SealedDeviceKeyFile::open(bytes, dkek: &AeadKey) -> Result<(DeviceIdentity, DeviceKeypair)>
   create_signed_transfer_envelope(
     sender_device_id, sender_keypair, recipient_device_id,
     recipient_classical_public_key, recipient_pqc_public_key,

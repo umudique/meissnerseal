@@ -7,6 +7,10 @@ use crate::transfer::{
     TransferEnvelope, TransferError,
 };
 use meissnerseal_crypto::types::Key;
+use meissnerseal_crypto::{
+    aead::{self, Ciphertext},
+    types::{AeadKey, XChaCha20Nonce},
+};
 use meissnerseal_pqc::{
     hybrid::{x25519_public_from_private, X25519PrivateKey, X25519PublicKey},
     mldsa::{self, SigningAlgorithmId, SigningPrivateKey, SigningPublicKey},
@@ -20,6 +24,9 @@ pub const DEVICE_ID_LEN: usize = 16;
 
 /// Domain-separation prefix for DEVICE-1 enrollment signatures (F-39).
 pub const DEVICE_ENROLLMENT_SIGNING_DOMAIN: &[u8] = b"meissnerseal.device.enrollment.v1\x00";
+const SEALED_DEVICE_KEY_FILE_MAGIC: &[u8; 6] = b"MSDKP\x01";
+const SEALED_DEVICE_KEY_FILE_VERSION: u8 = 1;
+const SEALED_DEVICE_KEY_FILE_AAD_DOMAIN: &[u8] = b"meissnerseal.device.keyfile.v1";
 
 /// A 128-bit random device identifier.
 pub type DeviceId = [u8; DEVICE_ID_LEN];
@@ -171,6 +178,9 @@ impl Zeroize for DeviceKeypair {
 
 impl ZeroizeOnDrop for DeviceKeypair {}
 
+/// Sealed device keypair file API.
+pub struct SealedDeviceKeyFile;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceIdentityError {
     #[error("device identity generation is not implemented")]
@@ -191,6 +201,12 @@ pub enum DeviceIdentityError {
     TimestampOverflow,
     #[error("device signing operation failed")]
     SigningFailed,
+    #[error("device keypair sealing failed")]
+    SealingFailed,
+    #[error("device keypair opening failed")]
+    OpenFailed,
+    #[error("device identity fingerprint mismatch")]
+    IdentityFingerprintMismatch,
 }
 
 pub type Result<T> = core::result::Result<T, DeviceIdentityError>;
@@ -338,7 +354,22 @@ pub fn sign_enrollment_message(
         .map_err(|_| DeviceIdentityError::SigningFailed)
 }
 
-pub fn serialize_keypair_bytes(
+/// Serialize raw keypair bytes for the current unsecured developer format.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `identity` and `keypair` must refer to the same device.
+/// - Callers must treat the returned bytes as secret plaintext key material.
+///
+/// ## Postconditions
+/// - Returns version-tagged raw keypair bytes used internally by
+///   `SealedDeviceKeyFile::seal` as the AEAD plaintext.
+///
+/// ## Invariants
+/// - The returned bytes are secret-bearing and must not be logged, printed, or
+///   exposed through public file APIs.
+pub(crate) fn serialize_keypair_bytes(
     identity: &DeviceIdentity,
     keypair: &DeviceKeypair,
 ) -> Zeroizing<Vec<u8>> {
@@ -357,7 +388,23 @@ pub fn serialize_keypair_bytes(
     out
 }
 
-pub fn deserialize_keypair_bytes(
+/// Deserialize the current raw developer keypair byte format.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `bytes` must be the exact raw developer format emitted by
+///   `serialize_keypair_bytes`.
+///
+/// ## Postconditions
+/// - Returns the parsed keypair only when the framing is valid and the
+///   recomputed X25519 public key matches the encoded public key bytes.
+/// - Used internally by `SealedDeviceKeyFile::open` after AEAD decryption.
+///
+/// ## Invariants
+/// - Fail closed on malformed framing or mismatched public/private key
+///   material.
+pub(crate) fn deserialize_keypair_bytes(
     bytes: &[u8],
 ) -> Result<(DeviceId, X25519PublicKey, DeviceKeypair)> {
     let mut parser = ByteParser::new(bytes);
@@ -388,6 +435,50 @@ pub fn deserialize_keypair_bytes(
         classical_public_key,
         DeviceKeypair::new(classical_private_key, pqc_private_key, signing_private_key),
     ))
+}
+
+impl SealedDeviceKeyFile {
+    pub fn seal(
+        identity: &DeviceIdentity,
+        keypair: &DeviceKeypair,
+        dkek: &AeadKey,
+    ) -> Result<Zeroizing<Vec<u8>>> {
+        let raw_keypair = serialize_keypair_bytes(identity, keypair);
+        let identity_bytes = serialize_identity_bytes(identity)?;
+        let fingerprint = identity_fingerprint(identity);
+        let aad = sealed_device_key_file_aad(identity_bytes.as_slice(), &fingerprint)?;
+        let (ciphertext, nonce) = aead::encrypt(dkek, raw_keypair.as_slice(), &aad)
+            .map_err(|_| DeviceIdentityError::SealingFailed)?;
+        serialize_sealed_device_key_file(
+            identity_bytes.as_slice(),
+            &fingerprint,
+            &nonce,
+            ciphertext.as_ref(),
+        )
+    }
+
+    pub fn open(bytes: &[u8], dkek: &AeadKey) -> Result<(DeviceIdentity, DeviceKeypair)> {
+        let parsed = parse_sealed_device_key_file(bytes)?;
+        let aad = sealed_device_key_file_aad(parsed.identity_bytes, &parsed.fingerprint)?;
+        let nonce = XChaCha20Nonce::from_bytes(parsed.nonce);
+        let ciphertext = Ciphertext::from(parsed.ciphertext.to_vec());
+        let plaintext = aead::decrypt(dkek, &nonce, &ciphertext, &aad)
+            .map_err(|_| DeviceIdentityError::OpenFailed)?;
+        let identity = deserialize_identity_bytes(parsed.identity_bytes)?;
+        let (device_id, classical_public_key, keypair) =
+            deserialize_keypair_bytes(plaintext.as_ref())?;
+        if identity.device_id != device_id
+            || !bool::from(identity.classical_public_key.ct_eq(&classical_public_key))
+        {
+            return Err(DeviceIdentityError::IdentityFingerprintMismatch);
+        }
+        let derived_identity = rebuild_identity_from_keypair(&identity, &keypair)?;
+        let recomputed_fingerprint = identity_fingerprint(&derived_identity);
+        if parsed.fingerprint != recomputed_fingerprint {
+            return Err(DeviceIdentityError::IdentityFingerprintMismatch);
+        }
+        Ok((derived_identity, keypair))
+    }
 }
 
 pub fn serialize_identity_text(identity: &DeviceIdentity) -> String {
@@ -525,6 +616,246 @@ pub fn open_received_transfer_envelope(
     )
 }
 
+fn serialize_identity_bytes(identity: &DeviceIdentity) -> Result<Zeroizing<Vec<u8>>> {
+    let mut out = Zeroizing::new(Vec::new());
+    out.push(1);
+    out.extend_from_slice(&identity.device_id);
+    out.extend_from_slice(
+        &u32::try_from(identity.display_name.len())
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+            .to_le_bytes(),
+    );
+    out.extend_from_slice(identity.display_name.as_bytes());
+    out.extend_from_slice(identity.classical_public_key.as_slice());
+    out.extend_from_slice(identity.pqc_public_key.as_slice());
+    match identity.signing_public_key.as_ref() {
+        Some(signing_public_key) => {
+            out.push(1);
+            out.extend_from_slice(&signing_public_key.algorithm().to_le_bytes());
+            out.extend_from_slice(
+                &u32::try_from(signing_public_key.as_bytes().len())
+                    .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(signing_public_key.as_bytes());
+        }
+        None => out.push(0),
+    }
+    out.extend_from_slice(&identity.created_at.to_le_bytes());
+    out.push(device_trust_state_to_u8(identity.trust_state));
+    Ok(out)
+}
+
+fn deserialize_identity_bytes(bytes: &[u8]) -> Result<DeviceIdentity> {
+    let mut parser = ByteParser::new(bytes);
+    if parser.take_u8()? != 1 {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let device_id = parser.take_array()?;
+    let display_name_len = parser.take_u32_le()? as usize;
+    let display_name = std::str::from_utf8(parser.take(display_name_len)?)
+        .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+        .to_owned();
+    let classical_public_key = X25519PublicKey::from_bytes(parser.take_array()?);
+    let pqc_public_key = MlKemPublicKey::from_bytes(parser.take_array()?);
+    let signing_public_key = match parser.take_u8()? {
+        0 => None,
+        1 => {
+            let algorithm = SigningAlgorithmId::from_u16(parser.take_u16_le()?)
+                .map_err(|_| DeviceIdentityError::InvalidFileFormat)?;
+            let len = parser.take_u32_le()? as usize;
+            Some(try_new_signing_public_key(algorithm, parser.take(len)?)?)
+        }
+        _ => return Err(DeviceIdentityError::InvalidFileFormat),
+    };
+    let created_at = parser.take_u64_le()?;
+    let trust_state = device_trust_state_from_u8(parser.take_u8()?)?;
+    if !parser.is_empty() {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let identity = DeviceIdentity {
+        device_id,
+        display_name,
+        classical_public_key,
+        pqc_public_key,
+        signing_public_key,
+        created_at,
+        trust_state,
+    };
+    identity.validate()?;
+    Ok(identity)
+}
+
+fn identity_fingerprint(identity: &DeviceIdentity) -> [u8; 32] {
+    let mut canonical = Vec::new();
+    canonical.extend_from_slice(&identity.device_id);
+    canonical.extend_from_slice(
+        &u32::try_from(identity.display_name.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
+    canonical.extend_from_slice(identity.display_name.as_bytes());
+    canonical.extend_from_slice(identity.classical_public_key.as_slice());
+    canonical.extend_from_slice(identity.pqc_public_key.as_slice());
+    match identity.signing_public_key.as_ref() {
+        Some(signing_public_key) => {
+            canonical.push(1);
+            canonical.extend_from_slice(&signing_public_key.algorithm().to_le_bytes());
+            canonical.extend_from_slice(
+                &u32::try_from(signing_public_key.as_bytes().len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            canonical.extend_from_slice(signing_public_key.as_bytes());
+        }
+        None => canonical.push(0),
+    }
+    canonical.extend_from_slice(&identity.created_at.to_le_bytes());
+    canonical.push(match identity.trust_state {
+        DeviceTrustState::Untrusted => 0,
+        DeviceTrustState::PendingInbound => 1,
+        DeviceTrustState::PendingOutbound => 2,
+        DeviceTrustState::Verified => 3,
+        DeviceTrustState::Approved => 4,
+        DeviceTrustState::Revoked => 5,
+        DeviceTrustState::Expired => 6,
+    });
+    meissnerseal_crypto::hash::blake2b_256_bytes(&canonical)
+}
+
+fn rebuild_identity_from_keypair(
+    identity: &DeviceIdentity,
+    keypair: &DeviceKeypair,
+) -> Result<DeviceIdentity> {
+    let classical_public_key = x25519_public_from_private(&keypair.classical_private_key);
+    let signing_public_key = identity
+        .signing_public_key
+        .clone()
+        .ok_or(DeviceIdentityError::MissingSigningKey)?;
+    validate_signing_key_matches_public(&keypair.signing_private_key, &signing_public_key)?;
+    Ok(DeviceIdentity {
+        device_id: identity.device_id,
+        display_name: identity.display_name.clone(),
+        classical_public_key,
+        pqc_public_key: identity.pqc_public_key.clone(),
+        signing_public_key: Some(signing_public_key),
+        created_at: identity.created_at,
+        trust_state: identity.trust_state,
+    })
+}
+
+fn validate_signing_key_matches_public(
+    private_key: &SigningPrivateKey,
+    public_key: &SigningPublicKey,
+) -> Result<()> {
+    const MESSAGE: &[u8] = b"meissnerseal.device.keyfile.check.v1";
+    let signature = mldsa::sign_with_domain(private_key, DEVICE_ENROLLMENT_SIGNING_DOMAIN, MESSAGE)
+        .map_err(|_| DeviceIdentityError::IdentityFingerprintMismatch)?;
+    mldsa::verify_with_domain(
+        public_key,
+        DEVICE_ENROLLMENT_SIGNING_DOMAIN,
+        MESSAGE,
+        &signature,
+    )
+    .map_err(|_| DeviceIdentityError::IdentityFingerprintMismatch)
+}
+
+fn device_trust_state_to_u8(state: DeviceTrustState) -> u8 {
+    match state {
+        DeviceTrustState::Untrusted => 0,
+        DeviceTrustState::PendingInbound => 1,
+        DeviceTrustState::PendingOutbound => 2,
+        DeviceTrustState::Verified => 3,
+        DeviceTrustState::Approved => 4,
+        DeviceTrustState::Revoked => 5,
+        DeviceTrustState::Expired => 6,
+    }
+}
+
+fn device_trust_state_from_u8(value: u8) -> Result<DeviceTrustState> {
+    match value {
+        0 => Ok(DeviceTrustState::Untrusted),
+        1 => Ok(DeviceTrustState::PendingInbound),
+        2 => Ok(DeviceTrustState::PendingOutbound),
+        3 => Ok(DeviceTrustState::Verified),
+        4 => Ok(DeviceTrustState::Approved),
+        5 => Ok(DeviceTrustState::Revoked),
+        6 => Ok(DeviceTrustState::Expired),
+        _ => Err(DeviceIdentityError::InvalidFileFormat),
+    }
+}
+
+fn sealed_device_key_file_aad(identity_bytes: &[u8], fingerprint: &[u8; 32]) -> Result<Vec<u8>> {
+    let mut aad = Vec::new();
+    aad.extend_from_slice(SEALED_DEVICE_KEY_FILE_AAD_DOMAIN);
+    aad.extend_from_slice(
+        &u32::try_from(identity_bytes.len())
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+            .to_le_bytes(),
+    );
+    aad.extend_from_slice(identity_bytes);
+    aad.extend_from_slice(fingerprint);
+    Ok(aad)
+}
+
+fn serialize_sealed_device_key_file(
+    identity_bytes: &[u8],
+    fingerprint: &[u8; 32],
+    nonce: &XChaCha20Nonce,
+    ciphertext: &[u8],
+) -> Result<Zeroizing<Vec<u8>>> {
+    let mut out = Zeroizing::new(Vec::new());
+    out.extend_from_slice(SEALED_DEVICE_KEY_FILE_MAGIC);
+    out.push(SEALED_DEVICE_KEY_FILE_VERSION);
+    out.extend_from_slice(
+        &u32::try_from(identity_bytes.len())
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+            .to_le_bytes(),
+    );
+    out.extend_from_slice(identity_bytes);
+    out.extend_from_slice(fingerprint);
+    out.extend_from_slice(nonce.as_slice());
+    out.extend_from_slice(
+        &u32::try_from(ciphertext.len())
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)?
+            .to_le_bytes(),
+    );
+    out.extend_from_slice(ciphertext);
+    Ok(out)
+}
+
+struct ParsedSealedDeviceKeyFile<'a> {
+    identity_bytes: &'a [u8],
+    fingerprint: [u8; 32],
+    nonce: [u8; 24],
+    ciphertext: &'a [u8],
+}
+
+fn parse_sealed_device_key_file(bytes: &[u8]) -> Result<ParsedSealedDeviceKeyFile<'_>> {
+    let mut parser = ByteParser::new(bytes);
+    if parser.take(SEALED_DEVICE_KEY_FILE_MAGIC.len())? != SEALED_DEVICE_KEY_FILE_MAGIC {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    if parser.take_u8()? != SEALED_DEVICE_KEY_FILE_VERSION {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    let identity_len = parser.take_u32_le()? as usize;
+    let identity_bytes = parser.take(identity_len)?;
+    let fingerprint = parser.take_array()?;
+    let nonce = parser.take_array()?;
+    let ciphertext_len = parser.take_u32_le()? as usize;
+    let ciphertext = parser.take(ciphertext_len)?;
+    if !parser.is_empty() {
+        return Err(DeviceIdentityError::InvalidFileFormat);
+    }
+    Ok(ParsedSealedDeviceKeyFile {
+        identity_bytes,
+        fingerprint,
+        nonce,
+        ciphertext,
+    })
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::new();
     for byte in bytes {
@@ -591,6 +922,10 @@ impl<'a> ByteParser<'a> {
 
     fn take_u32_le(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.take_array()?))
+    }
+
+    fn take_u64_le(&mut self) -> Result<u64> {
+        Ok(u64::from_le_bytes(self.take_array()?))
     }
 
     fn take_array<const N: usize>(&mut self) -> Result<[u8; N]> {
@@ -745,6 +1080,98 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn deserialize_keypair_bytes_rejects_trailing_garbage() {
+        let (identity, keypair) = generate("phase1-device".to_owned()).expect("generate fixture");
+        let mut serialized = serialize_keypair_bytes(&identity, &keypair).to_vec();
+        serialized.extend_from_slice(&[0xAA, 0xBB]);
+
+        assert!(matches!(
+            deserialize_keypair_bytes(&serialized),
+            Err(DeviceIdentityError::InvalidFileFormat)
+        ));
+    }
+
+    #[test]
+    fn deserialize_keypair_bytes_rejects_unknown_format_version() {
+        let (identity, keypair) = generate("phase1-device".to_owned()).expect("generate fixture");
+        let mut serialized = serialize_keypair_bytes(&identity, &keypair).to_vec();
+        *serialized.first_mut().expect("version byte") = 0xFF;
+
+        assert!(matches!(
+            deserialize_keypair_bytes(&serialized),
+            Err(DeviceIdentityError::InvalidFileFormat)
+        ));
+    }
+
+    #[test]
+    fn sealed_device_key_file_roundtrip_preserves_identity_and_keypair() {
+        let (mut identity, keypair) = generate("sealed-device".to_owned()).expect("generate");
+        identity.trust_state = DeviceTrustState::Approved;
+        let dkek = meissnerseal_crypto::types::AeadKey::from_bytes([0x5A; 32]);
+
+        let sealed = SealedDeviceKeyFile::seal(&identity, &keypair, &dkek).expect("seal");
+        let (opened_identity, opened_keypair) =
+            SealedDeviceKeyFile::open(sealed.as_slice(), &dkek).expect("open");
+
+        assert_eq!(opened_identity.device_id, identity.device_id);
+        assert_eq!(opened_identity.display_name, identity.display_name);
+        assert_eq!(opened_identity.created_at, identity.created_at);
+        assert_eq!(opened_identity.trust_state, identity.trust_state);
+        assert!(bool::from(
+            opened_identity
+                .classical_public_key
+                .ct_eq(&identity.classical_public_key)
+        ));
+        assert_eq!(
+            opened_identity
+                .signing_public_key
+                .as_ref()
+                .expect("signing key")
+                .as_bytes(),
+            identity
+                .signing_public_key
+                .as_ref()
+                .expect("signing key")
+                .as_bytes()
+        );
+        let reopened_raw = serialize_keypair_bytes(&opened_identity, &opened_keypair);
+        let original_raw = serialize_keypair_bytes(&identity, &keypair);
+        assert_eq!(reopened_raw.as_slice(), original_raw.as_slice());
+    }
+
+    #[test]
+    fn sealed_device_key_file_rejects_identity_mismatch_file() {
+        let (identity_a, keypair_a) = generate("sealed-a".to_owned()).expect("generate a");
+        let (mut identity_b, _keypair_b) = generate("sealed-b".to_owned()).expect("generate b");
+        identity_b.classical_public_key = identity_a.classical_public_key.clone();
+        let dkek = meissnerseal_crypto::types::AeadKey::from_bytes([0x6B; 32]);
+
+        let mut sealed = SealedDeviceKeyFile::seal(&identity_a, &keypair_a, &dkek).expect("seal");
+        let replacement_identity = serialize_identity_bytes(&identity_b).expect("identity bytes");
+        replace_identity_payload_in_sealed_file(&mut sealed, replacement_identity.as_slice());
+
+        assert!(matches!(
+            SealedDeviceKeyFile::open(sealed.as_slice(), &dkek),
+            Err(DeviceIdentityError::OpenFailed | DeviceIdentityError::IdentityFingerprintMismatch)
+        ));
+    }
+
+    #[test]
+    fn sealed_device_key_file_rejects_tamper() {
+        let (identity, keypair) = generate("sealed-tamper".to_owned()).expect("generate");
+        let dkek = meissnerseal_crypto::types::AeadKey::from_bytes([0x7C; 32]);
+
+        let mut sealed = SealedDeviceKeyFile::seal(&identity, &keypair, &dkek).expect("seal");
+        let last = sealed.last_mut().expect("ciphertext byte");
+        *last ^= 0x01;
+
+        assert!(matches!(
+            SealedDeviceKeyFile::open(sealed.as_slice(), &dkek),
+            Err(DeviceIdentityError::OpenFailed)
+        ));
+    }
+
     fn identity_with_state(
         trust_state: DeviceTrustState,
         signing_public_key: Option<SigningPublicKey>,
@@ -758,5 +1185,16 @@ mod tests {
             created_at: 1_725_000_000_000,
             trust_state,
         }
+    }
+
+    #[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+    fn replace_identity_payload_in_sealed_file(sealed: &mut [u8], replacement: &[u8]) {
+        let identity_len_offset = SEALED_DEVICE_KEY_FILE_MAGIC.len() + 1;
+        let identity_len = u32::try_from(replacement.len()).expect("replacement len fits u32");
+        sealed[identity_len_offset..identity_len_offset + 4]
+            .copy_from_slice(&identity_len.to_le_bytes());
+        let identity_offset = identity_len_offset + 4;
+        let identity_end = identity_offset + replacement.len();
+        sealed[identity_offset..identity_end].copy_from_slice(replacement);
     }
 }
