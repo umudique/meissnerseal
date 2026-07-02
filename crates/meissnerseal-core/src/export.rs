@@ -777,4 +777,111 @@ mod tests {
             Err(CoreError::Format(message)) if message == "export tag count exceeds maximum"
         ));
     }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn import_rejects_kdf_params_len_overrunning_remaining_input() {
+        let (path, session) = unlocked_session("kdf-len-overrun");
+        let mut bundle = framed_bundle(ARCEXP_VERSION_V1, &[0x7b; 16]);
+        let offset = MAGIC_LEN + VERSION_LEN + VAULT_ID_LEN;
+        bundle
+            .get_mut(offset..offset + 4)
+            .expect("kdf_len field within bundle")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(matches!(
+            import(&session, &bundle, EXPORT_PASSPHRASE),
+            Err(CoreError::Format(message)) if message == "truncated export KDF params"
+        ));
+        cleanup(&path, session);
+    }
+
+    #[test]
+    fn import_rejects_ciphertext_len_overrunning_remaining_input() {
+        let (path, session) = unlocked_session("ciphertext-len-overrun");
+        let ciphertext = [0x7b_u8; 16];
+        let mut bundle = framed_bundle(ARCEXP_VERSION_V1, &ciphertext);
+        // ciphertext_len field sits immediately before the ciphertext bytes at the
+        // end of the bundle; use bundle.len() to locate it correctly.
+        let ciphertext_len_offset = bundle.len() - CIPHERTEXT_LEN_FIELD - ciphertext.len();
+        bundle
+            .get_mut(ciphertext_len_offset..ciphertext_len_offset + 4)
+            .expect("ciphertext_len field within bundle")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+
+        // ciphertext_end = ciphertext_offset + u32::MAX, which differs from
+        // bundle.len(), so parse_bundle returns "export bundle trailing garbage"
+        // before reaching the KDF derivation step.
+        assert!(matches!(
+            import(&session, &bundle, EXPORT_PASSPHRASE),
+            Err(CoreError::Format(message)) if message == "export bundle trailing garbage"
+        ));
+        cleanup(&path, session);
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_truncated_label_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"lab");
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated field"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_truncated_tag_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(b"ta");
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated field"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_truncated_secret_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xAA, 0xBB]);
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated field"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_trailing_garbage_after_last_item() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xAA, 0xBB]);
+        bytes.push(0xCC);
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "export payload trailing garbage"
+        ));
+    }
 }

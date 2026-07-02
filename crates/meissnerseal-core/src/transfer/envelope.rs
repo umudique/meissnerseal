@@ -951,7 +951,7 @@ mod tests {
         let mut envelope = create_envelope(CreateEnvelopeParams {
             sender_device_id: [0x11; 16],
             recipient_device_id: Some([0x22; 16]),
-            recipient_classical_public_key: recipient_public,
+            recipient_classical_public_key: recipient_public.clone(),
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
             plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
@@ -991,6 +991,94 @@ mod tests {
             matches!(second, Err(TransferError::DecryptionFailed)),
             "auth failure must not store envelope_id in replay set"
         );
+    }
+
+    #[test]
+    fn envelope_to_bytes_roundtrip_preserves_fields() {
+        let envelope = envelope_fixture();
+        let parsed = envelope_from_bytes(&envelope_to_bytes(&envelope)).expect("parse");
+
+        assert_eq!(parsed.version, envelope.version);
+        assert_eq!(parsed.transfer_profile, envelope.transfer_profile);
+        assert_eq!(parsed.envelope_id, envelope.envelope_id);
+        assert_eq!(parsed.sender_device_id, envelope.sender_device_id);
+        assert_eq!(parsed.recipient_device_id, envelope.recipient_device_id);
+        assert_eq!(
+            parsed.classical_ephemeral_public_key.as_slice(),
+            envelope.classical_ephemeral_public_key.as_slice()
+        );
+        assert_eq!(
+            parsed.pqc_ciphertext.as_slice(),
+            envelope.pqc_ciphertext.as_slice()
+        );
+        assert_eq!(parsed.transcript_hash, envelope.transcript_hash);
+        assert_eq!(parsed.encrypted_payload, envelope.encrypted_payload);
+        assert_eq!(parsed.nonce, envelope.nonce);
+        assert_eq!(parsed.expires_at, envelope.expires_at);
+    }
+
+    #[test]
+    fn envelope_from_bytes_rejects_pqc_ct_len_overrun() {
+        let envelope = envelope_fixture();
+        let mut bytes = envelope_to_bytes(&envelope);
+        let pqc_len_offset = 6 + 2 + 2 + 16 + 16 + 1 + 16 + 32;
+        bytes
+            .get_mut(pqc_len_offset..pqc_len_offset + 4)
+            .expect("pqc_ct_len field within bytes")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(matches!(
+            envelope_from_bytes(&bytes),
+            Err(TransferError::UnknownProfile)
+        ));
+    }
+
+    #[test]
+    fn envelope_from_bytes_rejects_payload_len_overrun() {
+        let envelope = envelope_fixture();
+        let mut bytes = envelope_to_bytes(&envelope);
+        let payload_len_offset = bytes.len() - envelope.encrypted_payload.len() - 4;
+        bytes
+            .get_mut(payload_len_offset..payload_len_offset + 4)
+            .expect("payload_len field within bytes")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(matches!(
+            envelope_from_bytes(&bytes),
+            Err(TransferError::UnknownProfile)
+        ));
+    }
+
+    #[test]
+    fn open_envelope_rejects_tampered_nonce_with_auth_error() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let mut envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            recipient_classical_public_key: recipient_public.clone(),
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+        envelope.nonce[0] ^= 0x01;
+
+        let result = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+
+        assert!(matches!(result, Err(TransferError::DecryptionFailed)));
     }
 
     #[test]
