@@ -22,7 +22,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// Device identifier length in bytes.
 pub const DEVICE_ID_LEN: usize = 16;
 
-/// Domain-separation prefix for DEVICE-1 enrollment signatures (F-39).
+/// Domain-separation prefix for DEVICE-1 enrollment signatures.
 pub const DEVICE_ENROLLMENT_SIGNING_DOMAIN: &[u8] = b"meissnerseal.device.enrollment.v1\x00";
 const SEALED_DEVICE_KEY_FILE_MAGIC: &[u8; 6] = b"MSDKP\x01";
 const SEALED_DEVICE_KEY_FILE_VERSION: u8 = 1;
@@ -291,8 +291,8 @@ pub fn try_new_ed25519_signing_public_key(bytes: [u8; 32]) -> Result<SigningPubl
 ///   implemented.
 ///
 /// ## Invariants
-/// - This helper closes F-40 for callers that receive wire bytes before they
-///   can be promoted into fixed-length arrays.
+/// - Accepts variable-length byte slices so callers that receive wire bytes
+///   do not need to promote them into fixed-length arrays before validation.
 pub fn try_new_signing_public_key(
     algorithm: SigningAlgorithmId,
     bytes: &[u8],
@@ -344,8 +344,8 @@ pub fn enrollment_signing_message(message: &[u8]) -> Vec<u8> {
 /// - Returns `Err` if the PQC signing boundary rejects the operation.
 ///
 /// ## Invariants
-/// - Core owns the F-39 domain-separation prefix; `meissnerseal-pqc` does not
-///   add it implicitly.
+/// - Core owns the domain-separation prefix; `meissnerseal-pqc` does not add
+///   it implicitly.
 pub fn sign_enrollment_message(
     private_key: &SigningPrivateKey,
     message: &[u8],
@@ -961,16 +961,14 @@ mod tests {
 
     #[test]
     fn generate_returns_device_identity_with_128_bit_device_id() {
-        let (identity, _keypair) =
-            generate("phase1-device".to_owned()).expect("Phase 2 generate succeeds");
+        let (identity, _keypair) = generate("phase1-device".to_owned()).expect("generate succeeds");
 
         assert_eq!(identity.device_id.len(), DEVICE_ID_LEN);
     }
 
     #[test]
     fn generate_produces_ed25519_v1_signing_public_key() {
-        let (identity, _keypair) =
-            generate("phase1-device".to_owned()).expect("Phase 2 generate succeeds");
+        let (identity, _keypair) = generate("phase1-device".to_owned()).expect("generate succeeds");
         let signing_public_key = identity
             .signing_public_key
             .as_ref()

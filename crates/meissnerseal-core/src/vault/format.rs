@@ -255,10 +255,9 @@ pub struct RecordTableEntry {
 
     /// 128-bit record revision identifier from `vault_format_v1.md` §5.
     ///
-    /// For the WrappedRootKey record in MVP-0, this advisory table value must
-    /// equal the authoritative `revision_id` stored in the encrypted record
-    /// frame. Authenticating the table itself is deferred to F-14; frame AAD
-    /// remains authoritative.
+    /// For the WrappedRootKey record, this advisory table value must equal the
+    /// authoritative `revision_id` stored in the encrypted record frame. Frame
+    /// AAD is authoritative; the table entry is advisory only.
     pub revision_id: [u8; 16],
 
     /// Offset of the record frame in the vault file.
@@ -318,8 +317,8 @@ pub struct RecordFrame {
 /// - This structure contains ciphertext and public nonce bytes only. It never
 ///   stores plaintext item payloads, plaintext REKs, IKWK, or MEK.
 /// - The canonical record AAD binds both AEAD operations to the same
-///   `record_id`, `revision_id`, and `record_kind`; substituted identifiers must
-///   fail authentication in Phase 2.
+///   `record_id`, `revision_id`, and `record_kind`; substituted identifiers
+///   fail authentication.
 /// - Serialization/parsing is deterministic and performs no cryptography.
 pub struct ItemRecordFrameEnvelope {
     /// Nonce used to wrap the REK under IKWK.
@@ -948,8 +947,8 @@ pub fn serialize_item_record_frame_envelope(envelope: &ItemRecordFrameEnvelope) 
 ///   frame.
 ///
 /// ## Postconditions
-/// - On success, returns the two nonce/ciphertext pairs required for Phase 2 to
-///   unwrap the REK and decrypt the item payload.
+/// - On success, returns the two nonce/ciphertext pairs needed to unwrap the
+///   REK and decrypt the item payload.
 /// - Rejects truncation, trailing garbage, length overflow, empty wrapped REK,
 ///   and empty encrypted payload.
 /// - Returns `Err` with no partial plaintext on every malformed input.
@@ -1120,8 +1119,8 @@ pub fn serialize_vault_file(header: &[u8], record_table: &[u8], body: &[u8]) -> 
 /// - `bytes` is a complete vault file byte slice.
 /// ## Postconditions
 /// - On success, returns a parsed `VaultHeader`.
-/// - Rejects: wrong magic bytes, unknown critical TLV tags, truncated header,
-///   trailing garbage.
+/// - Rejects: wrong magic bytes, unknown or duplicate critical TLV tags,
+///   truncated header, trailing garbage.
 /// - Rejects `SCHEMA_MEISSNER_RECORDS_V1`, unknown schema profiles, and newer
 ///   schema profiles before any record frame or sealed table is opened.
 /// ## Invariants
@@ -1166,11 +1165,10 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let mut kdf_profile = None;
     let mut kdf_params = None;
     let mut aead_profile = None;
-    // F-06 (deferred to MVP-2): a missing TAG_PQC_PROFILE defaults to profile 0
-    // ("no PQC"). This is the correct fail-safe for MVP-0 where PQC is not active
-    // and the 79-byte AAD already binds pqc_profile. When PQC becomes active in
-    // MVP-2 this MUST change to `None` + reject so a stripped tag cannot force a
-    // silent downgrade. See Security Review F-06.
+    // A missing TAG_PQC_PROFILE defaults to profile 0 ("no PQC"). This is the
+    // correct fail-safe while PQC is not active and the 79-byte AAD already
+    // binds pqc_profile. When PQC becomes active this MUST change to `None` +
+    // reject so a stripped tag cannot force a silent downgrade.
     let mut pqc_profile = Some(0);
     let mut schema_profile = None;
     let mut header_nonce = None;
@@ -1798,8 +1796,8 @@ fn validate_argon2_params(params: &Argon2Params) -> Result<()> {
     if params.output_len != 32 {
         return Err(format_error("invalid output_len"));
     }
-    // F-61/F-66: enforce KDF_ARGON2ID_V1 minimum profile so attacker-controlled
-    // vault/bundle params cannot collapse brute-force cost below the registered floor.
+    // Enforce KDF_ARGON2ID_V1 minimum profile so attacker-controlled vault/bundle
+    // params cannot collapse brute-force cost below the registered floor.
     if params.m_cost_kib < ARGON2_MIN_M_COST_KIB {
         return Err(format_error("m_cost_kib below minimum profile"));
     }
@@ -2459,9 +2457,9 @@ mod tests {
         };
 
         let serialized = serialize_item_record_frame_envelope(&envelope)
-            .expect("Phase 2: item envelope serialization must encode wrapped REK and payload");
+            .expect("item envelope serialization must encode wrapped REK and payload");
         let parsed = parse_item_record_frame_envelope(&serialized)
-            .expect("Phase 2: item envelope parser must round-trip serialized bytes");
+            .expect("item envelope parser must round-trip serialized bytes");
 
         assert_eq!(parsed.rek_wrap_nonce, envelope.rek_wrap_nonce);
         assert_eq!(parsed.wrapped_rek, envelope.wrapped_rek);
