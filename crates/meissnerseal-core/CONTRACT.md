@@ -20,8 +20,9 @@ vault::
 
 item::
   add(vault: &Vault<Unlocked>, item: PlainItem) -> Result<ItemId>
-  with_item<F, R>(vault, item_id, f: F) -> Result<R>
-    // F: FnOnce(&PlainItemView<'_>) -> Result<R>
+  with_item<F>(vault, item_id, f: F) -> Result<()>
+    // SEC-6 Phase 2 handoff target:
+    // F: FnOnce(&PlainItemView<'_>) -> Result<()>
   update(vault, item_id, item: PlainItem) -> Result<()>
   delete(vault, item_id) -> Result<()>
   list(vault) -> Result<Vec<ItemSummary>>
@@ -133,6 +134,8 @@ recovery::  [MVP-1 — ADR-010]
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
+       SEC-6 Phase 2 hardens this to `Result<()>` so callers cannot return
+       `Vec<u8>`, `String`, `PlainItem`, or `SecretBytes`.
 
 [G-04] transfer::open_envelope rejects:
        — expired envelopes (expires_at in the past)

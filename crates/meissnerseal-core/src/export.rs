@@ -318,6 +318,26 @@ fn parse_bundle(bundle: &[u8]) -> Result<ParsedBundle<'_>> {
     })
 }
 
+/// Serialize the live item set into the encrypted export payload buffer.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `out` is an owned buffer controlled by the caller and may be mutated only
+///   within this function's stack frame and the closure passed to `with_item`.
+/// - `session` is an authenticated unlocked vault session.
+///
+/// ## Postconditions
+/// - Appends the export item-set framing and all authenticated live items into
+///   `out`.
+/// - Returns `Ok(())` on success; the plaintext export bytes remain in `out`.
+/// - Returns `Err` without returning owned plaintext if listing, decryption, or
+///   framing validation fails.
+///
+/// ## Invariants
+/// - The `with_item` closure mutates `out` directly and does not return owned
+///   plaintext.
+/// - No item plaintext escapes via the closure return path.
 fn serialize_live_item_set(session: &Vault<Unlocked>) -> Result<Vec<u8>> {
     let summaries = list(session)?;
     let mut out = Vec::new();
@@ -345,7 +365,8 @@ fn serialize_live_item_set(session: &Vault<Unlocked>) -> Result<Vec<u8>> {
             }
             view.secret.with_secret(|secret| {
                 write_len_bytes(&mut out, secret, "export secret length overflow")
-            })
+            })?;
+            Ok(())
         })?;
     }
     Ok(out)
@@ -553,8 +574,8 @@ mod tests {
             assert_eq!(view.label, expected_label);
             view.secret.with_secret(|secret| {
                 assert_eq!(secret, expected_secret);
-                Ok(())
-            })
+            });
+            Ok(())
         })
         .expect("imported item decrypts only inside closure");
     }

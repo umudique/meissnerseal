@@ -259,8 +259,8 @@ fn assert_imported_items(session: &Vault<Unlocked>, expected_items: &[Value]) {
             assert_eq!(view.tags, expected_tags);
             view.secret.with_secret(|secret| {
                 assert_eq!(secret, expected_secret.as_slice());
-                Ok(())
-            })
+            });
+            Ok(())
         })
         .expect("imported item decrypts only inside closure");
     }

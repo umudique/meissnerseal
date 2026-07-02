@@ -621,7 +621,7 @@ pub fn list(session: &Vault<Unlocked>) -> Result<Vec<ItemSummary>> {
 /// ## Postconditions
 /// - On success, unwraps the REK under IKWK, decrypts the payload under REK, and
 ///   calls `f` exactly once with a closure-scoped [`PlainItemView`].
-/// - Returns the closure's result `R`.
+/// - Phase 2 returns `Ok(())` after the closure completes successfully.
 /// - Returns `Err` without calling `f` if table authentication, REK unwrap,
 ///   payload authentication, record id/revision substitution checks, or parser
 ///   validation fail.
@@ -629,11 +629,73 @@ pub fn list(session: &Vault<Unlocked>) -> Result<Vec<ItemSummary>> {
 /// ## Invariants
 /// - Never returns owned plaintext. The plaintext view cannot outlive the
 ///   closure (CONTRACT G-02).
+/// - Phase 2 permits only `Result<()>` from the closure; callers must mutate
+///   external accumulators rather than returning owned plaintext.
 /// - No plaintext item bytes are written to disk, logs, or error values.
 /// - Authentication failure returns `Err` with no partial plaintext output.
-pub fn with_item<F, R>(session: &Vault<Unlocked>, item_id: ItemId, f: F) -> Result<R>
+///
+/// ```compile_fail
+/// use meissnerseal_core::item::with_item;
+/// use meissnerseal_core::vault::engine::{Unlocked, Vault};
+/// use meissnerseal_core::error::Result;
+///
+/// fn forbidden_return_vec(session: &Vault<Unlocked>, item_id: [u8; 16]) -> Result<()> {
+///     with_item(session, item_id, |view| {
+///         view.secret.with_secret(|secret| Ok(secret.to_vec()))
+///     })
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_core::item::with_item;
+/// use meissnerseal_core::vault::engine::{Unlocked, Vault};
+/// use meissnerseal_core::error::Result;
+///
+/// fn forbidden_return_string(session: &Vault<Unlocked>, item_id: [u8; 16]) -> Result<()> {
+///     with_item(session, item_id, |view| Ok(view.label.to_owned()))
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_core::item::{with_item, PlainItem};
+/// use meissnerseal_core::vault::engine::{Unlocked, Vault};
+/// use meissnerseal_core::error::Result;
+/// use meissnerseal_security::secret_lifecycle::SecretBytes;
+///
+/// fn forbidden_return_plain_item(session: &Vault<Unlocked>, item_id: [u8; 16]) -> Result<()> {
+///     with_item(session, item_id, |view| {
+///         let secret = view.secret.with_secret(|secret| SecretBytes::new(secret.to_vec()));
+///         Ok(PlainItem {
+///             kind: match view.kind {
+///                 meissnerseal_core::item::ItemKind::Password => meissnerseal_core::item::ItemKind::Password,
+///                 meissnerseal_core::item::ItemKind::SeedPhrase => meissnerseal_core::item::ItemKind::SeedPhrase,
+///                 meissnerseal_core::item::ItemKind::SshPrivateKey => meissnerseal_core::item::ItemKind::SshPrivateKey,
+///                 meissnerseal_core::item::ItemKind::ApiToken => meissnerseal_core::item::ItemKind::ApiToken,
+///                 meissnerseal_core::item::ItemKind::SecureNote => meissnerseal_core::item::ItemKind::SecureNote,
+///             },
+///             label: view.label.to_owned(),
+///             secret,
+///             tags: view.tags.to_vec(),
+///         })
+///     })
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_core::item::with_item;
+/// use meissnerseal_core::vault::engine::{Unlocked, Vault};
+/// use meissnerseal_core::error::Result;
+/// use meissnerseal_security::secret_lifecycle::SecretBytes;
+///
+/// fn forbidden_return_secret_bytes(session: &Vault<Unlocked>, item_id: [u8; 16]) -> Result<()> {
+///     with_item(session, item_id, |view| {
+///         view.secret.with_secret(|secret| Ok(SecretBytes::new(secret.to_vec())))
+///     })
+/// }
+/// ```
+pub fn with_item<F>(session: &Vault<Unlocked>, item_id: ItemId, f: F) -> Result<()>
 where
-    F: FnOnce(&PlainItemView<'_>) -> Result<R>,
+    F: FnOnce(&PlainItemView<'_>) -> Result<()>,
 {
     let loaded = load_vault(session)?;
     let entry = loaded
@@ -650,7 +712,8 @@ where
         tags: &decoded.tags,
         secret: &decoded.secret,
     };
-    f(&view)
+    f(&view)?;
+    Ok(())
 }
 
 /// Replace an existing item with a new encrypted revision.
@@ -841,9 +904,13 @@ mod tests {
 
         let item_id = add(&session, plain_item("seed phrase", b"seed-bytes"))
             .expect("Phase 2: add must persist encrypted item");
-        let observed_len = with_item(&session, item_id, |view| {
+        let mut observed_len = 0usize;
+        with_item(&session, item_id, |view| {
             assert_eq!(view.label, "seed phrase");
-            view.secret.with_secret(|secret| Ok(secret.len()))
+            view.secret.with_secret(|secret| {
+                observed_len = secret.len();
+            });
+            Ok(())
         })
         .expect("Phase 2: with_item must decrypt inside closure");
 
@@ -860,8 +927,12 @@ mod tests {
             .expect("Phase 2: add must persist encrypted item");
         update(&session, item_id, plain_item("note", b"new"))
             .expect("Phase 2: update must write a fresh revision");
-        let observed = with_item(&session, item_id, |view| {
-            view.secret.with_secret(|secret| Ok(secret.len()))
+        let mut observed = 0usize;
+        with_item(&session, item_id, |view| {
+            view.secret.with_secret(|secret| {
+                observed = secret.len();
+            });
+            Ok(())
         })
         .expect("Phase 2: new revision must decrypt");
 
@@ -897,8 +968,12 @@ mod tests {
                 password: SecretBytes::new(PASSWORD.to_vec()),
             })
             .expect("unlock item test vault after add");
-        let observed = with_item(&session, item_id, |view| {
-            view.secret.with_secret(|secret| Ok(secret.len()))
+        let mut observed = 0usize;
+        with_item(&session, item_id, |view| {
+            view.secret.with_secret(|secret| {
+                observed = secret.len();
+            });
+            Ok(())
         })
         .expect("Phase 2: item must survive unlock");
 
