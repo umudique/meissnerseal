@@ -1104,6 +1104,26 @@ mod tests {
     }
 
     #[test]
+    fn serialize_then_deserialize_keypair_bytes_roundtrip_preserves_generated_keys() {
+        let (identity, keypair) = generate("roundtrip-device".to_owned()).expect("generate");
+        let serialized = serialize_keypair_bytes(&identity, &keypair);
+        let (decoded_device_id, decoded_classical_public_key, decoded_keypair) =
+            deserialize_keypair_bytes(serialized.as_slice()).expect("deserialize");
+        let decoded_identity = DeviceIdentity {
+            device_id: decoded_device_id,
+            display_name: identity.display_name.clone(),
+            classical_public_key: decoded_classical_public_key,
+            pqc_public_key: identity.pqc_public_key.clone(),
+            signing_public_key: identity.signing_public_key.clone(),
+            created_at: identity.created_at,
+            trust_state: identity.trust_state,
+        };
+
+        let reserialized = serialize_keypair_bytes(&decoded_identity, &decoded_keypair);
+        assert_eq!(serialized.as_slice(), reserialized.as_slice());
+    }
+
+    #[test]
     fn sealed_device_key_file_roundtrip_preserves_identity_and_keypair() {
         let (mut identity, keypair) = generate("sealed-device".to_owned()).expect("generate");
         identity.trust_state = DeviceTrustState::Approved;

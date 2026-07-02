@@ -1135,4 +1135,66 @@ mod tests {
             Err(CoreError::Format(message)) if message == "item secret exceeds maximum length"
         ));
     }
+
+    #[test]
+    fn deserialize_item_payload_rejects_truncated_label_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"lab");
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated item payload"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_truncated_tag_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(b"ta");
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated item payload"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_truncated_secret_field() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xAA, 0xBB]);
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "truncated item payload"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_payload_rejects_trailing_garbage() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xAA, 0xBB]);
+        bytes.push(0xCC);
+
+        assert!(matches!(
+            deserialize_item_payload(&bytes),
+            Err(CoreError::Format(message)) if message == "trailing item payload garbage"
+        ));
+    }
 }
