@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Cryptographic hash helpers.
 
-use sha2::{Digest, Sha256};
+use blake2::{Blake2b, Digest};
+use sha2::Sha256;
 
 /// Compute SHA-256 over caller-provided bytes.
 ///
@@ -21,6 +22,26 @@ use sha2::{Digest, Sha256};
 #[must_use]
 pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
     Sha256::digest(input).into()
+}
+
+/// Compute BLAKE2b-256 over caller-provided bytes.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `input` is the exact byte string selected by the caller's protocol
+///   specification.
+///
+/// ## Postconditions
+/// - Returns the 32-byte BLAKE2b-256 digest of `input`.
+///
+/// ## Invariants
+/// - Uses the RustCrypto `blake2::Blake2b` implementation through the `Digest`
+///   trait with a 32-byte output length.
+/// - Does not log, print, or write input bytes or digest bytes.
+#[must_use]
+pub fn blake2b_256_bytes(input: &[u8]) -> [u8; 32] {
+    Blake2b::<blake2::digest::consts::U32>::digest(input).into()
 }
 
 #[cfg(test)]
