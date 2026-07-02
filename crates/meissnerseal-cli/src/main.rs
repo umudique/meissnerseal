@@ -16,7 +16,7 @@ use meissnerseal_core::{
     },
     transfer::{
         envelope::{envelope_from_bytes, envelope_to_bytes},
-        SecretPayload, SeenEnvelopeIds,
+        SecretPayload, SeenEnvelopeIds, TrustedSender,
     },
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
@@ -331,17 +331,15 @@ fn transfer_receive_command(
     let (recipient_identity, recipient_keypair) =
         load_sealed_keypair(&recipient_keypair, keypair_passphrase)?;
     let recipient_classical_public_key = recipient_identity.classical_public_key;
-    let mut sender = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
+    let sender = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
         .map_err(device_parse_error)?;
-    let sender_signing_public_key = sender
-        .signing_public_key
-        .take()
-        .ok_or_else(|| CoreError::InvalidState("sender identity missing signing key".into()))?;
+    let trusted_sender = TrustedSender::from_verified(&sender)
+        .map_err(|_| CoreError::InvalidState("sender identity is not in a trusted state".into()))?;
     let plaintext = open_received_transfer_envelope(
         &envelope,
         &recipient_keypair,
         recipient_classical_public_key,
-        sender_signing_public_key,
+        trusted_sender,
         &mut seen,
     )
     .map_err(|_| CoreError::Crypto)?;
