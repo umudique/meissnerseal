@@ -1956,7 +1956,7 @@ findings:
     cwe: "CWE-14"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace test_secret_bytes_zeroize with a ManuallyDrop + raw pointer test
       that asserts all bytes are zero after drop, as specified in ADR-040.
@@ -1965,7 +1965,7 @@ findings:
     verification: >-
       The replacement test must fail when the ZeroizeOnDrop derive is removed
       from SecretBytes. Confirm under Miri that volatile writes are present.
-    commit: ""
+    commit: "bd1c4cb"
 
 # ── meissnerseal-core export/import security review (2026-06-29) ─────────────
 
@@ -2068,7 +2068,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Extend parser tests to cover every length-prefixed field in both the
       outer bundle framing and the inner item-set payload, including overflow,
@@ -2078,7 +2078,7 @@ findings:
       CI should fail if parse_bundle accepts trailing bytes or length fields
       that overrun the input, and if deserialize_item_set allocates from
       unbounded attacker-controlled counts before validating remaining bytes.
-    commit: ""
+    commit: "7e019a3"
 
   - id: F-77
     kind: design
@@ -2235,7 +2235,7 @@ findings:
     cwe: null
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add focused tests for malformed serialized item payloads, over-limit
       metadata and secret fields, tombstone handling, duplicate table entries,
@@ -2245,7 +2245,7 @@ findings:
       CI should fail if malformed authenticated item payloads parse
       successfully, if update reuses revision or nonce material, or if
       with_item allows owned plaintext to escape contrary to G-02.
-    commit: ""
+    commit: "7e019a3"
 
 # ── meissnerseal-core device identity & pairing security review (2026-06-30) ─
 
@@ -2418,7 +2418,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add table-driven tests for keypair serialization round-trips, malformed
       keypair parsing, display name with embedded newline or control characters,
@@ -2429,7 +2429,7 @@ findings:
       display names with newlines or control chars are accepted, if AEAD profile
       variation does not change AEAD-scoped subkeys, or if pairing transcript
       signatures verify under the wrong domain.
-    commit: ""
+    commit: "7e019a3"
 
 # ── meissnerseal-core transfer / envelope / replay security review (2026-06-30) ─
 
@@ -2634,7 +2634,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add table-driven tests for envelope_to_bytes/envelope_from_bytes
       roundtrip, malformed or truncated length fields, version != 1 rejection,
@@ -2647,7 +2647,7 @@ findings:
       changes do not affect validation, if anonymous recipient material is not
       transcript-bound, if wrong-key envelopes return plaintext, or if a
       failed open_envelope call records the envelope_id in the replay store.
-    commit: ""
+    commit: "7e019a3"
 
 # ── meissnerseal-core vault module security review (2026-06-30) ───────────────
 
