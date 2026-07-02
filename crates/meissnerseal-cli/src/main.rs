@@ -5,9 +5,9 @@ use meissnerseal_core::{
     item::{self, ItemKind, ItemSummary, PlainItem},
     keys::{
         device::{
-            create_signed_transfer_envelope, deserialize_identity_text, deserialize_keypair_bytes,
-            generate, open_received_transfer_envelope, serialize_identity_text,
-            serialize_keypair_bytes, DeviceIdentity,
+            create_signed_transfer_envelope, deserialize_identity_text, generate,
+            open_received_transfer_envelope, serialize_identity_text, DeviceIdentity,
+            DeviceKeypair, SealedDeviceKeyFile,
         },
         pairing::{
             build_pairing_payload, compute_pairing_transcript, derive_short_authentication_string,
@@ -20,12 +20,25 @@ use meissnerseal_core::{
     },
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
+use meissnerseal_crypto::{
+    argon2::{derive_device_keypair_key, Argon2Params},
+    rng::random_bytes,
+    types::AeadKey,
+};
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
 use zeroize::{Zeroize, Zeroizing};
+
+const KEYPAIR_FILE_SALT_LEN: usize = 32;
+const KEYPAIR_FILE_KDF_PARAMS: Argon2Params = Argon2Params {
+    m_cost_kib: 65_536,
+    t_cost: 3,
+    p_lanes: 4,
+    output_len: 32,
+};
 
 #[derive(Parser)]
 #[command(
@@ -193,12 +206,12 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
             writeln!(stdout, "Vault is locked.")?;
             Ok(())
         }
-        Commands::Transfer { action } => transfer_command(action, stdout),
-        Commands::Device { action } => device_command(action, stdout),
+        Commands::Transfer { action } => transfer_command(action, stdin, stdout),
+        Commands::Device { action } => device_command(action, stdin, stdout),
     }
 }
 
-fn transfer_command(action: TransferCommands, stdout: &mut dyn Write) -> Result<()> {
+fn transfer_command(action: TransferCommands, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
     match action {
         TransferCommands::Create {
             sender_keypair,
@@ -206,39 +219,56 @@ fn transfer_command(action: TransferCommands, stdout: &mut dyn Write) -> Result<
             input,
             output,
             expires_in,
-        } => transfer_create_command(
-            sender_keypair,
-            recipient_identity,
-            input,
-            output,
-            expires_in,
-            stdout,
-        ),
+        } => {
+            let passphrase =
+                string_to_zeroized_vec(prompt_password("Keypair passphrase: ", stdin)?);
+            transfer_create_command(
+                sender_keypair,
+                recipient_identity,
+                input,
+                output,
+                expires_in,
+                &passphrase,
+                stdout,
+            )
+        }
         TransferCommands::Receive {
             envelope,
             recipient_keypair,
             sender_identity,
             output,
             seen_ids,
-        } => transfer_receive_command(
-            envelope,
-            recipient_keypair,
-            sender_identity,
-            output,
-            seen_ids,
-            stdout,
-        ),
+        } => {
+            let passphrase =
+                string_to_zeroized_vec(prompt_password("Keypair passphrase: ", stdin)?);
+            transfer_receive_command(
+                envelope,
+                recipient_keypair,
+                sender_identity,
+                output,
+                seen_ids,
+                &passphrase,
+                stdout,
+            )
+        }
     }
 }
 
-fn device_command(action: DeviceCommands, stdout: &mut dyn Write) -> Result<()> {
+fn device_command(action: DeviceCommands, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
     match action {
         DeviceCommands::Pair {
             name,
             self_keypair,
             self_identity,
             peer_identity,
-        } => device_pair_command(name, self_keypair, self_identity, peer_identity, stdout),
+        } => device_pair_command(
+            name,
+            self_keypair,
+            self_identity,
+            peer_identity,
+            stdin,
+            stdout,
+        ),
         DeviceCommands::List | DeviceCommands::Revoke => Err(CoreError::InvalidState(
             "command is not wired in MVP-0 CLI yet".into(),
         )),
@@ -251,10 +281,12 @@ fn transfer_create_command(
     input: PathBuf,
     output: PathBuf,
     expires_in: u64,
+    keypair_passphrase: &[u8],
     stdout: &mut dyn Write,
 ) -> Result<()> {
-    let (sender_device_id, _sender_classical_public_key, sender_keypair) =
-        deserialize_keypair_bytes(&std::fs::read(&sender_keypair)?).map_err(device_parse_error)?;
+    let (sender_identity, sender_keypair) =
+        load_sealed_keypair(&sender_keypair, keypair_passphrase)?;
+    let sender_device_id = sender_identity.device_id;
     let recipient = deserialize_identity_text(&std::fs::read_to_string(&recipient_identity)?)
         .map_err(device_parse_error)?;
     let plaintext = SecretPayload::new(std::fs::read(&input)?);
@@ -288,6 +320,7 @@ fn transfer_receive_command(
     sender_identity: PathBuf,
     output: Option<PathBuf>,
     seen_ids: Option<PathBuf>,
+    keypair_passphrase: &[u8],
     stdout: &mut dyn Write,
 ) -> Result<()> {
     let seen_ids_path =
@@ -295,9 +328,9 @@ fn transfer_receive_command(
     let mut seen = load_seen_ids(&seen_ids_path)?;
     let envelope =
         envelope_from_bytes(&std::fs::read(&envelope)?).map_err(|_| CoreError::Crypto)?;
-    let (_recipient_device_id, recipient_classical_public_key, recipient_keypair) =
-        deserialize_keypair_bytes(&std::fs::read(&recipient_keypair)?)
-            .map_err(device_parse_error)?;
+    let (recipient_identity, recipient_keypair) =
+        load_sealed_keypair(&recipient_keypair, keypair_passphrase)?;
+    let recipient_classical_public_key = recipient_identity.classical_public_key;
     let mut sender = deserialize_identity_text(&std::fs::read_to_string(&sender_identity)?)
         .map_err(device_parse_error)?;
     let sender_signing_public_key = sender
@@ -342,6 +375,7 @@ fn device_pair_command(
     self_keypair: PathBuf,
     self_identity: PathBuf,
     peer_identity: PathBuf,
+    stdin: bool,
     stdout: &mut dyn Write,
 ) -> Result<()> {
     let (identity, keypair) = generate(name).map_err(device_parse_error)?;
@@ -374,14 +408,13 @@ fn device_pair_command(
             "pairing aborted — SAS not confirmed".into(),
         ));
     }
-    let keypair_bytes = serialize_keypair_bytes(&identity, &keypair);
-    std::fs::write(&self_keypair, &*keypair_bytes)?;
+    let passphrase = string_to_zeroized_vec(prompt_password("Keypair passphrase: ", stdin)?);
+    save_sealed_keypair(&self_keypair, &identity, &keypair, &passphrase)?;
     restrict_owner_only(&self_keypair)?;
     std::fs::write(&self_identity, identity_text)?;
     std::fs::write(&peer_identity, serialize_identity_text(&peer))?;
     eprintln!(
-        "WARNING: device keypair written to {} — restrict permissions: chmod 600 {}",
-        self_keypair.display(),
+        "Device keypair sealed and written to {} (chmod 600 already applied).",
         self_keypair.display()
     );
     writeln!(stdout, "Pairing complete.")?;
@@ -401,6 +434,45 @@ fn synthetic_pairing_payload(
 
 fn device_parse_error(_: meissnerseal_core::keys::device::DeviceIdentityError) -> CoreError {
     CoreError::InvalidState("device file is invalid".into())
+}
+
+fn derive_dkek(passphrase: &[u8], salt: &[u8; 32]) -> Result<AeadKey> {
+    derive_device_keypair_key(passphrase, salt, &KEYPAIR_FILE_KDF_PARAMS)
+        .map_err(|_| CoreError::Crypto)
+}
+
+fn load_sealed_keypair(path: &Path, passphrase: &[u8]) -> Result<(DeviceIdentity, DeviceKeypair)> {
+    let bytes = std::fs::read(path)?;
+    if bytes.len() < KEYPAIR_FILE_SALT_LEN {
+        return Err(CoreError::InvalidState(
+            "device keypair file is too short".into(),
+        ));
+    }
+    let (salt_slice, sealed) = bytes.split_at(KEYPAIR_FILE_SALT_LEN);
+    let salt: [u8; 32] = salt_slice
+        .try_into()
+        .map_err(|_| CoreError::InvalidState("keypair file salt length error".into()))?;
+    let dkek = derive_dkek(passphrase, &salt)?;
+    SealedDeviceKeyFile::open(sealed, &dkek).map_err(device_parse_error)
+}
+
+fn save_sealed_keypair(
+    path: &Path,
+    identity: &DeviceIdentity,
+    keypair: &DeviceKeypair,
+    passphrase: &[u8],
+) -> Result<()> {
+    let salt_vec = random_bytes(KEYPAIR_FILE_SALT_LEN);
+    let salt: [u8; 32] = salt_vec
+        .try_into()
+        .map_err(|_| CoreError::InvalidState("keypair file salt generation error".into()))?;
+    let dkek = derive_dkek(passphrase, &salt)?;
+    let sealed = SealedDeviceKeyFile::seal(identity, keypair, &dkek).map_err(device_parse_error)?;
+    let mut out = Vec::with_capacity(KEYPAIR_FILE_SALT_LEN.saturating_add(sealed.len()));
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(&sealed);
+    std::fs::write(path, &out)?;
+    Ok(())
 }
 
 fn read_until_blank_line() -> Result<String> {
@@ -1012,20 +1084,25 @@ mod tests {
     #[test]
     fn keypair_file_roundtrip_preserves_device_id_and_classical_public_key() {
         let (identity, keypair) = generate("keypair".to_owned()).expect("keypair");
-        let (device_id, classical_public_key, _parsed_keypair) =
-            deserialize_keypair_bytes(&serialize_keypair_bytes(&identity, &keypair))
-                .expect("parse keypair");
+        let dkek = AeadKey::from_bytes([0xAA; 32]);
+        let sealed = SealedDeviceKeyFile::seal(&identity, &keypair, &dkek).expect("seal keypair");
+        let (opened_identity, _opened_keypair) =
+            SealedDeviceKeyFile::open(sealed.as_slice(), &dkek).expect("open keypair");
 
-        assert_eq!(identity.device_id, device_id);
+        assert_eq!(identity.device_id, opened_identity.device_id);
         assert_eq!(
             identity.classical_public_key.as_slice(),
-            classical_public_key.as_slice()
+            opened_identity.classical_public_key.as_slice()
         );
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "PQC transfer path is too slow under Miri")]
+    #[cfg_attr(
+        miri,
+        ignore = "PQC transfer path and Argon2id KDF are too slow under Miri"
+    )]
     fn transfer_create_then_receive_roundtrips_plaintext() {
+        const KP_PASSPHRASE: &[u8] = b"test-keypair-passphrase-never-real";
         let (sender_identity, sender_keypair) = generate("sender".to_owned()).expect("sender");
         let (recipient_identity, recipient_keypair) =
             generate("recipient".to_owned()).expect("recipient");
@@ -1038,14 +1115,18 @@ mod tests {
         let output_path = unique_vault_path("transfer-output");
         let plaintext = b"transfer plaintext never argv";
 
-        std::fs::write(
+        save_sealed_keypair(
             &sender_keypair_path,
-            &*serialize_keypair_bytes(&sender_identity, &sender_keypair),
+            &sender_identity,
+            &sender_keypair,
+            KP_PASSPHRASE,
         )
         .expect("write sender keypair");
-        std::fs::write(
+        save_sealed_keypair(
             &recipient_keypair_path,
-            &*serialize_keypair_bytes(&recipient_identity, &recipient_keypair),
+            &recipient_identity,
+            &recipient_keypair,
+            KP_PASSPHRASE,
         )
         .expect("write recipient keypair");
         std::fs::write(
@@ -1066,6 +1147,7 @@ mod tests {
             input_path.clone(),
             envelope_path.clone(),
             3600,
+            KP_PASSPHRASE,
             &mut Vec::new(),
         )
         .expect("transfer create");
@@ -1075,6 +1157,7 @@ mod tests {
             sender_identity_path.clone(),
             Some(output_path.clone()),
             None,
+            KP_PASSPHRASE,
             &mut Vec::new(),
         )
         .expect("transfer receive");
