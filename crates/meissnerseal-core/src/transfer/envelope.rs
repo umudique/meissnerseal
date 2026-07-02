@@ -28,6 +28,53 @@ pub const TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8] = b"meissnerseal.transfer.enve
 const TRANSFER_TRANSCRIPT_DOMAIN: &[u8] = b"meissnerseal-transfer-transcript-v1";
 const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 
+/// Phase-1 contract coverage for SEC-6 SecretPayload boundary hardening.
+///
+/// These doctests are intentionally compile-fail contract tests. They document
+/// the API surface that must remain unrepresentable once Phase 2 introduces the
+/// secret-bearing transfer payload wrapper.
+///
+/// ```compile_fail
+/// use meissnerseal_core::transfer::SecretPayload;
+///
+/// fn clone_payload(payload: &SecretPayload) -> SecretPayload {
+///     payload.clone()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_core::transfer::SecretPayload;
+///
+/// fn leak_payload(payload: &SecretPayload) -> Vec<u8> {
+///     payload.to_vec()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_core::transfer::{CreateEnvelopeParams, SecretPayload};
+/// use meissnerseal_core::keys::device::Timestamp;
+/// use meissnerseal_pqc::{
+///     hybrid::X25519PublicKey,
+///     mldsa::{SigningAlgorithmId, SigningPrivateKey},
+///     mlkem::MlKemPublicKey,
+/// };
+/// use meissnerseal_crypto::types::Key;
+///
+/// fn build_params(expires_at: Option<Timestamp>) -> CreateEnvelopeParams {
+///     CreateEnvelopeParams {
+///         sender_device_id: [0x11; 16],
+///         recipient_device_id: Some([0x22; 16]),
+///         recipient_classical_public_key: Key::from_bytes([0x44; 32]),
+///         recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
+///         sender_signing_private_key: SigningPrivateKey::new(
+///             SigningAlgorithmId::Ed25519V1,
+///             vec![0x42; 32],
+///         ),
+///         plaintext_payload: vec![0xAA; 8],
+///         expires_at,
+///     }
+/// }
+/// ```
 /// Transfer envelope for `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1`.
 ///
 /// # Contract
@@ -107,6 +154,8 @@ pub struct TranscriptParams<'a> {
 ///
 /// ## Invariants
 /// - Expiry is checked before key derivation.
+/// - SEC-6 Phase 2 will require `plaintext_payload` to be `SecretPayload`,
+///   preventing new raw-byte plaintext callers at this boundary.
 pub struct CreateEnvelopeParams {
     pub sender_device_id: DeviceId,
     pub recipient_device_id: Option<DeviceId>,
@@ -132,6 +181,8 @@ pub struct CreateEnvelopeParams {
 ///
 /// ## Invariants
 /// - Expiry and transcript mismatch are rejected before decryption.
+/// - SEC-6 Phase 2 will return a secret-bearing payload wrapper instead of
+///   owned raw bytes.
 pub struct OpenEnvelopeParams {
     pub recipient_classical_private_key: X25519PrivateKey,
     pub recipient_classical_public_key: X25519PublicKey,
@@ -253,6 +304,7 @@ pub fn validate_envelope(
 /// ## Invariants
 /// - Expiry is checked before key derivation or encryption.
 /// - No plaintext secret appears in error messages or logs.
+/// - SEC-6 Phase 2 returns no raw plaintext `Vec<u8>` at this boundary.
 pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError> {
     if let Some(expires) = params.expires_at {
         if expires <= unix_time_millis() {
@@ -335,6 +387,8 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
 ///
 /// ## Invariants
 /// - Fail closed; never returns partial plaintext on any error.
+/// - SEC-6 Phase 2 returns a secret-bearing payload wrapper rather than an
+///   owned `Vec<u8>`.
 pub fn open_envelope(
     envelope: &TransferEnvelope,
     params: OpenEnvelopeParams,
@@ -521,6 +575,25 @@ fn unix_time_millis() -> Timestamp {
     Timestamp::try_from(millis).unwrap_or(Timestamp::MAX)
 }
 
+/// Encode the algorithm-tagged signature prefix plus plaintext payload.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `signature` must authenticate the transcript hash under
+///   `TRANSFER_ENVELOPE_SIGNING_DOMAIN`.
+/// - `plaintext_payload` contains secret plaintext bytes and must not be cloned
+///   or exposed through additional raw-byte accessors.
+///
+/// ## Postconditions
+/// - Returns `signature.algorithm:u16le || signature_len:u32le ||
+///   signature_bytes || plaintext_payload`.
+/// - Returns `Err` without partial output if the signature length cannot fit in
+///   `u32`.
+///
+/// ## Invariants
+/// - SEC-6 Phase 2 will consume `SecretPayload` and return `SecretPayload`,
+///   not raw `Vec<u8>` plaintext.
 fn encode_signed_payload(
     signature: &Signature,
     plaintext_payload: &[u8],
@@ -535,6 +608,22 @@ fn encode_signed_payload(
     Ok(encoded)
 }
 
+/// Decode the algorithm-tagged signature prefix and borrowed plaintext suffix.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `bytes` must be a fully authenticated AEAD plaintext produced by
+///   `encode_signed_payload`.
+///
+/// ## Postconditions
+/// - Returns the parsed signature plus the remaining payload suffix.
+/// - Returns `Err(VerificationFailed)` on malformed framing, truncation, or an
+///   unknown signing algorithm identifier.
+///
+/// ## Invariants
+/// - SEC-6 Phase 2 will return a secret-bearing payload wrapper instead of a
+///   borrowed raw byte slice.
 fn decode_signed_payload(bytes: &[u8]) -> Result<(Signature, &[u8]), TransferError> {
     let header = bytes.get(..6).ok_or(TransferError::VerificationFailed)?;
     let algorithm = SigningAlgorithmId::from_le_bytes(
