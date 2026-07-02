@@ -4,7 +4,7 @@
 use crate::transfer::SeenEnvelopeIds;
 use crate::transfer::{
     create_envelope, open_envelope, CreateEnvelopeParams, OpenEnvelopeParams, SecretPayload,
-    TransferEnvelope, TransferError,
+    TransferEnvelope, TransferError, TrustedSender,
 };
 use meissnerseal_crypto::types::Key;
 use meissnerseal_crypto::{
@@ -597,7 +597,7 @@ pub fn open_received_transfer_envelope(
     envelope: &TransferEnvelope,
     recipient_keypair: &DeviceKeypair,
     recipient_classical_public_key: X25519PublicKey,
-    sender_signing_public_key: SigningPublicKey,
+    sender_signing_public_key: TrustedSender,
     seen: &mut SeenEnvelopeIds,
 ) -> core::result::Result<SecretPayload, TransferError> {
     open_envelope(
@@ -951,6 +951,7 @@ fn unix_time_millis() -> Result<Timestamp> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::transfer::{TransferError, TrustedSender};
     use meissnerseal_crypto::types::Key;
     use static_assertions::assert_not_impl_any;
 
@@ -1196,5 +1197,99 @@ mod tests {
         let identity_offset = identity_len_offset + 4;
         let identity_end = identity_offset + replacement.len();
         sealed[identity_offset..identity_end].copy_from_slice(replacement);
+    }
+
+    #[test]
+    fn phase4_fixture_verified_and_approved_states_are_sender_eligible() {
+        let (verified_identity, _) = generate("verified-sender".to_owned()).expect("generate");
+        let approved_identity = DeviceIdentity {
+            trust_state: DeviceTrustState::Approved,
+            ..verified_identity
+        };
+        approved_identity
+            .validate()
+            .expect("approved identity remains valid");
+
+        assert!(matches!(
+            approved_identity.trust_state,
+            DeviceTrustState::Approved
+        ));
+        assert!(approved_identity.signing_public_key.is_some());
+    }
+
+    #[test]
+    fn phase4_fixture_other_states_remain_sender_ineligible() {
+        let signing_public_key = Some(SigningPublicKey::new(
+            SigningAlgorithmId::Ed25519V1,
+            vec![0x55; 32],
+        ));
+        let states = [
+            DeviceTrustState::Untrusted,
+            DeviceTrustState::PendingInbound,
+            DeviceTrustState::PendingOutbound,
+            DeviceTrustState::Revoked,
+            DeviceTrustState::Expired,
+        ];
+
+        for state in states {
+            let identity = identity_with_state(state, signing_public_key.clone());
+            identity
+                .validate()
+                .expect("fixture identity remains structurally valid");
+            assert!(!matches!(
+                identity.trust_state,
+                DeviceTrustState::Verified | DeviceTrustState::Approved
+            ));
+        }
+    }
+
+    #[test]
+    fn trusted_sender_from_verified_accepts_verified_and_approved() {
+        for state in [DeviceTrustState::Verified, DeviceTrustState::Approved] {
+            let identity = identity_with_state(
+                state,
+                Some(SigningPublicKey::new(
+                    SigningAlgorithmId::Ed25519V1,
+                    vec![0x66; 32],
+                )),
+            );
+
+            let trusted = TrustedSender::from_verified(&identity).expect("trusted sender");
+
+            let _ = trusted;
+        }
+    }
+
+    #[test]
+    fn trusted_sender_from_verified_rejects_non_eligible_states() {
+        let signing_public_key = Some(SigningPublicKey::new(
+            SigningAlgorithmId::Ed25519V1,
+            vec![0x77; 32],
+        ));
+
+        for state in [
+            DeviceTrustState::Untrusted,
+            DeviceTrustState::PendingInbound,
+            DeviceTrustState::PendingOutbound,
+            DeviceTrustState::Revoked,
+            DeviceTrustState::Expired,
+        ] {
+            let identity = identity_with_state(state, signing_public_key.clone());
+
+            assert!(matches!(
+                TrustedSender::from_verified(&identity),
+                Err(TransferError::UntrustedSender)
+            ));
+        }
+    }
+
+    #[test]
+    fn trusted_sender_from_verified_rejects_missing_signing_key() {
+        let identity = identity_with_state(DeviceTrustState::Verified, None);
+
+        assert!(matches!(
+            TrustedSender::from_verified(&identity),
+            Err(TransferError::UntrustedSender)
+        ));
     }
 }

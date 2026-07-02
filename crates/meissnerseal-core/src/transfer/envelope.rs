@@ -2,7 +2,7 @@
 //! Transfer envelope data model and XFER-1 operation contracts.
 
 use crate::{
-    keys::device::{DeviceId, Timestamp},
+    keys::device::{DeviceId, DeviceIdentity, DeviceTrustState, Timestamp},
     transfer::protocol::{
         EnvelopeId, TransferError, TransferProfileId, CLASSICAL_ALG_ID_X25519, PQC_ALG_ID_MLKEM768,
         TRANSFER_PROFILE_V1_ID,
@@ -23,6 +23,47 @@ use meissnerseal_pqc::{
 };
 
 pub type Nonce = [u8; 24];
+
+/// Sender identity proof for transfer-envelope opening.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Must be constructed from a validated `DeviceIdentity`.
+/// - Only `Verified` and `Approved` trust states are eligible.
+///
+/// ## Postconditions
+/// - Construction returns `Err(UntrustedSender)` for every non-eligible trust
+///   state and for identities missing a signing public key.
+///
+/// ## Invariants
+/// - `open_envelope` accepts only `TrustedSender`, not a bare
+///   `SigningPublicKey`.
+/// - This type does not expose a public raw-byte accessor for the wrapped key.
+#[derive(Clone, Debug)]
+pub struct TrustedSender(SigningPublicKey);
+
+impl TrustedSender {
+    pub fn from_verified(identity: &DeviceIdentity) -> Result<Self, TransferError> {
+        if !matches!(
+            identity.trust_state,
+            DeviceTrustState::Verified | DeviceTrustState::Approved
+        ) {
+            return Err(TransferError::UntrustedSender);
+        }
+
+        let signing_public_key = identity
+            .signing_public_key
+            .clone()
+            .ok_or(TransferError::UntrustedSender)?;
+
+        Ok(Self(signing_public_key))
+    }
+
+    pub(crate) fn signing_public_key(&self) -> &SigningPublicKey {
+        &self.0
+    }
+}
 
 /// Context string for XFER-1 transfer envelope signatures (F-39).
 pub const TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8] = b"meissnerseal.transfer.envelope.v1\x00";
@@ -170,7 +211,8 @@ pub struct CreateEnvelopeParams {
 /// ## Preconditions
 /// - Recipient private keys must match the public keys bound by the sender's
 ///   authenticated recipient identity.
-/// - Sender signing public key must be algorithm-tagged per ADR-028.
+/// - Sender trust proof must be a `TrustedSender` constructed only from
+///   `Verified` or `Approved` identities.
 ///
 /// ## Postconditions
 /// - Phase 2 returns plaintext only after profile, algorithm, transcript,
@@ -180,11 +222,30 @@ pub struct CreateEnvelopeParams {
 /// - Expiry and transcript mismatch are rejected before decryption.
 /// - Plaintext is returned as a secret-bearing payload wrapper instead of owned
 ///   raw bytes.
+/// - A bare `SigningPublicKey` must not remain the long-term trust proof at
+///   this boundary.
+///
+/// ```compile_fail
+/// use meissnerseal_core::transfer::{OpenEnvelopeParams, TrustedSender};
+/// use meissnerseal_crypto::types::Key;
+/// use meissnerseal_pqc::{mldsa, mlkem::MlKemPrivateKey};
+///
+/// fn raw_signing_key_must_not_compile_anymore() -> OpenEnvelopeParams {
+///     let (public_key, _private_key) = mldsa::ed25519_keypair();
+///     OpenEnvelopeParams {
+///         recipient_classical_private_key: Key::from_bytes([0x88; 32]),
+///         recipient_classical_public_key: Key::from_bytes([0x44; 32]),
+///         recipient_pqc_private_key: MlKemPrivateKey::from_bytes([0x99; 2400]),
+///         sender_signing_public_key: public_key,
+///     }
+/// }
+/// ```
+///
 pub struct OpenEnvelopeParams {
     pub recipient_classical_private_key: X25519PrivateKey,
     pub recipient_classical_public_key: X25519PublicKey,
     pub recipient_pqc_private_key: MlKemPrivateKey,
-    pub sender_signing_public_key: SigningPublicKey,
+    pub sender_signing_public_key: TrustedSender,
 }
 
 /// Compute the SHA-256 transcript hash per `transfer_profile_v1.md §4`.
@@ -419,7 +480,7 @@ pub fn open_envelope(
     let (signature, payload) = decode_signed_payload(plaintext)?;
 
     mldsa::verify_with_domain(
-        &params.sender_signing_public_key,
+        params.sender_signing_public_key.signing_public_key(),
         TRANSFER_ENVELOPE_SIGNING_DOMAIN,
         &envelope.transcript_hash,
         &signature,
@@ -665,7 +726,9 @@ fn decode_signed_payload(
 mod tests {
     use super::*;
     use crate::{
-        keys::device::DEVICE_ENROLLMENT_SIGNING_DOMAIN,
+        keys::device::{
+            DeviceIdentity, DeviceTrustState, Timestamp, DEVICE_ENROLLMENT_SIGNING_DOMAIN,
+        },
         transfer::protocol::{CLASSICAL_ALG_ID_X25519, PQC_ALG_ID_MLKEM768},
     };
     use meissnerseal_crypto::types::Key;
@@ -807,7 +870,7 @@ mod tests {
                 recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
                 recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
                 recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
-                sender_signing_public_key: sender_signing_public_key.clone(),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key.clone()),
             },
             &mut seen,
         )
@@ -820,7 +883,7 @@ mod tests {
                 recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
                 recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
                 recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
-                sender_signing_public_key,
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
             },
             &mut seen,
         );
@@ -860,7 +923,7 @@ mod tests {
                 recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
                 recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
                 recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
-                sender_signing_public_key: sender_signing_public_key.clone(),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key.clone()),
             },
             &mut seen,
         );
@@ -870,7 +933,7 @@ mod tests {
                 recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
                 recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
                 recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
-                sender_signing_public_key,
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
             },
             &mut seen,
         );
@@ -968,11 +1031,24 @@ mod tests {
             recipient_classical_private_key: Key::from_bytes([0x88; 32]),
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_private_key: Key::from_bytes([0x99; 2400]),
-            sender_signing_public_key: mldsa::SigningPublicKey::new(
+            sender_signing_public_key: trusted_sender(mldsa::SigningPublicKey::new(
                 SigningAlgorithmId::Ed25519V1,
                 vec![0xAA; 32],
-            ),
+            )),
         }
+    }
+
+    fn trusted_sender(signing_public_key: SigningPublicKey) -> TrustedSender {
+        TrustedSender::from_verified(&DeviceIdentity {
+            device_id: [0x10; 16],
+            display_name: "trusted-sender".to_owned(),
+            classical_public_key: Key::from_bytes([0x20; 32]),
+            pqc_public_key: Key::from_bytes([0x30; 1184]),
+            signing_public_key: Some(signing_public_key),
+            created_at: future_timestamp(),
+            trust_state: DeviceTrustState::Verified,
+        })
+        .expect("trusted sender fixture")
     }
 
     fn now_millis() -> Timestamp {

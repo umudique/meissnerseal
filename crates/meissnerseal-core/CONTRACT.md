@@ -54,7 +54,7 @@ keys::device::
     // convenience wrapper over transfer::create_envelope
   open_received_transfer_envelope(
     envelope, recipient_keypair, recipient_classical_public_key,
-    sender_signing_public_key, seen: &mut SeenEnvelopeIds)
+    sender: TrustedSender, seen: &mut SeenEnvelopeIds)
     -> Result<SecretPayload, TransferError>
     // convenience wrapper over transfer::open_envelope
 
@@ -72,6 +72,8 @@ keys::pairing::
 
 transfer::
   SecretPayload
+  TrustedSender
+  TrustedSender::from_verified(identity: &DeviceIdentity) -> Result<TrustedSender>
   TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8]
     // b"meissnerseal.transfer.envelope.v1\x00" — used internally by create/open_envelope
   TransferProfileId
@@ -141,6 +143,8 @@ recovery::  [MVP-1 — ADR-010]
        — replayed envelope_ids through SeenEnvelopeIds::check_and_insert
        — transcript hash mismatches
        — unknown or mismatched algorithm IDs
+       — untrusted sender identities at the API boundary through
+         TrustedSender::from_verified
        SeenEnvelopeIds serializes accepted envelope IDs with expiry-aware
        eviction and fail-closed parsing.
 
