@@ -84,6 +84,9 @@ transfer::
   validate_envelope(envelope: &TransferEnvelope) -> Result<(), TransferError>
   create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError>
   open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams, seen: &mut SeenEnvelopeIds) -> Result<Vec<u8>, TransferError>
+    // SEC-6 Phase 1 handoff: boundary will change in Phase 2 to SecretPayload
+    // for create/open and the signed-payload codec. Callers must not add new
+    // raw Vec<u8> plaintext dependencies at this boundary.
 
 ```
 
