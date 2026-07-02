@@ -12,6 +12,8 @@
 
 ```
 vault::
+  UntrustedVaultFile
+  UntrustedVaultFile::parse_and_validate(bytes: &[u8]) -> Result<UntrustedVaultFile>
   Vault<Locked>::create(params: CreateVaultParams) -> Result<Vault<Locked>>
   Vault<Locked>::open(path) -> Result<Vault<Locked>>
   Vault<Locked>::unlock(self, params: UnlockParams) -> Result<Vault<Unlocked>>
@@ -28,6 +30,8 @@ item::
   list(vault) -> Result<Vec<ItemSummary>>
 
 export::
+  UntrustedExportBundle
+  UntrustedExportBundle::authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle>
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
@@ -74,6 +78,8 @@ transfer::
   SecretPayload
   TrustedSender
   TrustedSender::from_verified(identity: &DeviceIdentity) -> Result<TrustedSender>
+  UntrustedTransferEnvelope
+  UntrustedTransferEnvelope::validate_for_open(bytes: &[u8]) -> Result<UntrustedTransferEnvelope>
   TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8]
     // b"meissnerseal.transfer.envelope.v1\x00" — used internally by create/open_envelope
   TransferProfileId
@@ -151,6 +157,7 @@ recovery::  [MVP-1 — ADR-010]
 [G-05] Vault parser rejects:
        — wrong magic bytes
        — unknown critical TLV tags
+       — duplicate critical fields
        — truncated sections
        — trailing garbage
 

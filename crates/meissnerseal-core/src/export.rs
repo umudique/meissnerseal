@@ -35,7 +35,7 @@ const VAULT_ID_LEN: usize = 16;
 const KDF_PARAMS_LEN_FIELD: usize = 4;
 const NONCE_LEN: usize = 24;
 const CIPHERTEXT_LEN_FIELD: usize = 4;
-// F-74: spec is silent on export-set ceilings; cap import-side allocation growth.
+// Cap import-side allocation growth; the wire format carries no explicit ceiling.
 const MAX_EXPORT_ITEM_COUNT: usize = 4096;
 const MIN_BUNDLE_LEN: usize = MAGIC_LEN
     + VERSION_LEN
@@ -43,6 +43,38 @@ const MIN_BUNDLE_LEN: usize = MAGIC_LEN
     + KDF_PARAMS_LEN_FIELD
     + NONCE_LEN
     + CIPHERTEXT_LEN_FIELD;
+
+/// Authenticated export bundle crossing into core from an external byte source.
+pub struct UntrustedExportBundle {
+    items: Vec<PlainItem>,
+}
+
+impl UntrustedExportBundle {
+    pub fn authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle> {
+        if passphrase.is_empty() {
+            return Err(CoreError::InvalidState("empty export passphrase".into()));
+        }
+
+        let parsed = parse_bundle(bundle)?;
+        let kdf_params = parse_kdf_profile_params(parsed.kdf_params)?;
+        let export_key = derive_export_key(passphrase, &parsed.source_vault_id, &kdf_params)?;
+        let aad = export_aad(&parsed.source_vault_id, parsed.version);
+        let nonce = XChaCha20Nonce::from_bytes(parsed.nonce);
+        let ciphertext = Ciphertext::from(parsed.ciphertext_and_tag.to_vec());
+        let plaintext =
+            decrypt(&export_key, &nonce, &ciphertext, &aad).map_err(|_| CoreError::Auth)?;
+        drop(export_key);
+
+        let items = deserialize_item_set(plaintext.as_ref())?;
+        drop(plaintext);
+
+        Ok(Self { items })
+    }
+
+    pub(crate) fn into_items(self) -> Vec<PlainItem> {
+        self.items
+    }
+}
 
 /// Export the live item set from an unlocked vault into an encrypted `.msexp`
 /// bundle protected by a user-supplied export passphrase.
@@ -147,21 +179,7 @@ pub fn export(session: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>> {
 /// - Import never logs, audits, formats, or returns plaintext item contents,
 ///   the export passphrase, or derived key material.
 pub fn import(session: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>> {
-    if passphrase.is_empty() {
-        return Err(CoreError::InvalidState("empty export passphrase".into()));
-    }
-
-    let parsed = parse_bundle(bundle)?;
-    let kdf_params = parse_kdf_profile_params(parsed.kdf_params)?;
-    let export_key = derive_export_key(passphrase, &parsed.source_vault_id, &kdf_params)?;
-    let aad = export_aad(&parsed.source_vault_id, parsed.version);
-    let nonce = XChaCha20Nonce::from_bytes(parsed.nonce);
-    let ciphertext = Ciphertext::from(parsed.ciphertext_and_tag.to_vec());
-    let plaintext = decrypt(&export_key, &nonce, &ciphertext, &aad).map_err(|_| CoreError::Auth)?;
-    drop(export_key);
-
-    let items = deserialize_item_set(plaintext.as_ref())?;
-    drop(plaintext);
+    let items = UntrustedExportBundle::authenticate(bundle, passphrase)?.into_items();
 
     let mut imported_ids = Vec::with_capacity(items.len());
     for item in items {
@@ -196,9 +214,9 @@ fn derive_export_key(
     kdf_params: &HeaderKdfParams,
 ) -> Result<AeadKey> {
     // Argon2id → MUK → HKDF-SHA256-Expand(info="meissnerseal:export-bundle:v1") → AeadKey.
-    // The HKDF step provides export-specific domain separation (F-73): the
-    // resulting key is distinct from the vault MUK even when passphrase == vault
-    // password and source_vault_id == vault_id.
+    // The HKDF step provides export-specific domain separation: the resulting
+    // key is distinct from the vault MUK even when passphrase == vault password
+    // and source_vault_id == vault_id.
     derive_export_bundle_key(passphrase, source_vault_id, &kdf_params.argon2)
         .map_err(|_| CoreError::Crypto)
 }
@@ -240,6 +258,21 @@ fn serialize_bundle(
     Ok(out)
 }
 
+/// Parse unauthenticated export-bundle framing from an untrusted byte slice.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `bundle` is untrusted external input from disk, transfer, or caller
+///   boundaries.
+///
+/// ## Postconditions
+/// - Returns parsed framing only for the canonical MVP-0 `.msexp` layout.
+/// - Rejects wrong magic, unsupported version, truncation, length overruns, and
+///   trailing garbage before any AEAD or KDF step.
+///
+/// ## Invariants
+/// - This framing parse does not authenticate ciphertext or derive keys.
 fn parse_bundle(bundle: &[u8]) -> Result<ParsedBundle<'_>> {
     if bundle.len() < MIN_BUNDLE_LEN {
         return Err(CoreError::Format("truncated export bundle".into()));
@@ -590,10 +623,10 @@ mod tests {
             plain_item("same vault note", b"same vault secret"),
         )
         .expect("CORE-9 item add must work before CORE-10 export");
-        let bundle = export(&session, EXPORT_PASSPHRASE)
-            .expect("Phase 2: export must seal passphrase bundle");
+        let bundle =
+            export(&session, EXPORT_PASSPHRASE).expect("export must seal passphrase bundle");
         let imported_ids = import(&session, &bundle, EXPORT_PASSPHRASE)
-            .expect("Phase 2: import must decrypt same-vault bundle");
+            .expect("import must decrypt same-vault bundle");
 
         assert_eq!(imported_ids.len(), 1);
         assert_imported_item(&session, "same vault note", b"same vault secret");
@@ -611,10 +644,10 @@ mod tests {
             plain_item("cross vault note", b"cross vault secret"),
         )
         .expect("CORE-9 item add must work before CORE-10 export");
-        let bundle = export(&source, EXPORT_PASSPHRASE)
-            .expect("Phase 2: export must seal passphrase bundle");
+        let bundle =
+            export(&source, EXPORT_PASSPHRASE).expect("export must seal passphrase bundle");
         let imported_ids = import(&target, &bundle, EXPORT_PASSPHRASE)
-            .expect("Phase 2: import must support cross-vault passphrase import");
+            .expect("import must support cross-vault passphrase import");
 
         assert_eq!(imported_ids.len(), 1);
         assert_imported_item(&target, "cross vault note", b"cross vault secret");
@@ -629,8 +662,8 @@ mod tests {
 
         add(&session, plain_item("wrong passphrase", b"must reject"))
             .expect("CORE-9 item add must work before CORE-10 export");
-        let bundle = export(&session, EXPORT_PASSPHRASE)
-            .expect("Phase 2: export must seal passphrase bundle");
+        let bundle =
+            export(&session, EXPORT_PASSPHRASE).expect("export must seal passphrase bundle");
 
         assert!(import(&session, &bundle, WRONG_EXPORT_PASSPHRASE).is_err());
         cleanup(&path, session);
@@ -677,12 +710,42 @@ mod tests {
 
         add(&session, plain_item("tamper export", b"tamper secret"))
             .expect("CORE-9 item add must work before CORE-10 export");
-        let mut bundle = export(&session, EXPORT_PASSPHRASE)
-            .expect("Phase 2: export must seal passphrase bundle");
+        let mut bundle =
+            export(&session, EXPORT_PASSPHRASE).expect("export must seal passphrase bundle");
         let last = bundle
             .last_mut()
             .expect("exported bundle must contain ciphertext");
         *last ^= 0xFF;
+
+        assert!(import(&session, &bundle, EXPORT_PASSPHRASE).is_err());
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn untrusted_export_bundle_authenticate_accepts_valid_bundle() {
+        let (path, session) = unlocked_session("authenticate-valid");
+
+        add(&session, plain_item("bundle auth", b"bundle auth secret"))
+            .expect("export fixture item add");
+        let bundle = export(&session, EXPORT_PASSPHRASE).expect("export bundle");
+
+        assert!(UntrustedExportBundle::authenticate(&bundle, EXPORT_PASSPHRASE).is_ok());
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn import_rejects_trailing_garbage_after_bundle() {
+        let (path, session) = unlocked_session("bundle-trailing-garbage");
+
+        add(
+            &session,
+            plain_item("bundle trailing", b"bundle trailing secret"),
+        )
+        .expect("export fixture item add");
+        let mut bundle = export(&session, EXPORT_PASSPHRASE).expect("export bundle");
+        bundle.push(0xAA);
 
         assert!(import(&session, &bundle, EXPORT_PASSPHRASE).is_err());
         cleanup(&path, session);

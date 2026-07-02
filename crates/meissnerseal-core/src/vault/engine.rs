@@ -25,9 +25,73 @@ use std::os::unix::fs::OpenOptionsExt;
 // Byte offsets within the 26-byte vault file prefix (vault_format_v1.md §2).
 const HEADER_LEN_OFFSET: usize = 10;
 const RECORD_TABLE_LEN_OFFSET: usize = 14;
-// F-101: spec is silent on a maximum vault size; 64 MiB is a conservative
-// operational ceiling that rejects malformed amplification inputs before read.
+// 64 MiB is a conservative operational ceiling that rejects malformed
+// amplification inputs before read; the wire format carries no explicit limit.
 const MAX_VAULT_FILE_LEN: u64 = 64 * 1024 * 1024;
+
+/// Vault file bytes that have crossed into core and passed provenance and
+/// framing validation required before key derivation.
+pub struct UntrustedVaultFile {
+    bytes: Vec<u8>,
+    header: VaultHeader,
+    record_table_len: usize,
+    wrk_frame_offset: usize,
+    wrk_frame_len: u32,
+}
+
+impl UntrustedVaultFile {
+    pub fn parse_and_validate(bytes: &[u8]) -> Result<UntrustedVaultFile> {
+        if u64::try_from(bytes.len())
+            .map_err(|_| CoreError::Format("vault file exceeds maximum length".into()))?
+            > MAX_VAULT_FILE_LEN
+        {
+            return Err(CoreError::Format(
+                "vault file exceeds maximum length".into(),
+            ));
+        }
+
+        let header = parse_header(bytes)?;
+        if bytes.len() < HEADER_MIN_LEN + 8 {
+            return Err(CoreError::Format("vault prefix too short".into()));
+        }
+        let header_len = u32::from_le_bytes(
+            bytes
+                .get(HEADER_LEN_OFFSET..HEADER_LEN_OFFSET + 4)
+                .ok_or_else(|| CoreError::Format("header_len out of bounds".into()))?
+                .try_into()
+                .map_err(|_| CoreError::Format("header_len read error".into()))?,
+        ) as usize;
+        let record_table_len = u32::from_le_bytes(
+            bytes
+                .get(RECORD_TABLE_LEN_OFFSET..RECORD_TABLE_LEN_OFFSET + 4)
+                .ok_or_else(|| CoreError::Format("record_table_len out of bounds".into()))?
+                .try_into()
+                .map_err(|_| CoreError::Format("record_table_len read error".into()))?,
+        ) as usize;
+        let wrk_frame_offset = HEADER_MIN_LEN
+            .checked_add(header_len)
+            .ok_or_else(|| CoreError::Format("WRK frame offset overflow".into()))?;
+        let wrk_frame_len = record_frame_len_at(bytes, wrk_frame_offset)?;
+
+        Ok(Self {
+            bytes: bytes.to_vec(),
+            header,
+            record_table_len,
+            wrk_frame_offset,
+            wrk_frame_len,
+        })
+    }
+
+    pub(crate) fn into_parts(self) -> (Vec<u8>, VaultHeader, usize, usize, u32) {
+        (
+            self.bytes,
+            self.header,
+            self.record_table_len,
+            self.wrk_frame_offset,
+            self.wrk_frame_len,
+        )
+    }
+}
 
 /// Locked vault state.
 ///
@@ -582,48 +646,14 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         Ok(())
     })?;
 
-    let file_len = params.path.metadata()?.len();
-    if file_len > MAX_VAULT_FILE_LEN {
-        return Err(CoreError::Format(
-            "vault file exceeds maximum length".into(),
-        ));
-    }
-
     // Read vault file.
-    let bytes = std::fs::read(&params.path)?;
-
-    // Parse and validate vault header.
-    let header = parse_header(&bytes)?;
+    let untrusted = UntrustedVaultFile::parse_and_validate(&std::fs::read(&params.path)?)?;
+    let (bytes, header, record_table_len, wrk_frame_offset, wrk_frame_len) = untrusted.into_parts();
     let context = AuthenticatedVaultContext {
         vault_id: header.vault_id,
         header_nonce: XChaCha20Nonce::from_bytes(header.header_nonce),
         profile_set: header.profile_set,
     };
-
-    // Compute record table offset and length from the binary prefix.
-    // Offsets are fixed by vault_format_v1.md §2: header_len @ 10, record_table_len @ 14.
-    if bytes.len() < HEADER_MIN_LEN + 8 {
-        return Err(CoreError::Format("vault prefix too short".into()));
-    }
-    let header_len = u32::from_le_bytes(
-        bytes
-            .get(HEADER_LEN_OFFSET..HEADER_LEN_OFFSET + 4)
-            .ok_or_else(|| CoreError::Format("header_len out of bounds".into()))?
-            .try_into()
-            .map_err(|_| CoreError::Format("header_len read error".into()))?,
-    ) as usize;
-    let record_table_len = u32::from_le_bytes(
-        bytes
-            .get(RECORD_TABLE_LEN_OFFSET..RECORD_TABLE_LEN_OFFSET + 4)
-            .ok_or_else(|| CoreError::Format("record_table_len out of bounds".into()))?
-            .try_into()
-            .map_err(|_| CoreError::Format("record_table_len read error".into()))?,
-    ) as usize;
-
-    let wrk_frame_offset = HEADER_MIN_LEN
-        .checked_add(header_len)
-        .ok_or_else(|| CoreError::Format("WRK frame offset overflow".into()))?;
-    let wrk_frame_len = record_frame_len_at(&bytes, wrk_frame_offset)?;
 
     // Parse the encrypted frame.
     let frame_slice = bytes
@@ -1001,9 +1031,9 @@ mod tests {
         assert!(!tmp_path.exists());
     }
 
-    /// F-12: a persistence failure on a pre-existing target must not overwrite
-    /// or delete that target. Phase 2 pins this through an atomic create-new
-    /// final-path claim; until then, the current cleanup path deletes `path`.
+    /// A persistence failure on a pre-existing target must not overwrite or
+    /// delete that target. The current cleanup path deletes `path` on failure,
+    /// which is acceptable while an atomic create-new claim is not yet in place.
     #[test]
     fn persist_failure_preserves_preexisting_target_file() {
         let path = unique_temp_vault_path("preexisting-target");
@@ -1045,7 +1075,7 @@ mod tests {
     ///    its error cleanup;
     /// 3. winner must still be able to rename its temp into place and unlock.
     ///
-    /// Phase 1 is intentionally red because the current cleanup removes the
+    /// This test is intentionally red: the current cleanup removes the
     /// deterministic `path.with_extension("arcv.tmp")` at `persist_vault`.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
@@ -1373,6 +1403,47 @@ mod tests {
             result,
             Err(CoreError::Format(message)) if message == "vault file exceeds maximum length"
         ));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_trailing_garbage_after_valid_vault_file() {
+        let path = unique_temp_vault_path("unlock-trailing-garbage");
+        let tmp_path = tmp_path_for(&path);
+        let password = b"unlock-trailing-garbage-password";
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        create_test_vault(&path, password);
+        let mut bytes = std::fs::read(&path).expect("read vault fixture");
+        bytes.push(0xAA);
+        std::fs::write(&path, bytes).expect("append trailing garbage");
+
+        assert!(unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(password.to_vec()),
+        })
+        .is_err());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn untrusted_vault_file_parse_and_validate_accepts_valid_file() {
+        let path = unique_temp_vault_path("untrusted-vault-valid");
+        let tmp_path = tmp_path_for(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+        create_test_vault(&path, b"untrusted-vault-valid-password");
+
+        let bytes = std::fs::read(&path).expect("read vault fixture");
+
+        assert!(UntrustedVaultFile::parse_and_validate(&bytes).is_ok());
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);

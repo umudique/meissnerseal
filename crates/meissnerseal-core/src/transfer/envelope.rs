@@ -24,6 +24,32 @@ use meissnerseal_pqc::{
 
 pub type Nonce = [u8; 24];
 
+/// Transfer envelope bytes that have crossed the external trust boundary and
+/// been validated as ready for `open_envelope`.
+pub struct UntrustedTransferEnvelope {
+    envelope: TransferEnvelope,
+}
+
+impl UntrustedTransferEnvelope {
+    pub fn validate_for_open(bytes: &[u8]) -> Result<UntrustedTransferEnvelope, TransferError> {
+        let envelope = parse_envelope_bytes(bytes)?;
+        if envelope.recipient_device_id.is_some() {
+            validate_envelope(&envelope, None)?;
+        } else {
+            // Anonymous envelope: the transcript hash binds the recipient's public
+            // key, which is only known at open time. Check expiry now; open_envelope
+            // validates the full transcript when the recipient key is supplied.
+            if let Some(expires_at) = envelope.expires_at {
+                if expires_at <= unix_time_millis() {
+                    return Err(TransferError::ExpiredEnvelope);
+                }
+            }
+        }
+
+        Ok(Self { envelope })
+    }
+}
+
 /// Sender identity proof for transfer-envelope opening.
 ///
 /// # Contract
@@ -65,16 +91,15 @@ impl TrustedSender {
     }
 }
 
-/// Context string for XFER-1 transfer envelope signatures (F-39).
+/// Context string for XFER-1 transfer envelope signatures.
 pub const TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8] = b"meissnerseal.transfer.envelope.v1\x00";
 const TRANSFER_TRANSCRIPT_DOMAIN: &[u8] = b"meissnerseal-transfer-transcript-v1";
 const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 
-/// Contract coverage for SEC-6 SecretPayload boundary hardening.
+/// Compile-fail contract tests for the secret-bearing transfer payload wrapper.
 ///
-/// These doctests are intentionally compile-fail contract tests. They document
-/// the API surface kept unrepresentable by the secret-bearing transfer payload
-/// wrapper.
+/// These doctests document the API surface kept unrepresentable at the
+/// `SecretPayload` boundary.
 ///
 /// ```compile_fail
 /// use meissnerseal_core::transfer::SecretPayload;
@@ -132,7 +157,7 @@ const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 /// - Algorithm identifiers and profile are downgrade-critical and must be
 ///   transcript-bound.
 /// - `encrypted_payload` is never returned as plaintext unless AEAD
-///   authentication succeeds in Phase 2.
+///   authentication succeeds.
 #[derive(Debug)]
 pub struct TransferEnvelope {
     pub version: u16,
@@ -158,7 +183,7 @@ pub struct TransferEnvelope {
 ///   mode must bind `anonymous_recipient_public_key` instead.
 ///
 /// ## Postconditions
-/// - Phase 2 transcript hashing must produce 32 bytes of SHA-256 output.
+/// - Produces 32 bytes of SHA-256 output.
 ///
 /// ## Invariants
 /// - Every field here is downgrade- or replay-relevant and must affect the
@@ -187,8 +212,8 @@ pub struct TranscriptParams<'a> {
 /// - `expires_at`, when present, must not be in the past.
 ///
 /// ## Postconditions
-/// - Phase 2 returns a sealed envelope or `Err`; it never returns partial
-///   ciphertext, transfer keys, or plaintext on failure.
+/// - Returns a sealed envelope or `Err`; it never returns partial ciphertext,
+///   transfer keys, or plaintext on failure.
 ///
 /// ## Invariants
 /// - Expiry is checked before key derivation.
@@ -215,8 +240,8 @@ pub struct CreateEnvelopeParams {
 ///   `Verified` or `Approved` identities.
 ///
 /// ## Postconditions
-/// - Phase 2 returns plaintext only after profile, algorithm, transcript,
-///   expiry, signature, key derivation, and AEAD checks succeed.
+/// - Returns plaintext only after profile, algorithm, transcript, expiry,
+///   signature, key derivation, and AEAD checks succeed.
 ///
 /// ## Invariants
 /// - Expiry and transcript mismatch are rejected before decryption.
@@ -257,7 +282,7 @@ pub struct OpenEnvelopeParams {
 ///   PQC ciphertext, algorithm IDs, envelope ID, and expiry to bind.
 ///
 /// ## Postconditions
-/// - Phase 2 returns `SHA256(transcript_input)` as a `[u8; 32]`.
+/// - Returns `SHA256(transcript_input)` as a `[u8; 32]`.
 ///
 /// ## Invariants
 /// - Any change to a bound field changes the hash with SHA-256 collision
@@ -355,7 +380,7 @@ pub fn validate_envelope(
 /// - Transfer signing must prepend `TRANSFER_ENVELOPE_SIGNING_DOMAIN`.
 ///
 /// ## Postconditions
-/// - Phase 2 returns a sealed envelope authenticated under the v1 transcript.
+/// - Returns a sealed envelope authenticated under the v1 transcript.
 /// - Returns `Err` without partial output if any validation, key derivation,
 ///   signing, or encryption step fails.
 ///
@@ -439,7 +464,7 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
 ///   context.
 ///
 /// ## Postconditions
-/// - Phase 2 returns plaintext only after validation and AEAD authentication.
+/// - Returns plaintext only after validation and AEAD authentication.
 /// - Expired envelopes return `Err(ExpiredEnvelope)` before key derivation.
 /// - Replayed envelope IDs return `Err(ReplayedEnvelopeId)` before key
 ///   derivation or decryption.
@@ -523,7 +548,30 @@ pub fn envelope_to_bytes(envelope: &TransferEnvelope) -> Vec<u8> {
     out
 }
 
+/// Parse an untrusted transfer envelope from bytes.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `bytes` is untrusted external input received from disk, transfer, or a
+///   caller boundary.
+///
+/// ## Postconditions
+/// - Returns a `TransferEnvelope` only for the canonical XFER-1 wire layout.
+/// - Rejects wrong magic, unsupported version, malformed length fields,
+///   truncation, and trailing garbage before key derivation or plaintext
+///   release.
+///
+/// ## Invariants
+/// - This parse step does not authenticate the sender, derive keys, or
+///   decrypt payload bytes.
+/// - The parse path routes through `UntrustedTransferEnvelope::validate_for_open`
+///   before returning a `TransferEnvelope`.
 pub fn envelope_from_bytes(bytes: &[u8]) -> Result<TransferEnvelope, TransferError> {
+    UntrustedTransferEnvelope::validate_for_open(bytes).map(|envelope| envelope.envelope)
+}
+
+fn parse_envelope_bytes(bytes: &[u8]) -> Result<TransferEnvelope, TransferError> {
     let mut parser = EnvelopeByteParser::new(bytes);
     if parser.take(TRANSFER_ENVELOPE_MAGIC.len())? != TRANSFER_ENVELOPE_MAGIC {
         return Err(TransferError::UnknownProfile);
@@ -986,6 +1034,41 @@ mod tests {
         assert_eq!(
             validate_envelope(&envelope, None),
             Err(TransferError::UnknownProfile)
+        );
+    }
+
+    #[test]
+    fn envelope_from_bytes_rejects_truncated_input() {
+        let bytes = &TRANSFER_ENVELOPE_MAGIC[..4];
+
+        assert!(matches!(
+            envelope_from_bytes(bytes),
+            Err(TransferError::UnknownProfile)
+        ));
+    }
+
+    #[test]
+    fn envelope_from_bytes_rejects_trailing_garbage() {
+        let mut envelope = envelope_fixture();
+        // envelope_from_bytes does not validate timestamps or transcript hashes,
+        // so override expires_at with a fixed value to make the serialized bytes
+        // fully deterministic and independent of wall-clock time.
+        envelope.expires_at = Some(u64::MAX / 2);
+        let mut bytes = envelope_to_bytes(&envelope);
+        bytes.push(0xAA);
+
+        assert!(matches!(
+            envelope_from_bytes(&bytes),
+            Err(TransferError::UnknownProfile)
+        ));
+    }
+
+    #[test]
+    fn untrusted_transfer_envelope_validate_for_open_accepts_valid_bytes() {
+        let envelope = envelope_fixture();
+
+        assert!(
+            UntrustedTransferEnvelope::validate_for_open(&envelope_to_bytes(&envelope)).is_ok()
         );
     }
 

@@ -9,7 +9,7 @@ pub mod secret_payload;
 pub use envelope::{
     compute_transcript_hash, create_envelope, open_envelope, validate_envelope,
     CreateEnvelopeParams, Nonce, OpenEnvelopeParams, TranscriptParams, TransferEnvelope,
-    TrustedSender, TRANSFER_ENVELOPE_SIGNING_DOMAIN,
+    TrustedSender, UntrustedTransferEnvelope, TRANSFER_ENVELOPE_SIGNING_DOMAIN,
 };
 pub use protocol::{
     EnvelopeId, TransferError, TransferProfileId, CLASSICAL_ALG_ID_X25519, PQC_ALG_ID_MLKEM768,
