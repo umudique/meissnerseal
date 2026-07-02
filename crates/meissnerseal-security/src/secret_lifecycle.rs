@@ -171,37 +171,87 @@ mod proofs {
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
+    use std::{mem::ManuallyDrop, ops::DerefMut, slice};
+
+    fn non_zero_count(bytes: &[u8]) -> usize {
+        bytes.iter().filter(|byte| **byte != 0).count()
+    }
 
     #[test]
     fn test_secret_bytes_debug_is_redacted() {
-        let s = SecretBytes(vec![1, 2, 3]);
+        let secret = [0x01_u8, 0x02, 0x03];
+        let s = SecretBytes(secret.to_vec());
         let rendered = format!("{s:?}");
 
         assert!(rendered.contains("[REDACTED]"));
-        assert!(!rendered.contains('1'));
+        assert!(rendered.contains("SecretBytes"));
+        assert!(!rendered.contains("1"));
+        assert!(!rendered.contains("2"));
+        assert!(!rendered.contains("3"));
     }
 
     #[test]
     fn test_secret_string_debug_is_redacted() {
-        let s = SecretString(String::from("top-secret"));
+        let plaintext = "top-secret";
+        let s = SecretString(String::from(plaintext));
         let rendered = format!("{s:?}");
 
         assert!(rendered.contains("[REDACTED]"));
-        assert!(!rendered.contains("top-secret"));
+        assert!(rendered.contains("SecretString"));
+        assert!(!rendered.contains(plaintext));
     }
 
     #[test]
     fn test_secret_bytes_zeroize() {
-        let bytes = vec![0xAAu8; 32];
-        let ptr = {
-            let s = SecretBytes::new(bytes);
-            s.with_secret(|b| b.as_ptr())
-        };
+        let mut secret = ManuallyDrop::new(SecretBytes::new(vec![0xAA_u8; 32]));
+        let (ptr, len) = secret.with_secret(|bytes| (bytes.as_ptr(), bytes.len()));
 
-        let _ = ptr;
+        ManuallyDrop::deref_mut(&mut secret).zeroize();
+
+        // SAFETY: `ptr` points into the still-live allocation owned by
+        // `secret`. `zeroize()` clears bytes in place and sets len to 0, but
+        // does not free or reallocate the backing buffer.
+        let after = unsafe { slice::from_raw_parts(ptr, len) };
+
+        assert!(non_zero_count(after) == 0, "SecretBytes must zero on drop");
+
+        // SAFETY: Free the backing allocation after the zeroization check to
+        // avoid leaking the test fixture.
+        unsafe { ManuallyDrop::drop(&mut secret) };
     }
+
+    #[test]
+    fn test_secret_string_zeroize() {
+        let mut secret = ManuallyDrop::new(SecretString::new("top-secret".repeat(4)));
+        let (ptr, len) = secret.with_secret(|text| (text.as_ptr(), text.len()));
+
+        ManuallyDrop::deref_mut(&mut secret).zeroize();
+
+        // SAFETY: `ptr` points into the still-live allocation owned by
+        // `secret`. `zeroize()` clears bytes in place and sets len to 0, but
+        // does not free or reallocate the backing buffer.
+        let after = unsafe { slice::from_raw_parts(ptr, len) };
+
+        assert!(non_zero_count(after) == 0, "SecretString must zero on drop");
+
+        // SAFETY: Free the backing allocation after the zeroization check to
+        // avoid leaking the test fixture.
+        unsafe { ManuallyDrop::drop(&mut secret) };
+    }
+
+    // Compile-time sentinel: ZeroizeOnDrop generates `impl Drop for T`.
+    // A direct `impl Drop` is required here; a field destructor alone does not
+    // satisfy it. `std::mem::needs_drop` cannot distinguish the two cases, so
+    // the supertrait approach is intentional.
+    // REASON: we explicitly verify that ZeroizeOnDrop (not just Vec<u8>'s field
+    // destructor) produced a Drop impl. needs_drop returns true for both.
+    #[allow(drop_bounds)]
+    trait _HasZeroizeOnDrop: Drop {}
+    impl _HasZeroizeOnDrop for SecretBytes {}
+    impl _HasZeroizeOnDrop for SecretString {}
 
     #[test]
     fn test_with_secret_scoped_access() {
