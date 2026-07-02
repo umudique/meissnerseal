@@ -173,6 +173,57 @@ pub fn derive_export_bundle_key(
     Ok(AeadKey::from_bytes(*key.as_bytes()))
 }
 
+const DEVICE_KEYPAIR_KDF_DOMAIN: &[u8] = b"meissnerseal-device-keypair-v1\x00";
+
+/// Derive the 32-byte DKEK for a sealed device keypair file using Argon2id.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `passphrase` is caller-owned secret input; never logged, printed, or written.
+/// - `random_salt` is a freshly generated 32-byte random value stored by the caller
+///   alongside the sealed file so that it can be reproduced on open.
+/// - `params` must satisfy the same floor as vault KDF (m≥64 MiB, t≥3, p≥4).
+///
+/// ## Postconditions
+/// - On success, returns exactly one `AeadKey` containing 32 bytes.
+/// - The Argon2id salt is `b"meissnerseal-device-keypair-v1\x00" || random_salt`.
+/// - On failure, returns `Err` without exposing partial key material.
+///
+/// ## Invariants
+/// - Domain separator is distinct from vault KDF (`ARGON2ID_SALT_DOMAIN_V1`).
+/// - Secret values are never logged, printed, or compared with `==`.
+pub fn derive_device_keypair_key(
+    passphrase: &[u8],
+    random_salt: &[u8; 32],
+    params: &Argon2Params,
+) -> Result<AeadKey> {
+    if params.m_cost_kib == 0
+        || params.t_cost == 0
+        || params.p_lanes == 0
+        || params.output_len != 32
+        || params.m_cost_kib < ARGON2_MIN_M_COST_KIB
+        || params.t_cost < ARGON2_MIN_T_COST
+        || params.p_lanes < ARGON2_MIN_P_LANES
+        || params.m_cost_kib > ARGON2_MAX_M_COST_KIB
+        || params.t_cost > ARGON2_MAX_T_COST
+        || params.p_lanes > ARGON2_MAX_P_LANES
+    {
+        return Err(KdfError::InvalidInput);
+    }
+    let mut salt = Vec::with_capacity(DEVICE_KEYPAIR_KDF_DOMAIN.len().saturating_add(32));
+    salt.extend_from_slice(DEVICE_KEYPAIR_KDF_DOMAIN);
+    salt.extend_from_slice(random_salt);
+    let argon2_params = Params::new(params.m_cost_kib, params.t_cost, params.p_lanes, Some(32))
+        .map_err(|_| KdfError::InvalidInput)?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
+    let mut output = Zeroizing::new([0u8; 32]);
+    argon2
+        .hash_password_into(passphrase, &salt, &mut *output)
+        .map_err(|_| KdfError::Backend)?;
+    Ok(AeadKey::from_bytes(*output))
+}
+
 pub(crate) fn construct_argon2id_salt(vault_id: &[u8; 16]) -> [u8; ARGON2ID_SALT_LEN] {
     let mut salt = [0u8; ARGON2ID_SALT_LEN];
     let (domain, vault) = salt.split_at_mut(ARGON2ID_SALT_DOMAIN_V1.len());
