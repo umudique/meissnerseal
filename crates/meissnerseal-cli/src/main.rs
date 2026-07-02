@@ -16,7 +16,7 @@ use meissnerseal_core::{
     },
     transfer::{
         envelope::{envelope_from_bytes, envelope_to_bytes},
-        SeenEnvelopeIds,
+        SecretPayload, SeenEnvelopeIds,
     },
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
@@ -257,7 +257,7 @@ fn transfer_create_command(
         deserialize_keypair_bytes(&std::fs::read(&sender_keypair)?).map_err(device_parse_error)?;
     let recipient = deserialize_identity_text(&std::fs::read_to_string(&recipient_identity)?)
         .map_err(device_parse_error)?;
-    let plaintext = std::fs::read(&input)?;
+    let plaintext = SecretPayload::new(std::fs::read(&input)?);
     let expires_at = Some(
         unix_now_millis()?
             .checked_add(
@@ -315,9 +315,9 @@ fn transfer_receive_command(
     std::fs::write(&seen_ids_path, seen.to_bytes())?;
     restrict_owner_only(&seen_ids_path)?;
     if let Some(output) = output {
-        std::fs::write(output, plaintext)?;
+        plaintext.with_secret(|b| std::fs::write(output, b))?;
     } else {
-        stdout.write_all(&plaintext)?;
+        plaintext.with_secret(|b| stdout.write_all(b))?;
     }
     Ok(())
 }
@@ -935,7 +935,7 @@ mod tests {
             Some(recipient_device_id),
             recipient_identity.classical_public_key,
             recipient_identity.pqc_public_key,
-            b"roundtrip plaintext".to_vec(),
+            SecretPayload::new(b"roundtrip plaintext".to_vec()),
             Some(unix_now_millis().expect("time") + 60_000),
         )
         .expect("envelope");
@@ -962,7 +962,7 @@ mod tests {
             Some(recipient_identity.device_id),
             recipient_identity.classical_public_key,
             recipient_identity.pqc_public_key,
-            b"roundtrip plaintext".to_vec(),
+            SecretPayload::new(b"roundtrip plaintext".to_vec()),
             Some(unix_now_millis().expect("time") + 60_000),
         )
         .expect("envelope");

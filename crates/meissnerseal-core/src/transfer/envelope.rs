@@ -8,6 +8,7 @@ use crate::{
         TRANSFER_PROFILE_V1_ID,
     },
     transfer::replay::SeenEnvelopeIds,
+    transfer::secret_payload::SecretPayload,
 };
 use meissnerseal_crypto::{
     aead::{self, Ciphertext},
@@ -28,11 +29,11 @@ pub const TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8] = b"meissnerseal.transfer.enve
 const TRANSFER_TRANSCRIPT_DOMAIN: &[u8] = b"meissnerseal-transfer-transcript-v1";
 const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 
-/// Phase-1 contract coverage for SEC-6 SecretPayload boundary hardening.
+/// Contract coverage for SEC-6 SecretPayload boundary hardening.
 ///
 /// These doctests are intentionally compile-fail contract tests. They document
-/// the API surface that must remain unrepresentable once Phase 2 introduces the
-/// secret-bearing transfer payload wrapper.
+/// the API surface kept unrepresentable by the secret-bearing transfer payload
+/// wrapper.
 ///
 /// ```compile_fail
 /// use meissnerseal_core::transfer::SecretPayload;
@@ -51,13 +52,9 @@ const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 /// ```
 ///
 /// ```compile_fail
-/// use meissnerseal_core::transfer::{CreateEnvelopeParams, SecretPayload};
+/// use meissnerseal_core::transfer::CreateEnvelopeParams;
 /// use meissnerseal_core::keys::device::Timestamp;
-/// use meissnerseal_pqc::{
-///     hybrid::X25519PublicKey,
-///     mldsa::{SigningAlgorithmId, SigningPrivateKey},
-///     mlkem::MlKemPublicKey,
-/// };
+/// use meissnerseal_pqc::mldsa::{SigningAlgorithmId, SigningPrivateKey};
 /// use meissnerseal_crypto::types::Key;
 ///
 /// fn build_params(expires_at: Option<Timestamp>) -> CreateEnvelopeParams {
@@ -154,15 +151,15 @@ pub struct TranscriptParams<'a> {
 ///
 /// ## Invariants
 /// - Expiry is checked before key derivation.
-/// - SEC-6 Phase 2 will require `plaintext_payload` to be `SecretPayload`,
-///   preventing new raw-byte plaintext callers at this boundary.
+/// - `plaintext_payload` is `SecretPayload`, preventing raw-byte plaintext
+///   callers at this boundary.
 pub struct CreateEnvelopeParams {
     pub sender_device_id: DeviceId,
     pub recipient_device_id: Option<DeviceId>,
     pub recipient_classical_public_key: X25519PublicKey,
     pub recipient_pqc_public_key: MlKemPublicKey,
     pub sender_signing_private_key: SigningPrivateKey,
-    pub plaintext_payload: Vec<u8>,
+    pub plaintext_payload: SecretPayload,
     pub expires_at: Option<Timestamp>,
 }
 
@@ -181,8 +178,8 @@ pub struct CreateEnvelopeParams {
 ///
 /// ## Invariants
 /// - Expiry and transcript mismatch are rejected before decryption.
-/// - SEC-6 Phase 2 will return a secret-bearing payload wrapper instead of
-///   owned raw bytes.
+/// - Plaintext is returned as a secret-bearing payload wrapper instead of owned
+///   raw bytes.
 pub struct OpenEnvelopeParams {
     pub recipient_classical_private_key: X25519PrivateKey,
     pub recipient_classical_public_key: X25519PublicKey,
@@ -304,7 +301,7 @@ pub fn validate_envelope(
 /// ## Invariants
 /// - Expiry is checked before key derivation or encryption.
 /// - No plaintext secret appears in error messages or logs.
-/// - SEC-6 Phase 2 returns no raw plaintext `Vec<u8>` at this boundary.
+/// - Returns no raw plaintext `Vec<u8>` at this boundary.
 pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError> {
     if let Some(expires) = params.expires_at {
         if expires <= unix_time_millis() {
@@ -351,9 +348,10 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
     // transfer_profile_v1.md §2 defines no cleartext signature field on
     // TransferEnvelope. Keep the public envelope layout unchanged and carry
     // algorithm-tagged signature bytes inside the AEAD payload.
-    let sealed_payload = encode_signed_payload(&signature, &params.plaintext_payload)?;
-    let (ciphertext, nonce) = aead::encrypt(&transfer_key, &sealed_payload, &transcript_hash)
-        .map_err(|_| TransferError::EncryptionFailed)?;
+    let sealed_payload = encode_signed_payload(&signature, params.plaintext_payload)?;
+    let encrypt_result = sealed_payload
+        .with_secret(|payload| aead::encrypt(&transfer_key, payload, &transcript_hash));
+    let (ciphertext, nonce) = encrypt_result.map_err(|_| TransferError::EncryptionFailed)?;
 
     Ok(TransferEnvelope {
         version: 1,
@@ -387,13 +385,12 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
 ///
 /// ## Invariants
 /// - Fail closed; never returns partial plaintext on any error.
-/// - SEC-6 Phase 2 returns a secret-bearing payload wrapper rather than an
-///   owned `Vec<u8>`.
+/// - Returns a secret-bearing payload wrapper rather than an owned `Vec<u8>`.
 pub fn open_envelope(
     envelope: &TransferEnvelope,
     params: OpenEnvelopeParams,
     seen: &mut SeenEnvelopeIds,
-) -> Result<Vec<u8>, TransferError> {
+) -> Result<SecretPayload, TransferError> {
     let anonymous_recipient_public_key = envelope
         .recipient_device_id
         .is_none()
@@ -418,7 +415,8 @@ pub fn open_envelope(
         &envelope.transcript_hash,
     )
     .map_err(|_| TransferError::DecryptionFailed)?;
-    let (signature, payload) = decode_signed_payload(plaintext.as_ref())?;
+    let plaintext = SecretPayload::new(plaintext.as_ref().to_vec());
+    let (signature, payload) = decode_signed_payload(plaintext)?;
 
     mldsa::verify_with_domain(
         &params.sender_signing_public_key,
@@ -429,7 +427,7 @@ pub fn open_envelope(
     .map_err(|_| TransferError::VerificationFailed)?;
     seen.check_and_insert(&envelope.envelope_id, envelope.expires_at)?;
 
-    Ok(payload.to_vec())
+    Ok(payload)
 }
 
 #[must_use]
@@ -592,20 +590,20 @@ fn unix_time_millis() -> Timestamp {
 ///   `u32`.
 ///
 /// ## Invariants
-/// - SEC-6 Phase 2 will consume `SecretPayload` and return `SecretPayload`,
-///   not raw `Vec<u8>` plaintext.
+/// - Consumes `SecretPayload` and returns `SecretPayload`, not raw plaintext
+///   `Vec<u8>`.
 fn encode_signed_payload(
     signature: &Signature,
-    plaintext_payload: &[u8],
-) -> Result<Vec<u8>, TransferError> {
+    plaintext_payload: SecretPayload,
+) -> Result<SecretPayload, TransferError> {
     let signature_len =
         u32::try_from(signature.as_bytes().len()).map_err(|_| TransferError::SigningFailed)?;
     let mut encoded = Vec::new();
     encoded.extend_from_slice(&signature.algorithm().to_le_bytes());
     encoded.extend_from_slice(&signature_len.to_le_bytes());
     encoded.extend_from_slice(signature.as_bytes());
-    encoded.extend_from_slice(plaintext_payload);
-    Ok(encoded)
+    plaintext_payload.with_secret(|payload| encoded.extend_from_slice(payload));
+    Ok(SecretPayload::new(encoded))
 }
 
 /// Decode the algorithm-tagged signature prefix and borrowed plaintext suffix.
@@ -622,9 +620,12 @@ fn encode_signed_payload(
 ///   unknown signing algorithm identifier.
 ///
 /// ## Invariants
-/// - SEC-6 Phase 2 will return a secret-bearing payload wrapper instead of a
-///   borrowed raw byte slice.
-fn decode_signed_payload(bytes: &[u8]) -> Result<(Signature, &[u8]), TransferError> {
+/// - Returns a secret-bearing payload wrapper instead of a borrowed raw byte
+///   slice.
+fn decode_signed_payload(
+    bytes: SecretPayload,
+) -> Result<(Signature, SecretPayload), TransferError> {
+    let bytes = bytes.into_inner();
     let header = bytes.get(..6).ok_or(TransferError::VerificationFailed)?;
     let algorithm = SigningAlgorithmId::from_le_bytes(
         header
@@ -650,9 +651,13 @@ fn decode_signed_payload(bytes: &[u8]) -> Result<(Signature, &[u8]), TransferErr
         .to_vec();
     let payload = bytes
         .get(signature_end..)
-        .ok_or(TransferError::VerificationFailed)?;
+        .ok_or(TransferError::VerificationFailed)?
+        .to_vec();
 
-    Ok((Signature::new(algorithm, signature_bytes), payload))
+    Ok((
+        Signature::new(algorithm, signature_bytes),
+        SecretPayload::new(payload),
+    ))
 }
 
 #[cfg(test)]
@@ -790,7 +795,7 @@ mod tests {
             recipient_classical_public_key: recipient_public,
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
-            plaintext_payload: PAYLOAD.to_vec(),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at: Some(future_timestamp()),
         })
         .expect("create envelope");
@@ -807,7 +812,7 @@ mod tests {
             &mut seen,
         )
         .expect("first open");
-        assert_eq!(first, PAYLOAD);
+        first.with_secret(|payload| assert_eq!(payload, PAYLOAD));
 
         let second = open_envelope(
             &envelope,
@@ -820,7 +825,7 @@ mod tests {
             &mut seen,
         );
 
-        assert_eq!(second, Err(TransferError::ReplayedEnvelopeId));
+        assert!(matches!(second, Err(TransferError::ReplayedEnvelopeId)));
     }
 
     #[test]
@@ -838,7 +843,7 @@ mod tests {
             recipient_classical_public_key: recipient_public,
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
-            plaintext_payload: PAYLOAD.to_vec(),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at: Some(future_timestamp()),
         })
         .expect("create envelope");
@@ -870,10 +875,9 @@ mod tests {
             &mut seen,
         );
 
-        assert_eq!(first, Err(TransferError::DecryptionFailed));
-        assert_eq!(
-            second,
-            Err(TransferError::DecryptionFailed),
+        assert!(matches!(first, Err(TransferError::DecryptionFailed)));
+        assert!(
+            matches!(second, Err(TransferError::DecryptionFailed)),
             "auth failure must not store envelope_id in replay set"
         );
     }
@@ -954,7 +958,7 @@ mod tests {
                 SigningAlgorithmId::Ed25519V1,
                 vec![0x42; 32],
             ),
-            plaintext_payload: PAYLOAD.to_vec(),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at,
         }
     }
