@@ -50,12 +50,12 @@ keys::device::
   create_signed_transfer_envelope(
     sender_device_id, sender_keypair, recipient_device_id,
     recipient_classical_public_key, recipient_pqc_public_key,
-    plaintext: Vec<u8>, expires_at) -> Result<TransferEnvelope, TransferError>
+    plaintext: SecretPayload, expires_at) -> Result<TransferEnvelope, TransferError>
     // convenience wrapper over transfer::create_envelope
   open_received_transfer_envelope(
     envelope, recipient_keypair, recipient_classical_public_key,
     sender_signing_public_key, seen: &mut SeenEnvelopeIds)
-    -> Result<Vec<u8>, TransferError>
+    -> Result<SecretPayload, TransferError>
     // convenience wrapper over transfer::open_envelope
 
 keys::pairing::
@@ -71,6 +71,7 @@ keys::pairing::
   validate_trust_transition(from, to) -> Result<()>
 
 transfer::
+  SecretPayload
   TRANSFER_ENVELOPE_SIGNING_DOMAIN: &[u8]
     // b"meissnerseal.transfer.envelope.v1\x00" — used internally by create/open_envelope
   TransferProfileId
@@ -83,10 +84,7 @@ transfer::
   compute_transcript_hash(params: &TranscriptParams) -> [u8; 32]
   validate_envelope(envelope: &TransferEnvelope) -> Result<(), TransferError>
   create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope, TransferError>
-  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams, seen: &mut SeenEnvelopeIds) -> Result<Vec<u8>, TransferError>
-    // SEC-6 Phase 1 handoff: boundary will change in Phase 2 to SecretPayload
-    // for create/open and the signed-payload codec. Callers must not add new
-    // raw Vec<u8> plaintext dependencies at this boundary.
+  open_envelope(envelope: &TransferEnvelope, params: OpenEnvelopeParams, seen: &mut SeenEnvelopeIds) -> Result<SecretPayload, TransferError>
 
 ```
 

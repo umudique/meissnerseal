@@ -4,6 +4,7 @@
 pub mod envelope;
 pub mod protocol;
 pub mod replay;
+pub mod secret_payload;
 
 pub use envelope::{
     compute_transcript_hash, create_envelope, open_envelope, validate_envelope,
@@ -15,3 +16,4 @@ pub use protocol::{
     TRANSFER_PROFILE_V1_ID,
 };
 pub use replay::SeenEnvelopeIds;
+pub use secret_payload::SecretPayload;

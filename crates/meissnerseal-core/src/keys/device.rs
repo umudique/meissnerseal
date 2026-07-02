@@ -3,8 +3,8 @@
 
 use crate::transfer::SeenEnvelopeIds;
 use crate::transfer::{
-    create_envelope, open_envelope, CreateEnvelopeParams, OpenEnvelopeParams, TransferEnvelope,
-    TransferError,
+    create_envelope, open_envelope, CreateEnvelopeParams, OpenEnvelopeParams, SecretPayload,
+    TransferEnvelope, TransferError,
 };
 use meissnerseal_crypto::types::Key;
 use meissnerseal_pqc::{
@@ -484,7 +484,7 @@ pub fn create_signed_transfer_envelope(
     recipient_device_id: Option<DeviceId>,
     recipient_classical_public_key: X25519PublicKey,
     recipient_pqc_public_key: MlKemPublicKey,
-    plaintext: Vec<u8>,
+    plaintext: SecretPayload,
     expires_at: Option<Timestamp>,
 ) -> core::result::Result<TransferEnvelope, TransferError> {
     let signing_algorithm = sender_keypair.signing_private_key.algorithm();
@@ -508,7 +508,7 @@ pub fn open_received_transfer_envelope(
     recipient_classical_public_key: X25519PublicKey,
     sender_signing_public_key: SigningPublicKey,
     seen: &mut SeenEnvelopeIds,
-) -> core::result::Result<Vec<u8>, TransferError> {
+) -> core::result::Result<SecretPayload, TransferError> {
     open_envelope(
         envelope,
         OpenEnvelopeParams {
