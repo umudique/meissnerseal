@@ -925,6 +925,10 @@ mod tests {
     fn envelope_fixture() -> TransferEnvelope {
         let fixture = TranscriptFixture::new();
         let transcript_hash = compute_transcript_hash(&fixture.params());
+        // Use fixture.expires_at, not a fresh future_timestamp() call — the
+        // transcript hash binds the expiry; a second call to future_timestamp()
+        // can return a different millisecond under parallel load, causing
+        // TranscriptMismatch on validate_envelope.
         TransferEnvelope {
             version: 1,
             transfer_profile: TransferProfileId::v1(),
@@ -936,7 +940,7 @@ mod tests {
             transcript_hash,
             encrypted_payload: vec![0x66; 16],
             nonce: [0x77; 24],
-            expires_at: Some(future_timestamp()),
+            expires_at: fixture.expires_at,
         }
     }
 
