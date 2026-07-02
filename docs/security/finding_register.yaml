@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-06-30
+updated: 2026-07-02
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -2127,7 +2127,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Change with_item to return Result<()> (non-escaping visitor), or
       constrain R to non-secret result types via a sealed marker trait.
@@ -2137,7 +2137,7 @@ findings:
       Add compile-fail tests showing that returning Vec<u8>, String, PlainItem,
       or SecretBytes from the closure is rejected. Add a positive test for a
       permitted non-secret return type such as usize or bool.
-    commit: ""
+    commit: "ae9ed8d"
 
   - id: F-79
     kind: security_review
@@ -2266,7 +2266,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Change serialize_keypair_bytes to pub(crate), or replace it with a
       storage API that encrypts and authenticates the serialized bytes under a
@@ -2276,7 +2276,7 @@ findings:
       Add API tests proving that external callers cannot obtain raw plaintext
       device private key bytes. Add storage round-trip tests proving persisted
       keypair bytes are AEAD-protected and reject tampering.
-    commit: ""
+    commit: "7d84227"
 
   - id: F-84
     kind: security_review
@@ -2544,7 +2544,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Change encode_signed_payload to return Zeroizing<Vec<u8>>, change
       CreateEnvelopeParams.plaintext_payload to Zeroizing<Vec<u8>> or
@@ -2555,7 +2555,7 @@ findings:
       a zeroizing buffer, create_envelope zeroizes the sealed_payload on both
       success and failure, and the plaintext parameter type enforces zeroizing
       ownership at the call site.
-    commit: ""
+    commit: "ecd15d2"
 
   - id: F-93
     kind: security_review
@@ -2893,7 +2893,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Introduce typed boundary constructors for each external protocol surface:
       UntrustedVaultFile::parse_and_validate, UntrustedExportBundle::authenticate,
@@ -2910,7 +2910,7 @@ findings:
       applies, what canonical form is enforced, what cryptographic context
       authenticates it, and at what point state mutation is permitted. CI should
       block new public-facing parse functions that do not satisfy this matrix.
-    commit: ""
+    commit: "82d3606"
 
 # ── meissnerseal-core security architecture review (2026-06-30) ───────────────
 
@@ -2934,7 +2934,7 @@ findings:
     cwe: "CWE-284"
     severity: medium
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Introduce a typed ApprovedSender or TrustedSender wrapper produced only
       after DeviceIdentity validation and trust-state enforcement
@@ -2947,7 +2947,7 @@ findings:
       type. Add positive tests for Verified and Approved devices, and negative
       tests asserting Untrusted, PendingInbound, PendingOutbound, Revoked, and
       Expired devices are rejected before AEAD decryption begins.
-    commit: ""
+    commit: "3458880"
 
   - id: F-105
     kind: security_architecture
@@ -3007,7 +3007,7 @@ findings:
     cwe: "CWE-345"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Include an authenticated identity fingerprint (e.g. BLAKE2/SHA-256 of
       the canonical DeviceIdentity public fields) inside the sealed keypair
@@ -3021,7 +3021,7 @@ findings:
       content, and corrupted signing or classical private key sections.
       All must produce a rejected-load error before pairing, transfer create,
       or transfer receive can proceed with the compromised material.
-    commit: ""
+    commit: "7d84227"
 
   - id: F-107
     kind: security_architecture
@@ -3046,7 +3046,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Introduce SecretPayload or PlaintextBuffer wrappers with ZeroizeOnDrop
       for all buffers that carry decrypted item secrets, export plaintext,
@@ -3061,7 +3061,7 @@ findings:
       implement ZeroizeOnDrop. Add tests asserting that the return value of
       open_envelope and the intermediate buffers in export zeroize on drop
       without requiring manual caller action.
-    commit: ""
+    commit: "ecd15d2"
 
   - id: F-108
     kind: security_architecture
