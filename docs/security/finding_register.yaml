@@ -1443,7 +1443,7 @@ findings:
       but does not exercise encapsulate() against a malformed public key at the
       crate boundary, nor include a randomized differential check against an
       independent ML-KEM-768 implementation.
-    cwe: ""
+    cwe: "CWE-20"
     severity: low
     blocking: false
     status: resolved
@@ -2232,7 +2232,7 @@ findings:
       garbage), tombstone frame parsing, duplicate record IDs in the table,
       update nonce and revision freshness (only secret length is asserted),
       and the with_item plaintext escape contract.
-    cwe: null
+    cwe: "CWE-20"
     severity: low
     blocking: false
     status: resolved
@@ -2415,7 +2415,7 @@ findings:
       garbage), display_name newline and control character handling, AEAD
       profile variation in session key derivation subkeys, and full pairing
       transcript sign/verify using the pairing domain.
-    cwe: ""
+    cwe: "CWE-20"
     severity: low
     blocking: false
     status: resolved
@@ -2631,7 +2631,7 @@ findings:
       tampered nonce or encrypted_payload, wrong sender signing key, and replay
       store mutation occurring on a failed AEAD or signature step (the
       premature-insert scenario from F-89).
-    cwe: ""
+    cwe: "CWE-20"
     severity: low
     blocking: false
     status: resolved
@@ -2854,7 +2854,7 @@ findings:
       table section, inter-frame overlap, duplicate record IDs in the
       authenticated table, vault file permission mode under permissive
       umask, and oversized vault file rejection.
-    cwe: ""
+    cwe: "CWE-20"
     severity: low
     blocking: false
     status: resolved
