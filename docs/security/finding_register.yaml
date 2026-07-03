@@ -3357,3 +3357,41 @@ findings:
       blocked) exits non-zero rather than silently passing format-only.
       mlkem_768_kat_v1.json source.commit matches the SHA in NIST_URL.
     commit: ""
+
+  - id: F-116
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/ (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      cross_verify.py is named as a verifier but is actually a generator:
+      it computes vectors from scratch and writes them to disk via
+      open(path, "w") + json.dump(). The docstring correctly states "does
+      NOT read existing vector files — computes from scratch" but the file
+      name implies the opposite role. The actual verification step is
+      performed by the CI git diff check that runs after the script, not
+      by the script itself. Conversely, signing_ed25519_cross_verify.py
+      and transfer_hybrid_cross_verify.py are explicitly read-only verifiers
+      (their docstrings say so) and mlkem_cross_verify.py is a read-only
+      verifier with a network fetch. The naming convention is inverted:
+      the script called cross_verify generates, while the scripts called
+      *_cross_verify verify. This creates maintenance confusion about which
+      scripts are safe to run in a read-only environment and which mutate
+      the repository.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rename cross_verify.py to generate_vectors.py (or generate.py) to
+      reflect its actual role. Update the ci-fast.yml step, README
+      references, and any internal cross-references. The *_cross_verify.py
+      naming for the read-only verifiers is correct and should be kept.
+      Alternatively, refactor cross_verify.py to also perform a read-and-
+      compare pass after writing, making the name accurate; but this adds
+      redundancy with the git diff CI step.
+    verification: >-
+      The generator script name clearly distinguishes it from read-only
+      verifiers. CI step references the correct filename. README and
+      docstrings consistently describe each script's role.
+    commit: ""
