@@ -311,7 +311,8 @@ main                    — always deployable, protected
 - Squash merge for single-commit feature branches
 - Merge commit (no squash) for multi-commit feature branches where
   the commit history has independent value
-- Never merge directly to main without CI passing and human review
+- Never merge directly to main without CI passing and maintainer self-review;
+  external security review is required at milestone gates
 
 **Doc/spec fixes during feature PR review:**
 - Do NOT add doc/spec-only commits to an open feature branch — this triggers
