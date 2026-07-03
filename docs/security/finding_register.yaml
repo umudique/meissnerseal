@@ -3233,3 +3233,43 @@ findings:
       transfer_hybrid_v1.json, or transfer_hybrid_cross_verify.py is
       invoked in ci-fast.yml and passes.
     commit: ""
+
+  - id: F-113
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      cross_verify.py run() is not fail-closed on ImportError or
+      NotImplementedError. When a required Python dependency (e.g. PyNaCl,
+      argon2-cffi) is absent, the affected generators (AEAD, wrap,
+      format_struct, format_negative) are silently skipped and the process
+      exits 0. The CI step pipes stdout through tee before the grep check,
+      so the Python exit code is swallowed by tee in the absence of
+      set -o pipefail. The grep workaround catches the string "missing
+      dependency" only if it appears on stdout; moving output to stderr
+      or changing the message format would silently break the guard. The
+      most critical vectors — AEAD encryption, WrappedRootKey wrap/unwrap,
+      sealed table, and negative fixtures — are exactly the ones that depend
+      on PyNaCl and would go unverified in a degraded environment.
+    cwe: "CWE-390"
+    severity: high
+    blocking: false
+    status: open
+    remediation: >-
+      In run(), collect skipped and failed lists. Any ImportError or
+      NotImplementedError appends to skipped; any other exception appends
+      to failed. After the loop, call sys.exit(1) if failed is non-empty
+      or if skipped is non-empty and --allow-missing-deps was not passed.
+      --allow-missing-deps must print a loud stderr warning and must not
+      be used in CI. Update the ci-fast.yml step to remove the grep
+      workaround (now redundant) and optionally add pipefail for
+      belt-and-suspenders.
+    verification: >-
+      python3 cross_verify.py in an environment missing PyNaCl exits
+      non-zero and prints the skipped generator names to stderr.
+      python3 cross_verify.py --allow-missing-deps in the same environment
+      exits 0 but prints a WARN line to stderr listing skipped generators.
+      CI installs all required deps; cross_verify.py exits 0 with all
+      generators producing output.
+    commit: ""
