@@ -3159,16 +3159,22 @@ findings:
     blocks: "fix/mvp2-test-vectors"
     status: open
     remediation: >-
-      Update generate_aead_vectors() in cross_verify.py to use build_aad_v1()
-      with the canonical 79-byte meissnerseal-aad-v1 domain prefix. Remove the
-      hardcoded aad hex and the assert len(aad) == 74. Recompute ciphertext and
-      tag values. Bump the function's output version field to 2 to match the
-      current JSON. Verify with python3 cross_verify.py aead followed by
-      git diff showing no change to aead_xchacha20_v1.json.
+      First decide the intended scope of aead_xchacha20_v1.json: either
+      (A) "raw XChaCha20-Poly1305 primitive with arbitrary test AAD" — in
+      which case update the description to state this explicitly, keep the
+      existing 79-byte AAD as a fixed arbitrary test input, and update
+      generate_aead_vectors() to reproduce it deterministically; or
+      (B) "canonical vault AEAD with build_aad_v1() AAD" — in which case
+      replace the hardcoded aad hex with a call to build_aad_v1() and
+      recompute all ciphertext/tag values. Remove the hardcoded aad bytes
+      and the assert len(aad) == 74 from generate_aead_vectors() regardless
+      of which option is chosen. Bump the output version to 2. Verify with
+      python3 cross_verify.py aead; git diff must show no change to
+      aead_xchacha20_v1.json.
     verification: >-
       python3 cross_verify.py aead produces no git diff against
       aead_xchacha20_v1.json. The JSON ciphertext and tag values match
-      independent PyNaCl computation with the 79-byte canonical AAD.
+      independent PyNaCl computation with the chosen AAD construction.
     commit: ""
 
   - id: F-111
@@ -3191,13 +3197,14 @@ findings:
     status: open
     remediation: >-
       In cross_verify.py generate_aad_vectors(): change the top-level
-      description from "74 bytes" to "79 bytes"; set aad_length to len(aad)
-      (dynamically computed from build_aad_v1 output) for all three cases.
-      Regenerate vault_format_v1.json and confirm all three cases show
-      aad_length: 79.
+      description from "74 bytes" to "79 bytes"; replace all hardcoded
+      aad_length: 74 values with len(aad) so the field is always derived
+      from the actual build_aad_v1() output, never hardcoded. Regenerate
+      vault_format_v1.json and confirm all three cases show aad_length: 79.
     verification: >-
       python3 cross_verify.py aad produces no git diff against
-      vault_format_v1.json. All three cases show aad_length: 79.
+      vault_format_v1.json. All three cases show aad_length: 79 derived
+      from len(build_aad_v1(...)), not a hardcoded literal.
     commit: ""
 
   - id: F-112
