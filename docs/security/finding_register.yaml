@@ -3448,3 +3448,35 @@ findings:
       ci-fast.yml includes validate_vectors.py and generate_export_import.py.
       README File Inventory matches the actual set of *.json files.
     commit: ""
+
+  - id: F-118
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      In generate_aead_vectors(), nacl.exceptions.CryptoError is caught at
+      L561 before the explicit "import nacl.exceptions" statement at L564.
+      The reference at L561 works in practice because importing nacl.bindings
+      (done at L532 via "import nacl.bindings") causes nacl.exceptions to be
+      loaded as a side effect of the PyNaCl import chain. However, relying on
+      this implicit transitive import is fragile: a future refactor that moves
+      the nacl.bindings import or changes the import order could cause a
+      NameError at L561 at runtime with no obvious connection to the import
+      ordering bug.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Move "import nacl.exceptions" to the top of generate_aead_vectors()
+      alongside "import nacl.bindings" (L532), or hoist both into a single
+      block at the top of the function. The import must appear before any
+      except clause that references nacl.exceptions.CryptoError.
+    verification: >-
+      "import nacl.exceptions" appears before the first
+      "except nacl.exceptions.CryptoError" in generate_aead_vectors().
+      python3 cross_verify.py aead runs without NameError in an environment
+      where nacl.bindings is available but no prior code has imported
+      nacl.exceptions.
+    commit: ""
