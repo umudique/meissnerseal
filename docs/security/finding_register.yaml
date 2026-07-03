@@ -3395,3 +3395,52 @@ findings:
       verifiers. CI step references the correct filename. README and
       docstrings consistently describe each script's role.
     commit: ""
+
+  - id: F-117
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/ (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      No automated shape validator exists for the test-vectors/ directory.
+      Five classes of check are absent:
+      (1) Hex parseability: no script reads all JSON vector files and
+      attempts bytes.fromhex() on every hex field to catch truncated or
+      non-hex values.
+      (2) Declared-length vs actual-length: no script compares aad_length,
+      key length, or similar declared fields against the byte count of the
+      corresponding hex value. F-111 (aad_length: 74 vs 79-byte hex) was
+      caught only by manual inspection.
+      (3) Forbidden prefix scan: no check detects pre-rename namespace
+      strings (arcanum-aad-v1 is still present in cross_verify.py L537;
+      any stale value copied into a vector file would go undetected).
+      (4) README inventory completeness: export_import_v1.json and
+      signing_ed25519_v1.json exist on disk but are absent from the README
+      File Inventory; transfer_hybrid_v1.json is listed as "Planned (not
+      yet created)" but the file exists.
+      (5) Generator/verifier CI coverage: generate_export_import.py
+      produces export_import_v1.json but neither script appears in
+      ci-fast.yml; the file has no CI drift guard and no read-only
+      verifier wired into the pipeline.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a validate_vectors.py script (read-only, no writes) that:
+      iterates every *.json in test-vectors/; for each hex string field
+      calls bytes.fromhex() and compares len() against any co-located
+      declared length field; scans all string fields for forbidden
+      substrings (arcanum, qvault, ARCEXP where not expected); cross-
+      checks the README inventory against the actual file list. Wire
+      validate_vectors.py into ci-fast.yml before the git diff step so
+      shape errors fail CI independently of the generator drift check.
+      Separately, add generate_export_import.py to ci-fast.yml and update
+      README with the missing and misclassified files.
+    verification: >-
+      python3 validate_vectors.py exits 0 on a clean repo and exits 1
+      when a hex field is truncated, a declared length mismatches, a
+      forbidden prefix is present, or the README inventory is incomplete.
+      ci-fast.yml includes validate_vectors.py and generate_export_import.py.
+      README File Inventory matches the actual set of *.json files.
+    commit: ""
