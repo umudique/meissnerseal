@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-07-02
+updated: 2026-07-04
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -136,6 +136,41 @@ root_causes:
       ZeroizeOnDrop), with_item returning Result<()> (closure cannot return T),
       TrustedSender (constructable only from verified DeviceIdentity),
       SealedDeviceKeyFile (sealed write/open API, no raw byte exposure).
+
+  - id: RC-TV-B
+    name: "Incomplete arcanum→meissnerseal rename in test vector scripts and wire format"
+    date: 2026-07-04
+    description: >-
+      When the project was renamed from arcanum/qvault to meissnerseal, domain
+      strings, magic bytes, and namespace constants in test vector scripts were
+      not updated atomically. The production implementation was updated (all
+      meissnerseal-* prefixes, MEISSNER wire magic) but the test vector layer
+      retained pre-rename artifacts. This creates a structural divergence between
+      the canonical values enforced by the production code and the values
+      hardcoded in the generators and wire-format constants. The rename affected
+      at least two distinct layers: (1) domain prefix strings embedded in AAD
+      construction (arcanum-aad-v1 vs meissnerseal-aad-v1), and (2) wire format
+      magic bytes (ARCEXP vs MSEXP). Because generators write JSON from these
+      stale values, the CI drift guard correctly rejects their output — the
+      rename drift is caught, but it makes regeneration impossible until the
+      generators are updated.
+    pattern: >-
+      rename(arcanum → meissnerseal) applied to production code +
+      not applied to test vector generators + wire constants
+    instances:
+      - finding: F-110
+        location: "test-vectors/cross_verify.py L537"
+        surface: "generate_aead_vectors() hardcodes b\"arcanum-aad-v1\" 14-byte prefix"
+      - finding: F-117
+        location: "test-vectors/generate_export_import.py L28 + crates/meissnerseal-core/src/export.rs L27"
+        surface: "ARCEXP_MAGIC = b\"ARCEXP\\x01\\x00\" — pre-rename wire magic in both Python and Rust"
+    remediation_pattern: >-
+      Update all pre-rename strings atomically: replace arcanum-aad-v1 with
+      meissnerseal-aad-v1 in generate_aead_vectors(); rename ARCEXP_MAGIC to
+      MSEXP_MAGIC and b"ARCEXP\x01\x00" to b"MSEXP\x01\x00" in both
+      generate_export_import.py and export.rs in the same commit. Add a
+      forbidden-prefix scan (validate_vectors.py, F-117) to prevent
+      re-introduction.
 
 findings:
   # ── meissnerseal-core code-review findings (Consistency + Security agents) ─────────
@@ -3156,6 +3191,11 @@ findings:
       run a valid regeneration without first fixing generate_aead_vectors().
       The stale generator also produces vectors that do not match the
       canonical AAD enforced by the production implementation.
+      Additionally, the generator returns "version": 1 while the JSON file
+      is "version": 2 (updated manually for F-56/F-57), so running the
+      generator causes a two-field diff (AAD prefix + version number).
+      The version field must also be bumped to 2 in the fix.
+    root_cause: RC-TV-B
     cwe: "CWE-325"
     severity: high
     blocking: true
@@ -3530,6 +3570,7 @@ findings:
     component: test-vectors
     source: "test vector review — test-vectors/ (2026-07-03)"
     date: 2026-07-03
+    root_cause: RC-TV-B
     description: >-
       No automated shape validator exists for the test-vectors/ directory.
       Five classes of check are absent:
@@ -3608,4 +3649,115 @@ findings:
       python3 cross_verify.py aead runs without NameError in an environment
       where nacl.bindings is available but no prior code has imported
       nacl.exceptions.
+    commit: ""
+
+  - id: F-122
+    kind: security_architecture
+    component: meissnerseal-core
+    source: "test vector review — cross-analysis of format.rs and cross_verify.py (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      In parse_vault_header() (format.rs), pqc_profile is initialized as
+      Some(0) (L1172) rather than None. This means a vault file with the
+      TAG_PQC_PROFILE TLV absent is accepted silently with pqc_profile=0
+      (PQC_NONE). The TAG_PQC_PROFILE TLV is also written with flags=0
+      (non-critical, L451) in both the Rust serializer and the Python
+      generator. The combination creates a double non-mandatory path:
+      (a) non-critical flag — a parser that does not know tag 0x0005
+      skips it silently; (b) Some(0) default — even a parser that does
+      know the tag accepts a vault where the TLV is absent.
+      Consequence: the .ok_or_else(|| format_error("missing pqc_profile"))
+      at L1271 is dead code — pqc_profile can never be None at that point,
+      so the "missing pqc_profile" error is unreachable.
+      Mitigation: the 79-byte canonical AAD already binds pqc_profile; a
+      stripped or modified pqc_profile TLV causes a miscomputed AAD and
+      therefore an AEAD authentication failure — the attack fails closed
+      at the decryption step. A comment at L1168-1171 explicitly documents
+      that this defaulting behaviour is intentional for the current MVP
+      phase: "When PQC becomes active this MUST change to None + reject so
+      a stripped tag cannot force a silent downgrade." However, three gaps
+      remain: (1) the dead error path at L1271 is misleading; (2) no test
+      vector exercises the "absent pqc_profile TLV → parsed as PQC_NONE"
+      intentional behaviour; (3) the TODO has no gating mechanism to enforce
+      activation when PQC becomes live.
+    cwe: "CWE-636"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Short term: remove the dead .ok_or_else("missing pqc_profile") at
+      L1271 (or change it to an assert) to make the defaulting intent
+      explicit rather than disguised as a required-field check. Add an
+      acceptance test vector to vault_format_struct_v1.json with the
+      pqc_profile TLV absent from the header to document and pin the
+      intentional PQC_NONE default behaviour.
+      Long term (when PQC becomes active): change "let mut pqc_profile =
+      Some(0)" to "let mut pqc_profile = None" and restore the
+      .ok_or_else error path so a vault without the TLV is rejected.
+      Gate this change on a feature flag or a PqcActive compile-time
+      assertion so it cannot be missed. Also change TAG_PQC_PROFILE to
+      CRITICAL_FLAG so future parsers cannot silently ignore it.
+    verification: >-
+      No unreachable error path exists at L1271 (dead code analysis or
+      review). vault_format_struct_v1.json (or a dedicated acceptance
+      fixture) includes a case "pqc-profile-tlv-absent-defaults-to-none"
+      where the serialized vault omits TAG_PQC_PROFILE and the parsed
+      pqc_profile is 0. The test passes and git diff shows no change to
+      the vector file after regeneration.
+    commit: ""
+
+  - id: F-123
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/vault_kdf_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      vault_kdf_v1.json covers the happy-path KDF chain (MUK, VKEK, root
+      PRK, all 7 HKDF subkeys) with a single fixed (password, vault_id)
+      pair. Three classes of test are absent:
+      (1) Domain-separation positive cases: no case exercises MUK
+      distinctness when vault_id changes (same password, different vault_id).
+      vault_wrap_v1.json B3 exercises cross-vault VKEK/wrapped-output
+      distinctness but not MUK-level distinctness; vault_kdf_v1.json itself
+      has no such case.
+      (2) Different-password MUK distinctness: vault_wrap_v1.json B4
+      ("wrong-password-muk-distinct") records that a different password yields
+      a distinct MUK and VKEK, but this case is embedded in the wrap file
+      rather than in the KDF file. vault_kdf_v1.json has no standalone
+      different-password MUK case; cross-referencing the chain requires
+      reading across two vector files.
+      (3) Negative / boundary cases absent entirely: no vector file covers
+      Argon2id param boundary rejections — unsupported argon2_version
+      (anything other than 0x13), m_cost_kib below the KDF_ARGON2ID_V1
+      minimum, t_cost below minimum, p_lanes below minimum, or output_len
+      != 32. These are the same parameter surfaces exploited by the KOK-A
+      root cause (F-61) and should be confirmed fail-closed by independent
+      Python-generated rejection vectors. No vault_kdf_negative_v1.json
+      file exists.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add two positive cases to vault_kdf_v1.json via
+      generate_kdf_vectors(): "muk-domain-separation-vault-id" (same
+      password, vault_id2 != vault_id1, assert muk2 != muk1) and promote
+      the B4 case from vault_wrap_v1.json to a standalone
+      "muk-domain-separation-password" case here so the KDF chain is
+      self-contained.
+      (2) Create vault_kdf_negative_v1.json with a
+      generate_kdf_negative_vectors() function covering: unsupported
+      argon2_version (e.g. 0x10), m_cost_kib < minimum (e.g. 1024),
+      t_cost < minimum (e.g. 0), p_lanes < minimum (e.g. 0), output_len
+      != 32 (e.g. 16). Each case must record the param set, the expected
+      Err reason, and assert that the Rust parser rejects it before
+      invoking Argon2id. Wire the new generator into GENERATORS and
+      ci-fast.yml.
+    verification: >-
+      vault_kdf_v1.json includes "muk-domain-separation-vault-id" and
+      "muk-domain-separation-password" cases with assert muk1 != muk2.
+      vault_kdf_negative_v1.json exists with at least one case per
+      boundary class listed above. python3 cross_verify.py kdf and
+      python3 cross_verify.py kdf_negative produce no git diff. The
+      Rust KAT for each negative case returns Err before calling argon2.
     commit: ""
