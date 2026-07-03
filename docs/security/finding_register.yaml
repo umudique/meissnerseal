@@ -3414,13 +3414,10 @@ findings:
       (3) Forbidden prefix scan: no check detects pre-rename namespace
       strings (arcanum-aad-v1 is still present in cross_verify.py L537;
       any stale value copied into a vector file would go undetected).
-      Note: ARCEXP_MAGIC (b"ARCEXP\x01\x00") is the canonical on-wire
-      binary framing constant for the .msexp export format; it is defined
-      in both generate_export_import.py and export.rs and is not a stale
-      artifact. Renaming it to MSEXP requires a versioned wire-format
-      migration. The forbidden prefix scan should treat ARCEXP_MAGIC as a
-      known pre-rename constant and exclude it from the scan scope until
-      the migration is complete.
+      Note: ARCEXP_MAGIC (b"ARCEXP\x01\x00") is a pre-rename artifact in
+      both generate_export_import.py and export.rs (Rust). It must be
+      renamed to MSEXP (b"MSEXP\x01\x00" or similar) atomically across
+      both files. The forbidden prefix scan should flag ARCEXP_MAGIC.
       (4) README inventory completeness: export_import_v1.json and
       signing_ed25519_v1.json exist on disk but are absent from the README
       File Inventory; transfer_hybrid_v1.json is listed as "Planned (not
@@ -3438,8 +3435,7 @@ findings:
       iterates every *.json in test-vectors/; for each hex string field
       calls bytes.fromhex() and compares len() against any co-located
       declared length field; scans all string fields for forbidden
-      substrings (arcanum-aad-v1, qvault; exclude ARCEXP_MAGIC which is a
-      known pre-rename wire-format constant pending migration); cross-
+      substrings (arcanum-aad-v1, qvault, ARCEXP); cross-
       checks the README inventory against the actual file list. Wire
       validate_vectors.py into ci-fast.yml before the git diff step so
       shape errors fail CI independently of the generator drift check.
