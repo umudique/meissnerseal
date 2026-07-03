@@ -3307,6 +3307,47 @@ findings:
       only targets that exist in GENERATORS.
     commit: ""
 
+  - id: F-120
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      seal_record_table_v2() defines sealed_table_len = len(nonce) +
+      len(ct_tag) (L965), which is the value written into the 4-byte u32le
+      at the start of the section; it excludes those 4 bytes. The full
+      section is therefore 4 + sealed_table_len bytes. In _build_valid_v2_vault()
+      the vault prefix stores u32le(len(table_section)) (L1193), which equals
+      sealed_table_len + 4. The vector JSON exports both under similar names:
+      "sealed_table_len" = nonce + ct (without the 4-byte header), and
+      "table_len" = full section length (with the 4-byte header). The two
+      quantities differ by exactly 4 bytes (sizeof(u32le)) and the naming
+      does not make this distinction explicit. A parser that conflates
+      the section-internal length field with the vault-prefix length field
+      (or reads the wrong JSON key during test implementation) will be
+      off by 4, producing a read that overruns the section by 4 bytes or
+      stops 4 bytes short of the authenticated ciphertext boundary.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rename the variables and JSON fields to make the distinction
+      explicit. For example: sealed_content_len (= nonce + ct, the
+      section-internal field value) vs sealed_section_len (= 4 +
+      sealed_content_len, the vault-prefix field value). Update the
+      vector JSON keys to match: "sealed_content_len" and
+      "sealed_section_len". Add an inline comment in seal_record_table_v2()
+      and _build_valid_v2_vault() noting that the vault prefix stores
+      the full section length (including the 4-byte self-length field),
+      while the section-internal u32le stores only the content length.
+    verification: >-
+      No variable or JSON field named "sealed_table_len" or "table_len"
+      exists without a comment distinguishing content-length from
+      section-length. The two quantities are referenced by distinct names
+      throughout cross_verify.py and the exported vector JSON.
+    commit: ""
+
   - id: F-114
     kind: consistency
     component: test-vectors
