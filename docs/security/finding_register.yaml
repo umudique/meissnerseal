@@ -3273,3 +3273,42 @@ findings:
       CI installs all required deps; cross_verify.py exits 0 with all
       generators producing output.
     commit: ""
+
+  - id: F-114
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      xchacha20_poly1305_encrypt() (L228) and xchacha20_poly1305_decrypt()
+      (L268) are dead code: no generator calls them. All actual encryption
+      in the file is performed via xchacha_encrypt()/xchacha_decrypt()
+      (L726/L731), which call nacl.bindings directly. The dead wrappers
+      additionally contain a logic error: xchacha20_poly1305_encrypt()
+      first imports ChaCha20Poly1305 (12-byte nonce, wrong variant), then
+      attempts to import XChaCha20Poly1305 from cryptography, and on
+      ImportError falls into a PyNaCl fallback block that immediately raises
+      NotImplementedError with a TODO comment — even though nacl.bindings
+      is already imported at that point and is capable of performing the
+      operation. xchacha20_poly1305_decrypt() has no PyNaCl fallback at all.
+      requirements.txt implies cryptography handles XChaCha20 but in
+      practice XChaCha20 is provided exclusively by PyNaCl/libsodium.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Remove xchacha20_poly1305_encrypt() and xchacha20_poly1305_decrypt()
+      entirely. They are unreachable and the broken fallback logic creates
+      confusion about the dependency model. Consolidate on xchacha_encrypt()
+      and xchacha_decrypt() as the single XChaCha20-Poly1305 interface.
+      Update the module docstring and requirements.txt comment to state
+      that XChaCha20-Poly1305 is provided by PyNaCl/libsodium, not
+      cryptography.
+    verification: >-
+      grep finds no definition of xchacha20_poly1305_encrypt or
+      xchacha20_poly1305_decrypt in cross_verify.py. All call sites use
+      xchacha_encrypt or xchacha_decrypt or nacl.bindings directly.
+      python3 cross_verify.py produces no errors and no git diff against
+      the vector files.
+    commit: ""
