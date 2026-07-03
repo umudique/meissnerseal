@@ -3150,9 +3150,12 @@ findings:
       arcanum-aad-v1 14-byte domain prefix and asserts len(aad) == 74.
       aead_xchacha20_v1.json was updated to 79-byte meissnerseal-aad-v1 AAD
       (F-56/F-57, version bumped to 2) but the generator was not. Running
-      cross_verify.py aead overwrites the JSON with stale 74-byte values,
-      breaking the CI drift guard and producing vectors that do not match
-      the canonical AAD enforced by the production implementation.
+      cross_verify.py aead overwrites the JSON with stale 74-byte values;
+      git diff then detects the change and CI fails. The drift guard is
+      working correctly but the broken generator makes it impossible to
+      run a valid regeneration without first fixing generate_aead_vectors().
+      The stale generator also produces vectors that do not match the
+      canonical AAD enforced by the production implementation.
     cwe: "CWE-325"
     severity: high
     blocking: true
@@ -3285,7 +3288,7 @@ findings:
       in the file is performed via xchacha_encrypt()/xchacha_decrypt()
       (L726/L731), which call nacl.bindings directly. The dead wrappers
       additionally contain a logic error: xchacha20_poly1305_encrypt()
-      first imports ChaCha20Poly1305 (12-byte nonce, wrong variant), then
+      probes cryptography availability by importing ChaCha20Poly1305, then
       attempts to import XChaCha20Poly1305 from cryptography, and on
       ImportError falls into a PyNaCl fallback block that immediately raises
       NotImplementedError with a TODO comment — even though nacl.bindings
@@ -3324,16 +3327,18 @@ findings:
       of the pinned commit recorded in mlkem_768_kat_v1.json source metadata
       (commit: 65370b861b96efd30dfe0daae607bde26a78a5c8). CI calls the
       verifier without --offline, so every CI run fetches from upstream
-      master HEAD. If NIST upstream master advances (new test cases, format
-      changes, tcId renumbering), the verifier may silently compare against
-      different data than the local vectors were sourced from — producing
-      false failures or, if the field values happen to collide, masking
-      local drift. Separately, in a network-unavailable environment the
-      script falls back to format-only mode without any indication that the
-      upstream comparison was skipped, which is a silent degradation similar
-      to F-113.
+      master HEAD. If NIST upstream master advances or restructures the
+      JSON format (e.g. testGroups schema change, tcId renumbering), fetch_nist()
+      may return an empty result or unexpected data; len(nist) != len(TC_IDS)
+      would catch an empty result, but a structural change that still
+      returns the right count could produce false failures. The deeper
+      issue is reproducibility: the verifier is not anchored to the commit
+      from which the local vectors were sourced, so the comparison is not
+      strictly reproducible across time. Separately, in a network-unavailable
+      environment the script falls back to format-only mode and exits 0
+      without signalling that the upstream comparison was skipped.
     cwe: null
-    severity: medium
+    severity: low
     blocking: false
     status: open
     remediation: >-
