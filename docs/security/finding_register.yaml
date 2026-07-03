@@ -3312,3 +3312,43 @@ findings:
       python3 cross_verify.py produces no errors and no git diff against
       the vector files.
     commit: ""
+
+  - id: F-115
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/mlkem_cross_verify.py (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      mlkem_cross_verify.py NIST_URL uses the /master/ ref
+      (raw.githubusercontent.com/usnistgov/ACVP-Server/master/...) instead
+      of the pinned commit recorded in mlkem_768_kat_v1.json source metadata
+      (commit: 65370b861b96efd30dfe0daae607bde26a78a5c8). CI calls the
+      verifier without --offline, so every CI run fetches from upstream
+      master HEAD. If NIST upstream master advances (new test cases, format
+      changes, tcId renumbering), the verifier may silently compare against
+      different data than the local vectors were sourced from — producing
+      false failures or, if the field values happen to collide, masking
+      local drift. Separately, in a network-unavailable environment the
+      script falls back to format-only mode without any indication that the
+      upstream comparison was skipped, which is a silent degradation similar
+      to F-113.
+    cwe: null
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace /master/ in NIST_URL with the pinned commit SHA recorded in
+      mlkem_768_kat_v1.json (65370b861b96efd30dfe0daae607bde26a78a5c8).
+      Add a NIST_COMMIT constant next to NIST_URL and assert that
+      mlkem_768_kat_v1.json source.commit matches it at runtime. Consider
+      vendoring the upstream internalProjection.json at the pinned commit
+      into the repo so CI does not require a live network call; the
+      mlkem_cross_verify.py verifier would then diff against the vendored
+      copy and the NIST URL would be used only to refresh the vendor copy
+      intentionally.
+    verification: >-
+      NIST_URL contains the pinned commit SHA, not /master/. Running
+      mlkem_cross_verify.py in an offline environment (or with the URL
+      blocked) exits non-zero rather than silently passing format-only.
+      mlkem_768_kat_v1.json source.commit matches the SHA in NIST_URL.
+    commit: ""
