@@ -3277,6 +3277,36 @@ findings:
       generators producing output.
     commit: ""
 
+  - id: F-119
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      The module docstring documents "python3 cross_verify.py hkdf" as a
+      valid usage example (L12) but no "hkdf" key exists in the GENERATORS
+      dict. Running the command produces "Unknown target: hkdf" and exits 1.
+      The HKDF functions (hkdf_extract_sha256, hkdf_expand_sha256) exist
+      in the file but are used internally by the kdf generator, not exposed
+      as a standalone target. The docstring is either stale (the hkdf target
+      was removed) or aspirational (it was never implemented).
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Either add an "hkdf" entry to GENERATORS with a dedicated
+      generate_hkdf_vectors() function that produces domain-separation
+      vectors for hkdf_extract_sha256 and hkdf_expand_sha256 independently
+      of the kdf target; or remove the "hkdf" example from the docstring
+      and update the usage block to reflect the actual available targets.
+    verification: >-
+      python3 cross_verify.py hkdf either succeeds and produces a vector
+      file, or the docstring contains no reference to the hkdf target.
+      python3 cross_verify.py --help (or with an invalid target) lists
+      only targets that exist in GENERATORS.
+    commit: ""
+
   - id: F-114
     kind: consistency
     component: test-vectors
