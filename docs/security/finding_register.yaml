@@ -3139,3 +3139,90 @@ findings:
       30 seconds produces zero crashes. The target exercises parse_bundle and
       deserialize_item_set reachable from the public import() surface.
     commit: ""
+
+  - id: F-110
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      cross_verify.py generate_aead_vectors() hardcodes the pre-rename
+      arcanum-aad-v1 14-byte domain prefix and asserts len(aad) == 74.
+      aead_xchacha20_v1.json was updated to 79-byte meissnerseal-aad-v1 AAD
+      (F-56/F-57, version bumped to 2) but the generator was not. Running
+      cross_verify.py aead overwrites the JSON with stale 74-byte values,
+      breaking the CI drift guard and producing vectors that do not match
+      the canonical AAD enforced by the production implementation.
+    cwe: "CWE-325"
+    severity: high
+    blocking: true
+    blocks: "fix/mvp2-test-vectors"
+    status: open
+    remediation: >-
+      Update generate_aead_vectors() in cross_verify.py to use build_aad_v1()
+      with the canonical 79-byte meissnerseal-aad-v1 domain prefix. Remove the
+      hardcoded aad hex and the assert len(aad) == 74. Recompute ciphertext and
+      tag values. Bump the function's output version field to 2 to match the
+      current JSON. Verify with python3 cross_verify.py aead followed by
+      git diff showing no change to aead_xchacha20_v1.json.
+    verification: >-
+      python3 cross_verify.py aead produces no git diff against
+      aead_xchacha20_v1.json. The JSON ciphertext and tag values match
+      independent PyNaCl computation with the 79-byte canonical AAD.
+    commit: ""
+
+  - id: F-111
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/vault_format_v1.json (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      vault_format_v1.json top-level description says "74 bytes" and the
+      aad-pqc-mlkem768-wrappedrootkey and aad-auditevent-kind cases contain
+      aad_length: 74. The aad_hex values in both cases are 79 bytes
+      (meissnerseal-aad-v1 prefix = 19 bytes). The aad-basic-item case
+      correctly states aad_length: 79. The discrepancy originates in
+      cross_verify.py generate_aad_vectors() which hardcodes aad_length: 74
+      for those two cases.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    blocks: "fix/mvp2-test-vectors"
+    status: open
+    remediation: >-
+      In cross_verify.py generate_aad_vectors(): change the top-level
+      description from "74 bytes" to "79 bytes"; set aad_length to len(aad)
+      (dynamically computed from build_aad_v1 output) for all three cases.
+      Regenerate vault_format_v1.json and confirm all three cases show
+      aad_length: 79.
+    verification: >-
+      python3 cross_verify.py aad produces no git diff against
+      vault_format_v1.json. All three cases show aad_length: 79.
+    commit: ""
+
+  - id: F-112
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/cross_verify.py (2026-07-03)"
+    date: 2026-07-03
+    description: >-
+      transfer_hybrid_v1.json exists and is consumed by Rust KAT tests but
+      is not listed in the cross_verify.py GENERATORS dict (the entry is
+      commented out). The file has a separate transfer_hybrid_cross_verify.py
+      verifier but it is not invoked by the main CI drift guard. A regression
+      in the transfer key derivation would not be caught by cross_verify.py.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a generate_transfer_vectors() function to cross_verify.py that
+      produces transfer_hybrid_v1.json deterministically. Wire it into
+      GENERATORS as "transfer". Alternatively, integrate
+      transfer_hybrid_cross_verify.py into the ci-fast drift guard job so
+      it runs alongside cross_verify.py.
+    verification: >-
+      python3 cross_verify.py transfer produces no git diff against
+      transfer_hybrid_v1.json, or transfer_hybrid_cross_verify.py is
+      invoked in ci-fast.yml and passes.
+    commit: ""
