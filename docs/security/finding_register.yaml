@@ -4359,6 +4359,15 @@ findings:
       [0xAB, 0xCD] correctly. cargo test -p meissnerseal-pqc passes with
       no regressions.
     commit: ""
+    note: >-
+      2026-07-05 mldsa.rs — mldsa.rs:400 from_hex() has the even-length
+      guard (assert_eq!(s.len() % 2, 0, "hex string must have even
+      length: {s}")) but (a) still uses .chunks(2) instead of
+      .chunks_exact(2), and (b) prints the full input string via {s} in
+      the panic message. When the input is a private_key_seed hex string
+      the seed bytes are exposed in the panic output. The F-133
+      remediation template (assert_eq! without {s} + chunks_exact(2))
+      applies to mldsa.rs:400 as well; include it in the same fix batch.
 
   - id: F-134
     kind: coverage_gap
@@ -4722,4 +4731,224 @@ findings:
       and ciphertext_len = 15 pass. cargo test -p meissnerseal-core
       exits 0. §10 aad_len = 79 rule is consistent with the corrected
       §7 value (79 bytes, not 74).
+    commit: ""
+
+  - id: F-139
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mldsa.rs #[cfg(test)] (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Three negative-path cases are missing from mldsa.rs signing tests:
+
+      (1) verify_with_domain wrong-domain rejection — the existing test
+      sign_with_domain_matches_manual_domain_prepend only verifies the
+      positive path. No test calls verify_with_domain with a domain
+      that differs from the one used at sign time and asserts
+      VerificationFailed. Similarly, no test verifies that a wrong
+      payload triggers VerificationFailed through verify_with_domain.
+
+      (2) 64-byte tampered signature — verify_rejects_malformed_signature_
+      length (L451) uses a 5-byte signature and asserts MalformedSignature.
+      No test supplies a well-formed 64-byte signature with flipped bits
+      and asserts VerificationFailed. The wrong-message test (L428) covers
+      the message side but not the signature side.
+
+      (3) AlgorithmMismatch reverse direction — verify_rejects_algorithm_
+      mismatch (L470) uses Ed25519V1 public key + Ed25519MlDsa87HybridV1
+      signature. The reverse (Ed25519MlDsa87HybridV1 public key +
+      Ed25519V1 signature) is not tested; the verify() early-return guard
+      is symmetric but the coverage is not.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add three tests to mldsa.rs #[cfg(test)]:
+
+        #[test]
+        fn verify_with_domain_rejects_wrong_domain() {
+            let (pub_key, priv_key) = ed25519_keypair();
+            let payload = b"payload";
+            let sig = sign_with_domain(&priv_key, b"domain.a\x00", payload)
+                .expect("sign");
+            assert!(matches!(
+                verify_with_domain(&pub_key, b"domain.b\x00", payload, &sig),
+                Err(SigningError::VerificationFailed)
+            ));
+        }
+
+        #[test]
+        fn verify_with_domain_rejects_wrong_payload() {
+            let (pub_key, priv_key) = ed25519_keypair();
+            let domain = b"meissnerseal.test.v1\x00";
+            let sig = sign_with_domain(&priv_key, domain, b"payload")
+                .expect("sign");
+            assert!(matches!(
+                verify_with_domain(&pub_key, domain, b"altered", &sig),
+                Err(SigningError::VerificationFailed)
+            ));
+        }
+
+        #[test]
+        fn verify_rejects_tampered_signature() {
+            let private_key = ed25519_private_key();
+            let public_key = ed25519_public_key();
+            let mut sig_bytes = sign(&private_key, MESSAGE)
+                .expect("sign").as_bytes().to_vec();
+            sig_bytes[0] ^= 0xff;
+            let tampered = Signature::new(SigningAlgorithmId::Ed25519V1, sig_bytes);
+            assert!(matches!(
+                verify(&public_key, MESSAGE, &tampered),
+                Err(SigningError::VerificationFailed)
+            ));
+        }
+
+        #[test]
+        fn verify_rejects_algorithm_mismatch_reverse() {
+            let public_key = SigningPublicKey::new(
+                SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0u8; 64]);
+            let signature = Signature::new(
+                SigningAlgorithmId::Ed25519V1, vec![0u8; 64]);
+            assert!(matches!(
+                verify(&public_key, MESSAGE, &signature),
+                Err(SigningError::AlgorithmMismatch)
+            ));
+        }
+    verification: >-
+      All four new tests pass. verify_with_domain negative paths return
+      VerificationFailed. tampered-signature test returns VerificationFailed
+      not MalformedSignature. AlgorithmMismatch reverse test returns
+      AlgorithmMismatch. cargo test -p meissnerseal-pqc exits 0.
+    commit: ""
+
+  - id: F-140
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mldsa.rs #[cfg(test)] ed25519_v1_kat_all_cases_match (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The ed25519_v1_kat_all_cases_match test (mldsa.rs:552) has three
+      KAT metadata validation gaps:
+
+      (1) Top-level metadata not asserted — KatFile struct (L381) deserializes
+      only algorithm_id_u16_le and cases. Fields such as profile, version
+      (or schema), and any algorithm descriptor are silently ignored. A
+      corrupt or mismatched KAT file with wrong profile would not be
+      caught. The test does not assert algorithm_id_u16_le == "0100"
+      as a constant; it only compares it against the produced signature
+      tag, so a file where both fields are wrong would still pass.
+
+      (2) case_id uniqueness not verified — the test iterates cases in
+      order without collecting case_id values into a set. Duplicate
+      case_ids (e.g. from a merge error in the JSON file) would be
+      silently accepted.
+
+      (3) Seed-to-public-key derivation not asserted — the test loads
+      seed and public_key from the JSON as independent fields and passes
+      them directly to SigningPrivateKey / SigningPublicKey constructors.
+      It never derives the public key from the seed and compares it to
+      case.public_key. A KAT file where the public_key field does not
+      correspond to the seed would produce a verify() failure but the
+      diagnostic would not distinguish "wrong derived key" from "wrong
+      algorithm in verify()".
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend KatFile struct to include profile and schema (or version)
+      fields and assert their expected values before processing cases.
+      Assert algorithm_id_u16_le == "0100" as a constant at the start
+      of the test. Add a case_id uniqueness check:
+
+        let mut seen_ids = std::collections::HashSet::new();
+        for case in &kat.cases {
+            assert!(seen_ids.insert(&case.case_id),
+                "duplicate case_id: {}", case.case_id);
+            ...
+        }
+
+      Assert seed-to-public-key derivation inside the per-case loop:
+
+        let seed_array: [u8; 32] = seed.as_slice()
+            .try_into().expect("seed must be 32 bytes");
+        let derived_pub = ed25519_dalek::SigningKey::from_bytes(&seed_array)
+            .verifying_key().to_bytes().to_vec();
+        assert_eq!(derived_pub, public_key_bytes,
+            "{}: public_key does not match seed derivation", case.case_id);
+    verification: >-
+      Test asserts algorithm_id_u16_le == "0100" before any case loop.
+      Duplicate case_id triggers a test panic with the offending id.
+      Seed-to-public-key assertion passes for all existing KAT cases.
+      A mutated KAT with a wrong public_key field fails the derivation
+      assert before reaching verify(). cargo test -p meissnerseal-pqc
+      exits 0.
+    commit: ""
+
+  - id: F-141
+    kind: consistency
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mldsa.rs:548 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      signing_private_key_holds_expected_algorithm_and_length (mldsa.rs:545)
+      accesses the private field bytes directly:
+
+        assert_eq!(private_key.bytes.len(), 32);
+
+      In Rust, child modules (mod tests) can access parent private fields,
+      so this compiles. However, SigningPrivateKey exposes an intentional
+      API surface for secret-byte access: with_secret_bytes(&self, f)
+      documented as "audited escape hatch for cross-crate serialization
+      (F-53)". The test bypasses this API and reads .bytes.len() directly,
+      circumventing the audit trail that with_secret_bytes is meant to
+      provide. If bytes were later refactored to a different wrapper type
+      the test would fail to compile rather than using the stable API.
+    cwe: "CWE-710"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the direct field access with the public API:
+
+        private_key.with_secret_bytes(|b| assert_eq!(b.len(), 32));
+
+      This uses the audited escape hatch as designed and does not
+      depend on the internal field name or wrapper type.
+    verification: >-
+      Test compiles and passes using with_secret_bytes. No direct access
+      to private_key.bytes in the test module. cargo test -p
+      meissnerseal-pqc exits 0.
+    commit: ""
+
+  - id: F-142
+    kind: consistency
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mldsa.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The file is named mldsa.rs (ML-DSA, FIPS 204 / CRYSTALS-Dilithium)
+      but contains no ML-DSA implementation or KAT. The #[cfg(test)] module
+      exclusively tests Ed25519V1 signing (KAT via signing_ed25519_v1.json)
+      and rejects the Ed25519MlDsa87HybridV1 hybrid slot with Unimplemented.
+      A future reader opening mldsa.rs expecting ML-DSA test coverage will
+      find none. The hybrid slot is gated on a PQ signing audit (ADR-028,
+      PQC-4); until that audit completes there can be no real ML-DSA KAT,
+      but this constraint is not stated in the test module or the file header.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a module-level doc comment to the #[cfg(test)] mod explaining
+      that ML-DSA KAT is deferred pending the PQ signing audit referenced
+      in ADR-028 / PQC-4, and that current tests cover Ed25519V1 and
+      the Unimplemented guard for the hybrid slot. Optionally rename the
+      file to signing.rs or signing_algorithms.rs to reflect its current
+      scope, updating all mod declarations and include_str! paths accordingly.
+    verification: >-
+      The test module header clearly documents the deferral. Either the
+      filename matches the actual scope or a doc comment explains the gap.
+      cargo test -p meissnerseal-pqc exits 0.
     commit: ""
