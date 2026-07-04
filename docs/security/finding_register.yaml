@@ -4333,3 +4333,88 @@ findings:
       [0xAB, 0xCD] correctly. cargo test -p meissnerseal-pqc passes with
       no regressions.
     commit: ""
+
+  - id: F-134
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mlkem.rs:223, hybrid.rs:240 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      parse_kat_field() in the test modules of mlkem.rs (L223) and
+      hybrid.rs (L240) parses JSON test vectors via raw string splitting
+      rather than typed deserialization. Both implementations:
+      (1) locate a marker string ("tcId": N or "case_id": "...") with
+      split_once, then scan forward for "{field}": " and extract the
+      value up to the next closing quote;
+      (2) rely on field ordering within each JSON object — if a later
+      field name appears earlier in the file (e.g. in a preceding case's
+      block), split_once returns the wrong slice. With the current
+      two-case and three-case vector files the ordering happens to be
+      safe, but this is an implicit dependency on JSON serialization
+      order that is not enforced by schema or test assertion;
+      (3) produce no error if a required field is entirely absent from
+      a case block — the parser silently reads into the next case's
+      data and returns a value without signalling the structural problem.
+      This means a KAT test can silently validate the wrong bytes if the
+      JSON is extended, reformatted, or if a field is accidentally
+      omitted. The root cause is the same in both files: parse_kat_field
+      was written to avoid a serde dev-dependency, but serde and
+      serde_json are already present in meissnerseal-pqc/Cargo.toml
+      (lines 22-23) so no Cargo.toml change is required.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace parse_kat_field() in both files with typed serde structs.
+      For mlkem.rs:
+
+        #[derive(serde::Deserialize)]
+        struct MlKemKatFile {
+            vectors: Vec<MlKemVector>,
+        }
+        #[derive(serde::Deserialize)]
+        struct MlKemVector {
+            #[serde(rename = "tcId")]
+            tc_id: usize,
+            ek: String, dk: String, c: String, k: String, m: String,
+        }
+
+      For hybrid.rs (struct must include all 9 JSON fields; note that
+      JSON keys use snake_case with full names — #[serde(rename)] is
+      required where the Rust field name differs, or use
+      #[serde(rename_all = "snake_case")] on the struct and keep Rust
+      field names identical to the JSON keys):
+
+        #[derive(serde::Deserialize)]
+        struct TransferHybridKatFile {
+            cases: Vec<TransferHybridVector>,
+        }
+        #[derive(serde::Deserialize)]
+        struct TransferHybridVector {
+            case_id: String,
+            sender_ephemeral_private_key: String,
+            sender_ephemeral_public_key: String,
+            recipient_classical_private_key: String,
+            recipient_classical_public_key: String,
+            pqc_shared_secret: String,
+            pqc_ciphertext: String,
+            transcript_hash: String,
+            expected_transfer_key: String,
+        }
+
+      All 9 fields are required; serde rejects a case missing any field.
+      recipient_classical_private_key is included so that F-135 gap (1)
+      (private→public assertion) can be implemented in the same pass.
+      Note: the top-level JSON key is "cases", not "vectors".
+      Use serde_json::from_str() to deserialize the include_str! constant
+      at test setup; index into the resulting Vec by case_id.
+      No Cargo.toml change is required — serde and serde_json are already
+      workspace dependencies in meissnerseal-pqc/Cargo.toml:22-23.
+    verification: >-
+      parse_kat_field() is removed from both mlkem.rs and hybrid.rs.
+      serde_json::from_str() returns Err (and the test panics with a
+      descriptive message) if any required field is missing from a vector
+      entry. cargo test -p meissnerseal-pqc exits 0 with all existing
+      KAT tests passing.
+    commit: ""
