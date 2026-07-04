@@ -4123,3 +4123,162 @@ findings:
       python3 generate_export_import.py produces no git diff after
       regeneration.
     commit: ""
+
+  - id: F-130
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/mlkem_768_kat_v1.json + mlkem_cross_verify.py (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      mlkem_cross_verify.py verify_format() (L59-73) performs shallow
+      validation in offline mode. Four gaps:
+      (1) Length-only hex check: validates only that len(v.get("ek","")) ==
+      expected hex char count. A string of the correct length but containing
+      non-hex characters (e.g. spaces, punctuation) passes without error.
+      (2) No uppercase enforcement: fields are checked for length but not
+      for uppercase-only hex. A lowercase hex value passes verify_format().
+      The docstring states "upper-case hex" as a required invariant (L7)
+      but the function does not assert it.
+      (3) No exact tcId set assertion: load_local() returns all vectors
+      from the file as a dict keyed by tcId. verify_format() iterates over
+      whatever keys are present. If the file contains extra tcIds not in
+      TC_IDS = {26,27,28} (e.g. from a partial upstream update), they are
+      validated but not flagged as unexpected. In offline mode the set of
+      tcIds present is never compared against TC_IDS.
+      (4) Silent duplicate tcId: load_local() uses a dict comprehension
+      {v["tcId"]: v for v in data["vectors"]}. If two entries share the
+      same tcId the second silently overwrites the first. Neither
+      load_local() nor verify_format() signals this condition.
+      Consequence: a corrupted or partially updated mlkem_768_kat_v1.json
+      can pass the offline format check while containing non-hex data,
+      lowercase bytes, missing tcIds, or silent duplicates.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace verify_format() with a stricter check:
+      (1) Assert each field value matches ^[0-9A-F]+$ (valid uppercase hex).
+      (2) Assert len(local.keys() ^ TC_IDS) == 0 — exactly the expected
+      tcId set, no more, no less.
+      (3) In load_local(), detect duplicate tcIds before building the dict:
+      assert len(data["vectors"]) == len({v["tcId"] for v in
+      data["vectors"]}), "duplicate tcId in local file".
+      Combine with F-115 remediation (vendor the NIST source file and
+      remove the /master/ URL) so that both fixes land in the same
+      mlkem_cross_verify.py rewrite.
+    verification: >-
+      verify_format() rejects a test file with a valid-length but
+      non-uppercase-hex field. verify_format() rejects a file with an
+      extra or missing tcId. load_local() raises AssertionError on a
+      file containing two entries with tcId=26. python3
+      mlkem_cross_verify.py --offline exits 0 on the current
+      mlkem_768_kat_v1.json and exits non-zero on any of the above
+      malformed inputs.
+    commit: ""
+
+  - id: F-131
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/mlkem_768_kat_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      mlkem_768_kat_v1.json contains three positive decapsulation KATs
+      (tcIds 26-28). No vector covers the ML-KEM implicit rejection
+      security property defined in FIPS 203 §6.3: when a ciphertext is
+      invalid or tampered, ML-KEM.Decaps must return a pseudorandom key
+      K' (derived from a hidden implicit rejection value z) rather than
+      signalling a decapsulation failure. This "implicit rejection" design
+      prevents chosen-ciphertext oracle attacks: a caller that observes
+      only Ok(K) vs Err gains no information about ciphertext validity.
+      Two specific gaps:
+      (1) No "tampered ciphertext → pseudorandom output" vector: no JSON
+      case records a tampered ciphertext c' together with the expected
+      pseudorandom output K' that results from decapsulate(dk, c'). A
+      test that simply asserts K' != K is incomplete because it does not
+      pin K' to a reference value; an implementation that returns a random
+      K' on every call would pass such a test.
+      (2) API contract not verified: it is unconfirmed whether the
+      meissnerseal-pqc decapsulate() Rust API returns Ok(K') or Err for
+      a tampered ciphertext. If the crate returns Err, it acts as an
+      error oracle — a violation of the FIPS 203 implicit rejection
+      requirement and a potential CCA2 attack surface. F-55 (resolved)
+      added encapsulate() adversarial-key tests and NIST KAT integration,
+      but did not add a test that asserts Ok(K') (not Err) for a tampered
+      ciphertext with K' pinned to a reference value.
+    cwe: "CWE-203"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add one negative/implicit-rejection vector to mlkem_768_kat_v1.json:
+      take tcId=26, flip one byte of c (e.g. byte 0 XOR 0x01) to produce
+      c_tampered, run the reference ML-KEM implementation to obtain
+      K_implicit = ML-KEM.Decaps(dk, c_tampered), record both c_tampered
+      and K_implicit in the vector. Add a Rust test
+      nist_kat_implicit_rejection that: (a) calls decapsulate(dk,
+      c_tampered), (b) asserts the result is Ok (not Err) — confirming no
+      error oracle, (c) asserts the returned key equals K_implicit —
+      pinning the pseudorandom output to the reference value, (d) asserts
+      the returned key != K (authentic key from same tcId). If decapsulate()
+      currently returns Err for tampered input, the API must be corrected
+      before adding the test.
+    verification: >-
+      mlkem_768_kat_v1.json contains at least one entry with "kind":
+      "implicit_rejection", a c_tampered field, and a k_implicit field.
+      The Rust nist_kat_implicit_rejection test passes, asserting Ok,
+      exact k_implicit match, and k_implicit != k_authentic. cargo test -p
+      meissnerseal-pqc exits 0.
+    commit: ""
+
+  - id: F-132
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/mlkem_768_kat_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      mlkem_768_kat_v1.json records an "m" field (32 bytes) for each
+      vector, described as "encapsulation randomness (32 B)" per the
+      JSON description field. In FIPS 203 §6.2, m is the randomness input
+      to ML-KEM.Encaps_internal(ek, m), which deterministically produces
+      a specific ciphertext c and shared secret k. The vectors contain
+      the NIST AFT (Algorithm Functional Test) c and k values, which were
+      generated from the recorded m.
+      The role of m in the local Rust test suite is undocumented:
+      (1) If meissnerseal-pqc encapsulate() uses an externally-supplied m
+      (deterministic API), the Rust test should pass m from the vector and
+      assert both c and k match. No such test exists.
+      (2) If encapsulate() samples fresh randomness internally (randomized
+      API), m cannot be used to reproduce c, and the c field in the vector
+      is never verified by the Rust KAT — only the decapsulate path is
+      tested. The m field is then unused NIST metadata carried in the file
+      without a corresponding test assertion.
+      The current test encapsulate_with_nist_ek_consistent_with_dk does
+      not use m; it calls encapsulate() with fresh randomness and verifies
+      only that decapsulate() recovers some k from the resulting c. This
+      means the c column of mlkem_768_kat_v1.json is never asserted
+      against by any Rust test — only dk and k are exercised.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Document the intended role of m explicitly in mlkem_768_kat_v1.json
+      (add a "m_usage" field to the schema or a note in the description).
+      If the API is deterministic (takes m): add a Rust test
+      nist_kat_encapsulate_deterministic that passes each vector's m and
+      asserts c and k match exactly. If the API is randomized (does not
+      take m): add a comment in the Rust KAT explaining that c is not
+      pinned because encapsulate samples fresh randomness; the m field is
+      retained for source fidelity to the NIST vector but is unused by
+      the KAT. In either case, add a Rust test or code comment that makes
+      the encapsulate() API surface (deterministic vs randomized) explicit
+      so future maintainers cannot accidentally add a deterministic path
+      without updating the KATs.
+    verification: >-
+      mlkem_768_kat_v1.json description or schema documents the role of m.
+      Either: nist_kat_encapsulate_deterministic passes m and asserts c
+      and k match for all three tcIds; or: a code comment in the Rust KAT
+      states that c is not pinned and explains why. cargo test -p
+      meissnerseal-pqc exits 0.
+    commit: ""
