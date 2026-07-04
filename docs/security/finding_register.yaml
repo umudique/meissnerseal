@@ -4652,3 +4652,74 @@ findings:
       hardcoded constant. A negative test for mismatched frame/header
       aead_profile passes. cargo test -p meissnerseal-core exits 0.
     commit: ""
+
+  - id: F-138
+    kind: consistency
+    component: specs
+    source: "spec review — specs/protocol/vault_format_v1.md §6, §10 + format.rs parse_record_frame (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      vault_format_v1.md §10 rejection rules omit five record-frame
+      boundary conditions that the Rust parser already enforces (four
+      cases) or fails to enforce (one case):
+      (1) aad_len exceeding frame boundary: format.rs L1560-1564 checks
+      aad_end > frame_len and rejects with "truncated record frame AAD".
+      §10 lists "ciphertext_len exceeding frame boundary" but has no
+      corresponding rule for aad_len.
+      (2) aad_len not equal to 79 (RECORD_AAD_LEN): format.rs L1599 in
+      validate_stored_record_aad() checks aad.len() != RECORD_AAD_LEN
+      and rejects. §10 has no rule pinning aad_len to 79 for
+      SCHEMA_MEISSNER_RECORDS_V2. Once §7 is corrected (F-57 note —
+      spec still says 74), this becomes a strong fail-closed invariant:
+      aad_len = 79 is the only valid value for V2 per-record frames.
+      (3) frame_version != 1: format.rs L1534-1536 checks frame_version
+      != FORMAT_VERSION and rejects. §10 lists "Unsupported format_version"
+      at the file prefix level but not at the record frame level.
+      (4) aead_profile unknown or unsupported in frame: format.rs L1545
+      rejects any frame aead_profile != AEAD_XCHACHA20_POLY1305_V1.
+      §10 covers nonce_len mismatching AEAD profile but not an unknown
+      or unsupported frame aead_profile value explicitly.
+      (5) ciphertext_len < AEAD tag length: format.rs L1577-1581 checks
+      ciphertext_end > frame_len and ciphertext_end != frame_len, but
+      does NOT check ciphertext_len >= POLY1305_TAG_LEN (16 bytes).
+      A ciphertext of fewer than 16 bytes cannot contain a valid
+      Poly1305 tag; passing it to the AEAD decrypt function is
+      unnecessary and exposes the decrypt path to a degenerate input
+      that should have been caught at the parse boundary. This is the
+      only gap where both the spec and the code are missing the rule.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Spec fix — add the following to vault_format_v1.md §10 rejection
+      list:
+        - aad_len exceeding frame boundary (aad_end > frame_len)
+        - aad_len != 79 for SCHEMA_MEISSNER_RECORDS_V2 per-record frames
+          (must be listed after §7 is corrected to 79 bytes per F-57 note)
+        - Record frame frame_version != 1
+        - Record frame aead_profile unknown or not supported by this
+          implementation (distinct from nonce_len mismatch)
+        - ciphertext_len < AEAD tag length (16 bytes for Poly1305)
+
+      Code fix for gap (5) only — add to parse_record_frame() after
+      reading ciphertext_len (format.rs L1569):
+
+        const POLY1305_TAG_LEN: usize = 16;
+        if usize::try_from(ciphertext_len)
+            .map_err(|_| format_error("ciphertext length overflow"))? < POLY1305_TAG_LEN
+        {
+            return Err(format_error("ciphertext too short for AEAD tag"));
+        }
+
+      Add a negative test: a frame with ciphertext_len = 0 and
+      ciphertext_len = 15 must be rejected before reaching the AEAD
+      decrypt call.
+    verification: >-
+      vault_format_v1.md §10 lists all five rejection conditions above.
+      format.rs parse_record_frame() rejects ciphertext_len < 16 before
+      calling any AEAD function. Negative tests for ciphertext_len = 0
+      and ciphertext_len = 15 pass. cargo test -p meissnerseal-core
+      exits 0. §10 aad_len = 79 rule is consistent with the corrected
+      §7 value (79 bytes, not 74).
+    commit: ""
