@@ -3882,3 +3882,58 @@ findings:
       AEAD authentication failure in the full KDF->VKEK->AEAD chain, not
       only at the primitive level.
     commit: ""
+
+  - id: F-126
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/signing_ed25519_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      signing_ed25519_v1.json contains two positive KAT cases (deterministic
+      seed -> public key -> signature). The file carries a top-level
+      algorithm_id_u16_le field ("0100", u16le = 1) claiming algorithm-tagged
+      signing per ADR-028, but signing_ed25519_cross_verify.py never reads or
+      asserts this field — the algorithm_id_u16_le value is untested by the
+      cross-verifier. No negative fixture cases exist. The following rejection
+      and mismatch cases have no corresponding test vector:
+      (1) algorithm_id_u16_le != "0100" (unknown or future algorithm ID)
+      -> Err;
+      (2) algorithm_id_u16_le mismatch at verify time (message signed under
+      algorithm A, verified with algorithm B) -> Err;
+      (3) wrong message: correct public key and signature, but message byte
+      changed -> Err;
+      (4) wrong public key: correct signature and message, but public key
+      changed -> Err;
+      (5) malformed public key length (not 32 bytes) -> Err;
+      (6) malformed signature length (not 64 bytes) -> Err.
+      Without cases (1)-(2) the algorithm-tagging claim of ADR-028 is
+      unconfirmed by independent vectors: a verifier that ignores the
+      algorithm tag would pass all existing positive cases.
+      Additional note: case "ed25519-sign-00" uses an all-zero 32-byte seed
+      (000...0). This is a valid Ed25519 deterministic test input (the seed
+      is hashed via SHA-512 before use, producing a non-trivial scalar) and
+      is acceptable in a KAT context. It is worth documenting in the case
+      description so reviewers do not interpret it as a weak-key risk.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add an assertion in signing_ed25519_cross_verify.py that
+      vectors["algorithm_id_u16_le"] == "0100", exiting non-zero on
+      mismatch, so the field is pinned and drift is caught by CI.
+      (2) Add negative fixture cases covering at least: wrong message
+      (case 3), wrong public key (case 4), and algorithm_id mismatch
+      (cases 1-2). These do not require a generator rewrite — the
+      cross-verifier can compute a valid (key, message, signature) triple
+      and then assert that verify(key, message', signature) fails for a
+      mutated message', and similarly for the other cases.
+      (3) Add a note to the "ed25519-sign-00" case description documenting
+      that the all-zero seed is intentional and safe for KAT use.
+    verification: >-
+      signing_ed25519_cross_verify.py asserts algorithm_id_u16_le == "0100"
+      and exits non-zero if the field is absent or changed. At least one
+      negative verification case exists for wrong-message, wrong-public-key,
+      and algorithm-id-mismatch. The Rust KAT for each Err case returns Err.
+      python3 signing_ed25519_cross_verify.py exits 0 with no drift.
+    commit: ""
