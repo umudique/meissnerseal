@@ -4418,3 +4418,74 @@ findings:
       entry. cargo test -p meissnerseal-pqc exits 0 with all existing
       KAT tests passing.
     commit: ""
+
+  - id: F-135
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/hybrid.rs:447, test-vectors/transfer_hybrid_v1.json (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      transfer_hybrid_v1_vectors() (hybrid.rs L447) reads 7 of the 9
+      fields present in each transfer_hybrid_v1.json case. Two fields
+      are silently unused, and the receiver-side API path is never
+      exercised:
+      (1) recipient_classical_private_key is not parsed. The test loads
+      recipient_classical_public_key and passes it to derive_transfer_key(),
+      but never asserts that the public key is the correct X25519 public
+      key derived from the private key. If recipient_classical_private_key
+      drifts in the JSON (e.g. replaced with a different key pair by a
+      generator update) the test continues to pass because it never reads
+      the private key and never verifies the private→public relationship.
+      (2) sender_ephemeral_public_key is parsed and passed to
+      derive_transfer_key() as the sender_public argument, but
+      x25519_public_from_private(sender_ephemeral_private_key) ==
+      sender_ephemeral_public_key is never asserted. A generator bug that
+      stores a mismatched public key would not be caught.
+      (3) receive_transfer_key() (the receiver-side API, hybrid.rs L157)
+      is never called by any KAT. Only the sender-side derive_transfer_key()
+      is tested against the vector. The receiver path takes
+      recipient_classical_private, recipient_classical_public,
+      sender_ephemeral_public, pqc_private_key, pqc_ciphertext, and
+      transcript_hash, and must produce the same transfer key. Without
+      a receiver-side KAT, a regression in the receiver DH computation
+      or HKDF binding would not be detected by the vector suite.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Sequencing note: F-127 and F-135 both require regenerating
+      transfer_hybrid_v1.json; combine their JSON schema changes into a
+      single regeneration commit to avoid one fix invalidating the other.
+      Extend transfer_hybrid_v1_vectors() with three additions:
+      (1) Parse recipient_classical_private_key (already included in the
+      F-134 serde struct) and assert x25519_public_from_private(
+      &X25519PrivateKey::from_bytes(recipient_private)) ==
+      X25519PublicKey::from_bytes(recipient_public) for each case,
+      pinning the private→public relationship.
+      (2) Assert x25519_public_from_private(&sender_ephemeral_private_key)
+      == sender_ephemeral_public_key, pinning the sender ephemeral key
+      pair consistency.
+      (3) Add receiver-side assertion: add a pqc_decap_key field to
+      transfer_hybrid_v1.json (the ML-KEM-768 decapsulation key, 2400 B
+      hex), regenerate the JSON together with F-127 schema changes, then
+      call receive_transfer_key(recipient_classical_private,
+      recipient_classical_public, sender_ephemeral_public, pqc_decap_key,
+      pqc_ciphertext, transcript_hash) and assert the result equals
+      expected_transfer_key. This completes the receiver-side KAT
+      explicitly deferred in F-54 ("fixed receiver-side KAT vectors
+      require separate test-vector generation pass, deferred to
+      SEC-AUDIT-1").
+      F-134 should be implemented in the same pass as this finding:
+      the corrected serde struct (F-134) already includes
+      recipient_classical_private_key, eliminating the silent-unused-field
+      gap at the deserialization layer.
+    verification: >-
+      transfer_hybrid_v1_vectors() asserts sender_ephemeral private→public
+      and recipient_classical private→public for both cases.
+      receive_transfer_key() is called for both cases and the result
+      equals expected_transfer_key. A case with a mismatched
+      recipient_classical_public_key causes both assertions to fail.
+      transfer_hybrid_v1.json contains a pqc_decap_key field in every
+      case. cargo test -p meissnerseal-pqc exits 0.
+    commit: ""
