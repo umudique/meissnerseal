@@ -3937,3 +3937,79 @@ findings:
       and algorithm-id-mismatch. The Rust KAT for each Err case returns Err.
       python3 signing_ed25519_cross_verify.py exits 0 with no drift.
     commit: ""
+
+  - id: F-127
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/transfer_hybrid_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      transfer_hybrid_v1.json contains two positive cases for the ADR-035
+      UG hash-everything combiner. Both cases use identical X25519 keypairs
+      and identical pqc_shared_secret; only pqc_ciphertext and
+      transcript_hash differ between the two cases, and they change
+      simultaneously — it is impossible to isolate which input variation
+      drives the transfer_key change. No negative or mismatch cases exist.
+      The following gaps are present:
+      (1) Low input diversity: sender/recipient X25519 keypairs and
+      pqc_shared_secret are identical across both cases. A combiner
+      implementation that hard-codes any of these values would still
+      produce the correct output for all existing cases.
+      (2) transcript_hash change not isolated: case-01 changes both
+      pqc_ciphertext and transcript_hash relative to case-00, so the
+      test does not prove that transcript_hash is a distinct input to
+      the HKDF salt slot.
+      (3) No sender/recipient key swap case: swapping sender and
+      recipient keys must produce a distinct transfer_key, confirming
+      directional binding. Absent.
+      (4) No pqc_ciphertext mutation case: changing one byte of
+      pqc_ciphertext (with all other inputs fixed) must change
+      transfer_key, confirming that the ciphertext transcript is bound.
+      Absent.
+      (5) No profile/info string downgrade case: the HKDF info string
+      b"meissnerseal-transfer-v1" is hardcoded in the cross-verifier
+      (L29) and absent from the JSON. A production implementation using
+      a different info string would not be detected by the verifier since
+      the verifier always uses its own constant. The JSON has no
+      hkdf_info field to anchor this binding.
+      (6) No algorithm ID mismatch case: profile field is not asserted by
+      the verifier's main() (L101-106), which reads data["cases"] without
+      checking schema or profile. A JSON with a wrong profile value passes
+      the verifier unchanged.
+      (7) No pqc_ciphertext wrong-length case: the verifier checks
+      len(pqc_ciphertext) == 1088 (L73) but there is no JSON negative
+      case exercising rejection of a shorter or longer value.
+      (8) Top-level schema and profile not asserted by verifier: main()
+      never reads vectors["schema"] or vectors["profile"], so drift in
+      these fields is invisible to CI.
+    cwe: null
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add at least one case with distinct keypairs and a distinct
+      pqc_shared_secret to improve input diversity.
+      (2) Add an isolated transcript_hash-only variation case: fix all
+      inputs except transcript_hash and confirm transfer_key changes.
+      (3) Add a key-swap case (swap sender and recipient public keys)
+      and assert the resulting transfer_key differs from the canonical
+      case.
+      (4) Add a pqc_ciphertext single-byte mutation case (all else fixed)
+      and assert transfer_key changes.
+      (5) Add a hkdf_info field to the JSON top-level metadata recording
+      the expected HKDF info string; assert in the verifier that the
+      hardcoded INFO constant matches this field.
+      (6) Add assertions in main() for vectors["schema"] ==
+      "transfer-hybrid-v1" and vectors["profile"] ==
+      "TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1", exiting non-zero on
+      mismatch.
+      (7) Add a negative length-check case to the JSON or verifier,
+      or document that length rejection is covered by the Rust parser.
+    verification: >-
+      transfer_hybrid_v1.json includes cases with distinct keypairs,
+      an isolated transcript_hash variation, a key-swap case, and a
+      pqc_ciphertext mutation case. transfer_hybrid_cross_verify.py
+      asserts schema, profile, and hkdf_info fields at load time and
+      exits non-zero on mismatch. python3 transfer_hybrid_cross_verify.py
+      exits 0 with no drift on the updated file.
+    commit: ""
