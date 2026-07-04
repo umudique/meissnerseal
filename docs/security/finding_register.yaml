@@ -3828,3 +3828,57 @@ findings:
       ARGON2_MIN_* boundary values used in the Python generator match
       those enforced by validate_argon2_params().
     commit: ""
+
+  - id: F-125
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/vault_wrap_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      vault_wrap_v1.json contains three positive cases: VRK wrap roundtrip
+      (result Ok), cross-vault domain separation (distinct wrapped output),
+      and wrong-password MUK distinctness (distinct MUK/VKEK values). All
+      three return Ok or record distinctness assertions only. No adversarial
+      unwrap case exists. The wrong-password-muk-distinct case (B4) proves
+      that a different password produces a different VKEK but does not
+      demonstrate that decrypting with the wrong VKEK fails closed — the
+      AEAD rejection step is not exercised.
+      The following rejection cases have no corresponding test vector:
+      (1) unwrap with wrong VKEK (wrong-password-derived) -> Err;
+      (2) tampered wrapped_root_key ciphertext byte -> Err;
+      (3) tampered authentication tag byte -> Err;
+      (4) wrong AAD: record_kind field changed (e.g. 0x0002 -> 0x0001) -> Err;
+      (5) wrong AAD: vault_id field changed in AAD while ciphertext is
+      unchanged -> Err;
+      (6) malformed nonce length (not 24 bytes) -> Err;
+      (7) malformed ciphertext+tag length (shorter than 16 bytes) -> Err.
+      Note: aead_xchacha20_v1.json covers cases (2), (3), (4) at the raw
+      XChaCha20-Poly1305 primitive level (c1-tampered-ciphertext,
+      c2-tampered-tag, xchacha20-wrong-aad-rejected, c3-wrong-key) but
+      not in the vault_wrap context with the canonical wrap_aad and the
+      full KDF->VKEK->AEAD chain. The vault_wrap vectors are the
+      integration-level evidence that the chain is fail-closed end-to-end.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add adversarial cases to vault_wrap_v1.json via generate_wrap_vectors()
+      in cross_verify.py. For case (1): derive vkek_wrong from a different
+      password, attempt xchacha_decrypt(vkek_wrong, ...) and assert Err.
+      For cases (2)-(5): take the wrapped_root_key from the roundtrip case,
+      apply the stated mutation, attempt xchacha_decrypt and assert Err.
+      For case (4): rebuild wrap_aad with record_kind=0x0001 (Item) instead
+      of 0x0002 (WrappedRootKey) and assert Err. For case (5): rebuild
+      wrap_aad with a different vault_id and assert Err. Record each
+      expected result as "Err" with a reason field. Cases (6) and (7) are
+      parser-level and should be covered by the KDF/AEAD negative files;
+      document this in the case notes.
+    verification: >-
+      vault_wrap_v1.json includes at least one adversarial unwrap case per
+      class (1)-(5) with "result": "Err". python3 cross_verify.py wrap
+      produces no git diff. The Rust KAT for each Err case returns Err
+      without revealing plaintext or partial state. Cases (2)-(5) confirm
+      AEAD authentication failure in the full KDF->VKEK->AEAD chain, not
+      only at the primitive level.
+    commit: ""
