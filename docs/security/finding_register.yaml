@@ -1557,6 +1557,13 @@ findings:
       roundtrip/bit-flip/wrong-key/wrong-aad tests use [u8; 79] AAD arrays.
       238/238 workspace tests pass (2026-06-29).
     commit: "bb29302"
+    note: >-
+      2026-07-05: specs/protocol/vault_format_v1.md §7 was NOT updated as
+      part of this fix. The spec still reads "meissnerseal-aad-v1"  # 14 bytes
+      and "= 74 bytes total" at L280/L290. The correct values are 19 bytes
+      (len("meissnerseal-aad-v1") == 19) and 79 bytes total. Code and tests
+      are correct at 79; the spec is the only remaining stale reference.
+      Requires a docs-only fix to vault_format_v1.md §7.
 
   - id: F-58
     kind: design
