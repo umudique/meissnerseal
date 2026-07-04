@@ -884,6 +884,14 @@ findings:
     remediation: "Escape label with escape_default() or equivalent before writing to stdout."
     verification: "cargo test --workspace: all tests pass including list_label_with_newline_does_not_inject (2026-06-25)"
     commit: "b46e1d2"
+    note: >-
+      2026-07-05 — escape_default() covers \r and \x1b at the
+      implementation level, but e2e.rs has no dedicated test case for
+      carriage-return (\r) or ANSI escape sequence (\x1b[...m) injection.
+      A label containing "\x1b[31mfake\x1b[0m" or "\rfake-id" could
+      manipulate terminal rendering if escape_default behavior changes or
+      a future output path bypasses the escape step. No dedicated test
+      case for these two injection variants exists.
 
   # ── E2E test review findings (External review — 2026-06-25) ─────────────────
   - id: F-32
@@ -1167,6 +1175,15 @@ findings:
     remediation: "Add assert_no_secret_leak(output) to add_rejects_plaintext_secret_argv test body."
     verification: "Production fix (9b1bee1): clap parse errors suppressed to generic message. Test (31179dd): assert_no_secret_leak added to add_rejects_plaintext_secret_argv."
     commit: "06d584d"
+    note: >-
+      2026-07-05 — run_cli() carries the comment "production argv never
+      receives secret values" (e2e.rs:418). However, add_rejects_secret_flag
+      (e2e.rs:268) deliberately passes SECRET_VALUE via --secret argv to
+      verify rejection, and add_rejects_plaintext_secret_argv passes it as
+      a positional arg. The comment describes production-call intent, not
+      test constraints; the contradiction should be resolved by rewording
+      to "test harness uses --stdin for passwords; adversarial tests may
+      place secret-like values in argv to verify rejection".
 
   - id: F-34
     kind: coverage_gap
@@ -2723,6 +2740,14 @@ findings:
       temporary file have mode 0o600. Add a regression test proving
       mutation does not widen an existing restrictive vault file mode.
     commit: "ea67426"
+    note: >-
+      2026-07-05 — F-96 implementation fix sets 0o600 in persist_vault
+      and persist_vault_mutation_v2. However, e2e.rs contains no
+      assertion that the CLI-produced .msv (init) or .msexp (export)
+      files actually carry mode 0o600 on disk. An E2E test that reads
+      metadata().permissions().mode() after init and export and asserts
+      0o600 would pin the permission contract at the integration layer.
+      Coverage gap tracked as F-152.
 
   - id: F-97
     kind: security_review
@@ -4951,4 +4976,477 @@ findings:
       The test module header clearly documents the deferral. Either the
       filename matches the actual scope or a doc comment explains the gap.
       cargo test -p meissnerseal-pqc exits 0.
+    commit: ""
+
+  # ── E2E test harness review findings (2026-07-05) ────────────────────────────
+  - id: F-143
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:441,450 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two test helper weaknesses allow secret material to leak into CI
+      logs undetected:
+
+      (1) assert_success() (e2e.rs:441) prints full stdout and stderr in
+      the panic message on failure:
+        "command failed\nstdout:\n{}\nstderr:\n{}"
+      If the CLI binary emits a secret value in its output due to a bug,
+      the value lands verbatim in the CI log at the point of the first
+      failing test.
+
+      (2) assert_no_secret_leak() (e2e.rs:450) checks only SECRET_VALUE
+      ("e2e-secret-value-never-real"). The vault password PASSWORD
+      ("e2e-test-password-never-real") and export passphrase EXPORT_PASS
+      ("e2e-export-passphrase-never-real") are not scanned. A bug that
+      echoes the vault password to stdout (e.g. a prompt read error that
+      falls back to echoing stdin) would pass assert_no_secret_leak
+      undetected.
+    cwe: "CWE-532"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Redact assert_success() panic output — replace raw stdout/stderr
+      with a fixed placeholder or a length-limited preview:
+
+        fn assert_success(output: &Output) {
+            assert!(
+                output.status.success(),
+                "command failed (stdout/stderr redacted; \
+                 run with -- --nocapture to inspect locally)"
+            );
+        }
+
+      (2) Extend assert_no_secret_leak() to cover all three test secrets:
+
+        fn assert_no_secret_leak(output: &Output) {
+            for (label, secret) in [
+                ("SECRET_VALUE", SECRET_VALUE.as_bytes()),
+                ("PASSWORD", PASSWORD),
+                ("EXPORT_PASS", EXPORT_PASS),
+            ] {
+                let out = std::str::from_utf8(&output.stdout).unwrap_or("");
+                let err = std::str::from_utf8(&output.stderr).unwrap_or("");
+                assert!(!out.as_bytes().windows(secret.len())
+                    .any(|w| w == secret), "stdout leaked {label}");
+                assert!(!err.as_bytes().windows(secret.len())
+                    .any(|w| w == secret), "stderr leaked {label}");
+            }
+        }
+    verification: >-
+      assert_success() no longer prints stdout/stderr in the panic message.
+      assert_no_secret_leak() fails when PASSWORD or EXPORT_PASS appears
+      in stdout/stderr. All existing E2E tests pass. cargo test
+      -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-144
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:416 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      run_cli() (e2e.rs:416) has two isolation deficiencies:
+
+      (1) No process timeout — child.wait_with_output() (L438) blocks
+      indefinitely. If the CLI hangs waiting for a tty prompt (e.g.
+      --stdin flag not honoured in a future code path, or a deadlock),
+      the CI job stalls until the runner's global timeout fires. There
+      is no per-test kill signal.
+
+      (2) Environment not isolated — the spawned subprocess inherits
+      the full parent environment. If the CLI discovers or writes to
+      $HOME/.config/meissnerseal, $XDG_CONFIG_HOME, or a system keyring
+      in any future code path, E2E tests will touch the developer's real
+      user configuration, and test results become dependent on the
+      machine state of the CI runner.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a per-process timeout using a background thread or
+      std::process::Child::wait with a channel:
+
+        use std::time::Duration;
+        // spawn child, then:
+        let timeout = Duration::from_secs(30);
+        let output = wait_with_timeout(child, timeout)
+            .expect("CLI timed out after 30 s");
+
+      A cross-platform helper can be implemented with a thread that
+      calls child.wait() and a channel with recv_timeout.
+
+      (2) Add HOME and XDG_CONFIG_HOME overrides pointing to a per-test
+      tempdir, and clear other potentially relevant vars:
+
+        Command::new(...)
+            .env_clear()
+            .env("HOME", temp.path())
+            .env("XDG_CONFIG_HOME", temp.path().join(".config"))
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            ...
+    verification: >-
+      A test that hangs is killed after 30 s and the test suite reports
+      a timeout failure rather than stalling. Tests pass when HOME is
+      set to a throwaway tempdir. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-145
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:107 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      export_then_import_roundtrips_item() (e2e.rs:107) verifies the
+      roundtrip only at the list level: after import it calls list on
+      the destination vault and asserts the label appears. It never calls
+      get to confirm that the imported secret can be decrypted and matches
+      the original value. A bug where import stores a zero-length or
+      corrupt ciphertext frame would pass the test (the record table
+      entry and label survive even if the secret bytes are lost).
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      After the list assertion, parse the item id from the list output
+      and call get to verify the secret:
+
+        let item_id = /* parse first 32-hex token from list stdout */;
+        let get = run_cli(
+            ["get", &item_id, "--vault", path_str(&dest)],
+            &[PASSWORD],
+        );
+        assert_success(&get);
+        assert!(stdout(&get).contains(SECRET_VALUE),
+            "imported secret must be retrievable via get");
+    verification: >-
+      get on the imported item returns the original SECRET_VALUE.
+      cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-146
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No E2E test flips a byte in the export bundle (.msexp) and then
+      attempts import. The existing import_rejects_wrong_passphrase test
+      (e2e.rs:147) covers a key-mismatch path (wrong AEAD key) but not
+      integrity violation (correct key, tampered ciphertext or MAC). A
+      tampered bundle must be rejected by the import path before any item
+      is written to the destination vault. Two properties are untested:
+      (a) import of a tampered bundle returns non-zero exit, and
+      (b) the destination vault contains no partial item after the failed
+      import (atomicity of the import rejection).
+    cwe: "CWE-354"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that:
+      1. Exports a vault to a bundle.
+      2. Flips one byte in the bundle (e.g. byte 64 XOR 0xFF via
+         std::fs::read / modify / std::fs::write).
+      3. Runs import and asserts non-zero exit + assert_no_secret_leak.
+      4. Runs list on the destination vault and asserts no new item
+         appeared (list output must not contain the exported label).
+
+        #[test]
+        fn import_rejects_tampered_bundle() {
+            // ... setup source, dest, bundle ...
+            let mut bytes = std::fs::read(&bundle).expect("read bundle");
+            bytes[64] ^= 0xFF;
+            std::fs::write(&bundle, &bytes).expect("write tampered");
+            let import = run_cli([...], &[PASSWORD, EXPORT_PASS]);
+            assert!(!import.status.success());
+            assert_no_secret_leak(&import);
+            let list = run_cli(["list", path_str(&dest)], &[PASSWORD]);
+            assert!(!stdout(&list).contains("roundtrip item"));
+        }
+    verification: >-
+      Tampered bundle import returns non-zero. Destination vault list
+      shows no imported item. assert_no_secret_leak passes for the
+      failed import output. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-147
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:391 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      add_item() (e2e.rs:391) extracts the item ID from CLI stdout by
+      scanning for the first whitespace-delimited token of exactly 32
+      ASCII hex characters:
+
+        rendered.split_whitespace()
+            .find(|word| word.len() == 32
+                && word.bytes().all(|byte| byte.is_ascii_hexdigit()))
+
+      This is brittle. If the add command output ever includes another
+      32-hex token before the item ID (e.g. a formatted timestamp, a
+      checksum, a session token, or a debug line added during development),
+      add_item() silently returns the wrong value. Downstream tests
+      (add_then_get_uses_opaque_id_and_note_precedes_secret,
+      get_with_wrong_item_id_returns_err) would then fail with a
+      misleading "item not found" error rather than a clear ID-extraction
+      failure, making the root cause hard to diagnose.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Define a stable output contract for the add command (e.g. a
+      dedicated "Item ID: <id>" line) and parse it with a prefix match:
+
+        let id = rendered.lines()
+            .find_map(|line| line.strip_prefix("Item ID: "))
+            .expect("add output must contain 'Item ID: <id>' line")
+            .trim()
+            .to_string();
+
+      This makes the extraction deterministic regardless of other tokens
+      in the output and fails loudly if the format changes.
+    verification: >-
+      add_item() extracts the correct ID when other 32-hex tokens appear
+      in the add output. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-148
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:76 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      export_writes_nonempty_msexp_bundle() (e2e.rs:76) checks that
+      SECRET_VALUE does not appear as a raw byte sequence in the bundle:
+
+        assert!(!contains_subslice(&bytes, SECRET_VALUE.as_bytes()));
+
+      This verifies that the secret payload is encrypted. However, the
+      test does not check whether label or kind metadata appear in
+      plaintext. If the export format serialises the record table or any
+      metadata field without encryption (e.g. a future code change or a
+      format bug that writes the label to a cleartext section), the label
+      value "exported note" would be present in the bundle bytes without
+      triggering any assertion.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend the bundle byte-scan to cover the label and kind strings
+      used in the test:
+
+        const EXPORT_LABEL: &str = "exported note";
+        // ... after export ...
+        let bytes = std::fs::read(&bundle).expect("bundle bytes");
+        assert!(!contains_subslice(&bytes, SECRET_VALUE.as_bytes()),
+            "secret must not appear in bundle plaintext");
+        assert!(!contains_subslice(&bytes, EXPORT_LABEL.as_bytes()),
+            "label must not appear in bundle plaintext");
+
+      Note: if the label is intentionally included in an authenticated
+      cleartext header, the remediation should instead assert it appears
+      only in the expected authenticated section, not at an arbitrary
+      offset.
+    verification: >-
+      Test fails when the export format writes the label in plaintext.
+      Test passes with the current encrypted export implementation.
+      cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-149
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs:16 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No E2E test exercises the init command with mismatched password
+      confirmation. init_creates_msv_vault_file (e2e.rs:16) passes
+      [PASSWORD, PASSWORD] (matching pair). Two properties are untested:
+      (a) init with mismatched passwords returns a non-zero exit code,
+      (b) no .msv file is created when the passwords do not match
+          (fail-closed: no partial vault on the filesystem).
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test:
+
+        #[test]
+        fn init_rejects_mismatched_password_confirmation() {
+            let temp = TempDir::new().expect("tempdir");
+            let vault = temp.path().join("mismatch.msv");
+            let output = run_cli(
+                ["init", path_str(&vault)],
+                &[PASSWORD, b"different-password-never-real"],
+            );
+            assert!(!output.status.success());
+            assert_no_secret_leak(&output);
+            assert!(!vault.exists(),
+                "vault must not be created on password mismatch");
+        }
+    verification: >-
+      Test returns non-zero on mismatch. No .msv file exists after the
+      failed init. assert_no_secret_leak passes. cargo test
+      -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-150
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No E2E test verifies the CLI's behaviour when the output path
+      already exists for init or export:
+
+      (1) init on an existing .msv path — persist_vault uses create_new
+      (O_EXCL) internally (F-12 fix), so init on an existing vault
+      should fail. No E2E test confirms this at the CLI layer or checks
+      that the original vault is not overwritten / truncated.
+
+      (2) export --output on an existing .msexp path — the policy
+      (overwrite, refuse, or atomic replace) is not asserted at the
+      CLI layer. If a future refactor removes the create_new guard,
+      an existing export bundle could be silently clobbered.
+    cwe: "CWE-73"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add two tests:
+
+        #[test]
+        fn init_refuses_existing_vault() {
+            let temp = TempDir::new().expect("tempdir");
+            let vault = temp.path().join("existing.msv");
+            init_vault(&vault);
+            let original_size = std::fs::metadata(&vault)
+                .expect("metadata").len();
+            let output = run_cli(
+                ["init", path_str(&vault)], &[PASSWORD, PASSWORD]);
+            assert!(!output.status.success());
+            assert_eq!(std::fs::metadata(&vault).expect("metadata").len(),
+                original_size, "existing vault must not be modified");
+        }
+
+        #[test]
+        fn export_refuses_existing_bundle() {
+            let temp = TempDir::new().expect("tempdir");
+            let vault = temp.path().join("src.msv");
+            let bundle = temp.path().join("existing.msexp");
+            init_vault(&vault);
+            let _ = add_item(&vault, "overwrite item");
+            // first export creates the bundle
+            let _ = run_cli(["export","--output",path_str(&bundle),
+                "--vault",path_str(&vault)], &[PASSWORD, EXPORT_PASS]);
+            let original_size = std::fs::metadata(&bundle)
+                .expect("metadata").len();
+            // second export must refuse or produce same-size output
+            let output = run_cli(["export","--output",path_str(&bundle),
+                "--vault",path_str(&vault)], &[PASSWORD, EXPORT_PASS]);
+            // exact policy (refuse vs atomic replace) to be asserted
+            // once documented; at minimum the original must survive:
+            assert!(std::fs::metadata(&bundle).expect("metadata").len()
+                >= original_size);
+        }
+    verification: >-
+      init on an existing .msv returns non-zero and leaves the vault
+      unchanged. export on an existing .msexp behaves per documented
+      policy without data loss. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-151
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No E2E test exercises the CLI against a corrupted vault file. The
+      unit tests in meissnerseal-core (F-13/F-18, commit 43b3b7d) verify
+      that the parse layer rejects tampered frames, but the CLI integration
+      path (argument parsing → unlock → vault open → operation → output)
+      is not covered at the E2E layer. Two properties are untested:
+      (a) list/get against a byte-flipped .msv returns non-zero exit,
+      (b) the error output does not contain any secret material that
+          was partially decrypted before the AEAD tag check failed.
+    cwe: "CWE-354"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that creates a valid vault, flips a byte in the
+      ciphertext region of the .msv, then runs list and get:
+
+        #[test]
+        fn corrupted_vault_is_rejected_without_secret_leak() {
+            let temp = TempDir::new().expect("tempdir");
+            let vault = temp.path().join("corrupted.msv");
+            init_vault(&vault);
+            let _ = add_item(&vault, "corruption item");
+
+            let mut bytes = std::fs::read(&vault).expect("read vault");
+            // flip a byte well past the header (e.g. last 64 bytes)
+            let flip_idx = bytes.len().saturating_sub(64);
+            bytes[flip_idx] ^= 0xFF;
+            std::fs::write(&vault, &bytes).expect("write corrupted");
+
+            let list = run_cli(["list", path_str(&vault)], &[PASSWORD]);
+            assert!(!list.status.success());
+            assert_no_secret_leak(&list);
+
+            // restore and re-corrupt differently for get path if needed
+        }
+    verification: >-
+      list on a corrupted vault returns non-zero. assert_no_secret_leak
+      passes for the failed output. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
+
+  - id: F-152
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No E2E test asserts that the vault file (.msv) produced by init
+      and the export bundle (.msexp) produced by export carry mode 0o600
+      on disk. F-96 (resolved, commit 536c82c) added 0o600 to the
+      persist_vault and persist_vault_mutation_v2 creation paths in
+      meissnerseal-core. However, the CLI integration layer is untested:
+      a future refactor that introduces a new file-creation path or
+      removes the OpenOptionsExt::mode call would silently regress the
+      file permission guarantee without failing any E2E test.
+    cwe: "CWE-276"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add permission assertions to init_creates_msv_vault_file and
+      export_writes_nonempty_msexp_bundle (Unix only, cfg(unix)):
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&vault)
+                .expect("vault metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600,
+                "vault file must have mode 0600");
+        }
+
+      Apply the same check to the .msexp bundle path in
+      export_writes_nonempty_msexp_bundle.
+    verification: >-
+      Assertions pass with the current 0o600 creation paths. A test
+      that creates the file without explicit mode (relying on umask)
+      fails the assertion under a permissive umask (0o022).
+      cargo test -p meissnerseal-cli exits 0 on Unix.
     commit: ""
