@@ -3712,6 +3712,25 @@ findings:
       pqc_profile is 0. The test passes and git diff shows no change to
       the vector file after regeneration.
     commit: ""
+    note: >-
+      2026-07-05: Separate spec gap identified. The Rust implementation
+      correctly rejects non-zero pqc_profile via PqcProfileId::new()
+      (format.rs L152-158): any value other than PQC_NONE (0x0000)
+      returns Err("unsupported pqc profile"). However vault_format_v1.md
+      §10 does not list "unsupported pqc_profile value" as a rejection
+      rule. Because pqc_profile TLV is non-critical (flags=0), the
+      "unknown critical TLV" rejection rule in §10 does not apply. The
+      spec is therefore silent on what a reader must do when pqc_profile
+      is present and non-zero — a conforming reader following only the
+      spec could silently accept a vault with pqc_profile=PQC_MLKEM_768_V1.
+      The AAD-binding mitigation (non-zero pqc_profile changes AAD →
+      AEAD auth fails) provides fail-closed behaviour in practice, but
+      this is not stated as a normative rule. Spec fix required:
+      add to §10 "unsupported pqc_profile value (non-zero value not
+      supported by this implementation)" and add to §3 or §6: "For
+      MVP-0, readers MUST reject any pqc_profile value other than
+      PQC_NONE (0x0000). Non-zero values MUST NOT be silently ignored
+      even though the TLV is non-critical."
 
   - id: F-123
     kind: coverage_gap
