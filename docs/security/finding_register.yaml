@@ -4065,3 +4065,61 @@ findings:
       updated file. All three import KATs pass against the regenerated
       vectors.
     commit: ""
+
+  - id: F-129
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/export_import_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      export_import_v1.json has three cases: roundtrip (Ok), ciphertext
+      corruption (auth rejection), and wrong decryption key (auth
+      rejection). The following coverage classes from the expected minimum
+      model are absent or only partially present:
+      (1) Explicit KDF chain vector: the handoff_note describes the
+      derivation path (Argon2id -> MUK -> HKDF-Expand -> AeadKey) but
+      no case records intermediate values (argon2_salt, muk_hex,
+      aead_key_hex) that would let a KAT independently verify each
+      derivation step. vault_kdf_v1.json records export_bundle_key as a
+      subkey but does not connect it to the export-specific HKDF-Expand
+      info string "meissnerseal:export-bundle:v1".
+      (2) Tampered tag rejection: the ciphertext-corruption case flips
+      a byte at offset 109 (inside the ciphertext region). No case flips
+      a tag byte (last 16 bytes of ciphertext_and_tag_hex). Both must
+      reject with auth failure; only ciphertext corruption is covered.
+      (3) Tampered header rejection: no case mutates the bundle header
+      (magic, version, kdf_params, or AAD fields) and asserts rejection.
+      A parser that skips header validation would pass all existing cases.
+      (4) Unsupported version rejection: no case presents a bundle with
+      bundle_version != 1 and asserts rejection.
+      (5) Unsupported profile rejection: no case presents an unsupported
+      aead_profile_id or kdf_profile_id and asserts rejection.
+      (6) No partial plaintext guarantee: the two rejection cases record
+      "rejection": "auth" but do not explicitly assert that no plaintext
+      bytes are returned on failure. This is implicit in the AEAD
+      semantics but not pinned by the vector schema.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add the following cases to export_import_v1.json via
+      generate_export_import.py: (1) an explicit KDF chain case recording
+      argon2_salt, muk_hex, and aead_key_hex derived from the roundtrip
+      passphrase/vault_id pair, linking to the export-bundle HKDF info
+      string; (2) a tampered-tag case (flip last byte of
+      ciphertext_and_tag_hex) with "rejection": "auth"; (3) a
+      tampered-header case (flip a byte in the kdf_params section) with
+      "rejection": "format" or "auth" as appropriate; (4) an unsupported
+      bundle_version case with "rejection": "version"; (5) an unsupported
+      aead_profile_id case with "rejection": "profile". Add an explicit
+      "no_plaintext_on_failure": true field to all rejection cases so
+      the Rust KAT can assert the return type is Err with no plaintext
+      side-channel.
+    verification: >-
+      export_import_v1.json includes at least one case per class (1)-(5).
+      All rejection cases carry "no_plaintext_on_failure": true. The Rust
+      KAT for each rejection case returns Err with no plaintext output.
+      python3 generate_export_import.py produces no git diff after
+      regeneration.
+    commit: ""
