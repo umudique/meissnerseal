@@ -4013,3 +4013,55 @@ findings:
       exits non-zero on mismatch. python3 transfer_hybrid_cross_verify.py
       exits 0 with no drift on the updated file.
     commit: ""
+
+  - id: F-128
+    kind: consistency
+    component: test-vectors
+    source: "test vector review — test-vectors/export_import_v1.json (2026-07-04)"
+    date: 2026-07-04
+    root_cause: RC-TV-B
+    description: >-
+      export_import_v1.json carries two pre-rename artifacts from the
+      arcanum→meissnerseal rename that were not updated when the project
+      was renamed. Both are baked into the vector data itself, not just
+      into generator code:
+      (1) Top-level profile field: "ARCEXP_EXPORT_IMPORT_V1" — uses the
+      pre-rename ARCEXP namespace. The canonical post-rename name should
+      be "MSEXP_EXPORT_IMPORT_V1" or equivalent.
+      (2) AAD structure: the expected.aad_hex value (26 bytes) is
+      vault_id(16) || ARCEXP_MAGIC(8) || version_u16le(2). ARCEXP_MAGIC
+      = b"ARCEXP\x01\x00" is baked into every AAD field in the vector
+      file. If export.rs and generate_export_import.py are renamed to
+      MSEXP (F-117 remediation, RC-TV-B), the AAD will change and every
+      ciphertext in export_import_v1.json will be wrong — the vectors
+      will fail to decrypt and all KATs will break.
+      (3) bundle_magic_hex "4152434558500100" = b"ARCEXP\x01\x00" is
+      baked into bundle_hex for all three cases; after the MSEXP rename
+      it must be recomputed.
+      This is a distinct instance of RC-TV-B: unlike F-110 (stale string
+      in a generator) and F-117 (constant in source code), here the
+      pre-rename bytes are embedded in the committed JSON test data and
+      will silently produce wrong AAD values until the JSON is regenerated
+      after the rename.
+    cwe: "CWE-325"
+    severity: medium
+    blocking: true
+    blocks: "fix/mvp2-test-vectors"
+    status: open
+    remediation: >-
+      Perform the ARCEXP→MSEXP rename (F-117 / RC-TV-B) atomically across
+      export.rs, generate_export_import.py, and export_import_v1.json in
+      a single commit: update ARCEXP_MAGIC to MSEXP_MAGIC with the new
+      wire bytes, regenerate export_import_v1.json, and update the profile
+      field to the canonical post-rename name. Do not rename the source
+      files without simultaneously regenerating the JSON — a partial rename
+      leaves the KATs in a broken state. After the rename the
+      forbidden-prefix scan (F-117) must find no ARCEXP strings in any
+      *.json under test-vectors/.
+    verification: >-
+      export_import_v1.json profile field contains no "ARCEXP" substring.
+      aad_hex and bundle_hex in all cases decode to the MSEXP magic bytes.
+      The forbidden-prefix scan (validate_vectors.py) exits 0 on the
+      updated file. All three import KATs pass against the regenerated
+      vectors.
+    commit: ""
