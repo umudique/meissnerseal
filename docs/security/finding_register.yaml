@@ -4282,3 +4282,54 @@ findings:
       states that c is not pinned and explains why. cargo test -p
       meissnerseal-pqc exits 0.
     commit: ""
+
+  - id: F-133
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "test vector review — crates/meissnerseal-pqc/src/mlkem.rs:153, hybrid.rs:230 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      from_hex() in the test modules of mlkem.rs (L153) and hybrid.rs
+      (L230) uses .chunks(2) without asserting even-length input.
+      With an odd-length hex string such as "ABC", .chunks(2) produces
+      chunks ["AB", "C"]; "C" is parsed by from_str_radix("C", 16) as
+      0x0C without error, silently emitting a wrong byte. The resulting
+      Vec<u8> has the wrong length; callers catch this only indirectly
+      via try_into::<[u8; N]>().expect(), which panics with a misleading
+      message (e.g. "ek 1184 bytes") rather than a hex-format diagnostic.
+      The vectors.rs and test_vectors.rs unhex helpers already assert
+      even-length input (that side is correct); the gap is confined to
+      the two from_hex() functions inside the #[cfg(test)] modules of
+      meissnerseal-pqc. Note: .chunks_exact(2) alone is insufficient —
+      without the prior length assert it silently drops the trailing
+      byte, producing a 1-byte-short Vec with no panic.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace both from_hex() implementations with:
+
+        fn from_hex(s: &str) -> Vec<u8> {
+            assert_eq!(s.len() % 2, 0, "hex string must have even length");
+            s.as_bytes()
+                .chunks_exact(2)
+                .map(|pair| {
+                    let hex = std::str::from_utf8(pair).expect("valid utf8");
+                    u8::from_str_radix(hex, 16).expect("valid hex")
+                })
+                .collect()
+        }
+
+      The assert_eq! fires immediately on odd-length input with a
+      diagnostic that names the actual invariant. chunks_exact(2) is
+      semantically correct after the guard: with even-length input it
+      produces no remainder and is equivalent to chunks(2) but expresses
+      the intent more precisely. Apply the same change to both
+      mlkem.rs:#[cfg(test)] and hybrid.rs:#[cfg(test)].
+    verification: >-
+      from_hex("ABC") panics with "hex string must have even length" in
+      both mlkem.rs and hybrid.rs test modules. from_hex("ABCD") returns
+      [0xAB, 0xCD] correctly. cargo test -p meissnerseal-pqc passes with
+      no regressions.
+    commit: ""
