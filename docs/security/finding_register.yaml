@@ -3761,3 +3761,70 @@ findings:
       python3 cross_verify.py kdf_negative produce no git diff. The
       Rust KAT for each negative case returns Err before calling argon2.
     commit: ""
+
+  - id: F-124
+    kind: coverage_gap
+    component: test-vectors
+    source: "test vector review — test-vectors/vault_kdf_param_tlv_v1.json (2026-07-04)"
+    date: 2026-07-04
+    description: >-
+      vault_kdf_param_tlv_v1.json contains one positive case (the
+      canonical KDF_ARGON2ID_V1 TLV block). No negative fixture file
+      exists (vault_kdf_param_tlv_negative_v1.json is absent). The Rust
+      parser parse_kdf_profile_params() (format.rs L1337) is fail-closed
+      and rejects all malformed inputs, but there are no independent
+      Python-computed vectors to pin this rejection behaviour. The
+      following rejection cases have no corresponding test vector:
+      (1) duplicate required tag (any of 0x0101-0x0105 appearing twice);
+      (2) missing required tag (any of 0x0101-0x0105 absent);
+      (3) unknown KDF param tag (any tag outside 0x0101-0x0105; note the
+      KDF param parser rejects ALL unknown tags with no critical/non-critical
+      distinction, stricter than the header TLV parser);
+      (4) wrong TLV length for a known tag (e.g. len=2 for m_cost_kib
+      which expects len=4);
+      (5) params_len field too short or too long relative to actual TLV
+      content (L1355: params_end != value.len() -> Err);
+      (6) trailing bytes after declared params_len (L1419: cursor !=
+      params_end — note this check is currently dead code: the bounds
+      check at L1384 prevents cursor from ever exceeding params_end, so
+      the trailing-garbage path is unreachable);
+      (7) unsupported profile_id (any value other than KDF_ARGON2ID_V1);
+      (8) unsupported argon2_version (any value other than 0x13);
+      (9) Argon2 params below minimum: m_cost_kib < ARGON2_MIN_M_COST_KIB,
+      t_cost < ARGON2_MIN_T_COST, p_lanes < ARGON2_MIN_P_LANES,
+      output_len != 32;
+      (10) Argon2 params above maximum: m_cost_kib > ARGON2_MAX_M_COST_KIB,
+      t_cost > ARGON2_MAX_T_COST, p_lanes > ARGON2_MAX_P_LANES.
+      Cases (9) and (10) are the KAT surface for the KOK-A (F-61)
+      remediation — the minimum-profile enforcement in validate_argon2_params()
+      has no independent reference vectors confirming it fires at the
+      correct boundaries.
+      Additionally, the trailing-garbage check at L1419 (case 6) is dead
+      code in the current parser and should either be removed or the parser
+      restructured so it is reachable.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Create vault_kdf_param_tlv_negative_v1.json with a
+      generate_kdf_tlv_negative_vectors() function in cross_verify.py
+      covering at least one case per class (1)-(10) above. Each case
+      must record the malformed TLV block hex, a "mutation" field
+      describing the exact change, and an "expected.reason" string
+      matching the Rust error variant. For case (6), first fix the dead
+      code at L1419 (remove the unreachable check or restructure the
+      parser so trailing bytes are detectable) before writing the vector.
+      For cases (9) and (10), use the exact ARGON2_MIN_* and ARGON2_MAX_*
+      boundary values exported from the Rust crate so the Python-generated
+      boundary coincides with the enforced limit. Wire the new generator
+      into GENERATORS and ci-fast.yml.
+    verification: >-
+      vault_kdf_param_tlv_negative_v1.json exists with at least one case
+      per class (1)-(10). The Rust KAT for each case returns Err with the
+      expected reason. The trailing-garbage check at format.rs L1419 is
+      either removed (dead code) or reachable and covered by a vector.
+      python3 cross_verify.py kdf_tlv_negative produces no git diff.
+      ARGON2_MIN_* boundary values used in the Python generator match
+      those enforced by validate_argon2_params().
+    commit: ""
