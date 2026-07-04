@@ -4515,3 +4515,75 @@ findings:
       transfer_hybrid_v1.json contains a pqc_decap_key field in every
       case. cargo test -p meissnerseal-pqc exits 0.
     commit: ""
+
+  - id: F-136
+    kind: consistency
+    component: specs
+    source: "spec review — specs/protocol/vault_format_v1.md §1, §3, §10 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      vault_format_v1.md does not specify the required parser behaviour for
+      duplicate or out-of-order header TLV tags. Three normative rules are
+      absent:
+      (1) Duplicate tag rejection: §1 requires rejection of "non-minimal
+      encodings" but a duplicate tag (two entries with the same tag value
+      and different or equal payloads) is not non-minimal in the TLV sense
+      — both entries are independently well-formed. Without an explicit
+      rule, two conforming parsers can diverge: one takes the first
+      occurrence, one takes the last, producing different vault_id,
+      kdf_profile, aead_profile, or schema_profile values from the same
+      byte string. This is a canonical downgrade/ambiguity attack surface:
+      a writer could include a strong aead_profile first and a weak one
+      second; a parser that takes the last entry silently downgrades.
+      (2) Duplicate critical TLV rejection not stated: §10 rejection rules
+      list "Unknown critical TLV tags" but do not list "duplicate known
+      critical TLV tag". The Rust parser (format.rs) uses reject_duplicate
+      for inner KDF param TLVs but the review (F-121 gap 2, found
+      2026-07-04) found that the outer header TLV layer does not call
+      reject_duplicate for every known tag. The spec is the authority; it
+      must state the rule before the implementation can be held to it.
+      (3) Tag ordering: it is unspecified whether tags must appear in
+      ascending numeric order, in the order listed in §3, or in any order.
+      A KAT or cross-implementation interop test cannot determine whether
+      a reordered header is valid without this rule. If canonical order is
+      required for reproducible serialization (e.g. for KATs), the spec
+      must say so. If order is free, the spec must say that too, so
+      implementations do not accidentally rely on ordering.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add the following normative rules to vault_format_v1.md. Suggested
+      placement: a new "§3.1 Header TLV Parsing Rules" subsection
+      immediately after the Required MVP-0 Tags table, and add items (a)
+      and (b) to the §10 rejection list.
+
+      §3.1 Header TLV Parsing Rules (new subsection):
+
+        (a) Duplicate tags: parsers MUST reject any header in which the
+        same tag value appears more than once. The rejection applies to
+        all known tags (0x0001–0x0007) and to any unknown tag that is
+        critical (flags bit 0 set). An unknown non-critical tag appearing
+        more than once MUST also be rejected (fail-closed default).
+
+        (b) Tag ordering: header TLVs MAY appear in any order. Parsers
+        MUST NOT assume ascending or sequential ordering. Writers SHOULD
+        emit tags in ascending numeric order for reproducibility of test
+        vectors and cross-implementation comparison.
+
+        (c) First-wins: if a duplicate is not caught early (implementation
+        defect), the parser MUST treat this as an error and not proceed
+        with any derived value from either occurrence.
+
+      Add to §10 rejection list:
+        - Duplicate header TLV tag (known or unknown critical)
+
+    verification: >-
+      vault_format_v1.md §3.1 exists and contains rules (a), (b), (c).
+      §10 rejection list includes "Duplicate header TLV tag". The Rust
+      format.rs parser calls reject_duplicate for every known header tag
+      (0x0001–0x0007) and the negative fixture for duplicate critical TLV
+      (F-121 gap 2) passes. A vault with two 0x0001 (vault_id) TLV
+      entries is rejected by the parser with a deterministic error.
+    commit: ""
