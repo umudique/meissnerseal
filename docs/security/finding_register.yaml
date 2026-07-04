@@ -4587,3 +4587,68 @@ findings:
       (F-121 gap 2) passes. A vault with two 0x0001 (vault_id) TLV
       entries is rejected by the parser with a deterministic error.
     commit: ""
+
+  - id: F-137
+    kind: consistency
+    component: specs
+    source: "spec review — specs/protocol/vault_format_v1.md §6, §10 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      vault_format_v1.md does not specify whether the aead_profile field
+      in a record frame (§6) must equal the aead_profile TLV in the vault
+      header (§3). The two locations are independent fields and the spec
+      gives no binding rule between them.
+      §10 rejection rules state "nonce_len mismatching AEAD profile" —
+      this pins the nonce length to the frame's own aead_profile value,
+      but says nothing about consistency with the header's aead_profile.
+      The Rust implementation (format.rs L1543-1547) checks:
+        if aead_profile != AEAD_XCHACHA20_POLY1305_V1 { reject }
+      This is a hardcoded constant check, not a cross-check against the
+      parsed header value. For MVP-0 with a single supported AEAD profile
+      the two are equivalent, but the rule is implemented via a magic
+      constant rather than a structural invariant. If a second AEAD profile
+      is added (AEAD_AES_256_GCM_STRICT_V1 = 0x0002 is already assigned
+      in §3), a parser following the spec as written can accept a frame
+      whose aead_profile differs from the header without violating any
+      stated normative rule. A downgrade scenario: writer emits header
+      aead_profile = 0x0001 (strong), a tampered frame carries aead_profile
+      = 0x0002 (weaker nonce length), and the parser decrypts the frame
+      under the wrong algorithm. The spec must close this gap before a
+      second profile ships.
+    cwe: "CWE-757"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add Option A (MVP-0 strict) to vault_format_v1.md. Suggested
+      placement: new rule in §6 after the frame layout, and a new item
+      in the §10 rejection list.
+
+      §6 addition:
+
+        Frame aead_profile binding: For MVP-0, the aead_profile field in
+        every record frame MUST equal header.aead_profile. Readers MUST
+        reject any frame whose aead_profile does not match the header
+        value. Writers MUST always write the header aead_profile into
+        every frame. This rule eliminates per-frame AEAD negotiation and
+        the associated downgrade surface. Future profiles that require
+        per-frame agility MUST introduce a new schema_profile version and
+        update this rule explicitly.
+
+      §10 addition:
+        - Record frame aead_profile not equal to header aead_profile
+
+      Update format.rs parse_record_frame() to replace the hardcoded
+      constant check with an explicit comparison against the caller-
+      supplied header.aead_profile, so the code expresses the structural
+      invariant rather than a magic constant. Add a negative test: a
+      vault whose frame carries aead_profile = 0x0002 while header
+      carries 0x0001 must be rejected.
+    verification: >-
+      vault_format_v1.md §6 contains the frame aead_profile binding rule.
+      §10 rejection list includes "Record frame aead_profile not equal to
+      header aead_profile". format.rs parse_record_frame() compares
+      frame.aead_profile against the header value rather than a
+      hardcoded constant. A negative test for mismatched frame/header
+      aead_profile passes. cargo test -p meissnerseal-core exits 0.
+    commit: ""
