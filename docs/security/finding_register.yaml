@@ -5983,3 +5983,268 @@ findings:
       Tests leave no files in the system temp directory on panic.
       cargo test -p meissnerseal-core exits 0.
     commit: ""
+
+# ── meissnerseal-core transfer/envelope.rs security review (2026-07-05) ────────
+
+  - id: F-166
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      create_envelope always passes anonymous_recipient_public_key: None to
+      TranscriptParams (L409), even when recipient_device_id is also None
+      (anonymous mode). compute_transcript_hash therefore includes no recipient
+      material for anonymous envelopes. open_envelope correctly passes the
+      recipient's classical public key as anonymous_recipient_public_key when
+      recipient_device_id is None (L480-484), producing a different transcript
+      hash than create_envelope. Every anonymous envelope roundtrip fails with
+      TranscriptMismatch. F-90 (resolved, 536c82c) patched the open/validate
+      side but left the create side uncorrected; CreateEnvelopeParams has no
+      field to supply the anonymous recipient public key.
+    cwe: "CWE-325"
+    severity: high
+    blocking: true
+    status: open
+    remediation: >-
+      Add an anonymous_recipient_public_key: Option<X25519PublicKey> field to
+      CreateEnvelopeParams. In create_envelope, when recipient_device_id is
+      None, require this field to be Some and pass it into TranscriptParams.
+      Return an error if recipient_device_id is None and
+      anonymous_recipient_public_key is None. Add an integration test that
+      performs a full create→open roundtrip in anonymous mode and verifies the
+      plaintext is recovered.
+    verification: >-
+      Anonymous mode create→open roundtrip test passes. Transcript KAT
+      confirms anonymous hash changes when anonymous_recipient_public_key
+      changes. create_envelope with recipient_device_id: None and no
+      anonymous key returns an error.
+    commit: ""
+
+  - id: F-167
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The open_envelope function contract or module-level documentation states
+      that replay-store insertion happens "before key derivation or decryption".
+      After F-89 (resolved, 536c82c) moved seen.check_and_insert to after AEAD
+      authentication and sender signature verification (L514, the last step),
+      this contract text became stale. The implementation is now correct;
+      only the documentation is wrong. A reader relying on the stated ordering
+      would have an incorrect mental model of the function's security properties.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Update the open_envelope contract comment to state that the replay
+      check-and-insert occurs after full authentication (after AEAD decryption
+      and sender signature verification), not before key derivation.
+    verification: >-
+      Code review confirms the docstring matches the implementation ordering.
+    commit: ""
+
+  - id: F-168
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      TrustedSender construction negatives and the wrong-sender-key open path
+      are not tested. The trusted_sender() fixture (L1212-1223) always
+      constructs with DeviceIdentityStatus::Verified and a signing_public_key
+      present. Not tested: (1) TrustedSender::from_verified rejects a device
+      with Pending or Revoked status; (2) TrustedSender::from_verified rejects
+      a Verified/Approved device with signing_public_key: None; (3)
+      open_envelope called with a wrong sender signing public key returns
+      VerificationFailed; (4) a failed open_envelope due to wrong sender key
+      does not insert the envelope_id into the replay store.
+      open_envelope_auth_failure_must_not_poison_replay_store (L943-994) covers
+      tampered encrypted_payload but not the wrong-sender-key path.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests: TrustedSender rejects Pending and Revoked device identity
+      status; TrustedSender rejects Verified/Approved identity with no signing
+      key; open_envelope with a mismatched sender signing key returns
+      VerificationFailed; replay store is not mutated when open fails due to
+      wrong sender key.
+    verification: >-
+      cargo test -p meissnerseal-core -- transfer passes. TrustedSender
+      negative cases return the expected error variants. Replay store is
+      empty after a wrong-sender-key open attempt.
+    commit: ""
+
+  - id: F-169
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Anonymous envelope mode has no end-to-end test coverage. No test
+      exercises a successful create→open roundtrip with recipient_device_id:
+      None. No test verifies that open_envelope fails with TranscriptMismatch
+      when the caller supplies a different anonymous recipient key than was used
+      at create time. validate_for_open (L34-50) performs only expiry checking
+      for anonymous envelopes, and this distinction is not exercised by any
+      test. Note: F-166 documents a bug that would cause the roundtrip to fail
+      even if tests existed; both findings need to be addressed together.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      After resolving F-166, add: (1) a full anonymous create→open roundtrip
+      test confirming plaintext recovery; (2) a negative test supplying a
+      different anonymous recipient key at open time, confirming
+      TranscriptMismatch; (3) a test confirming validate_for_open expiry
+      rejection works in anonymous mode.
+    verification: >-
+      Anonymous roundtrip test passes after F-166 fix. Wrong-anon-key test
+      returns TranscriptMismatch. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-170
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      compute_transcript_hash_changes_when_bound_fields_change (L796-816)
+      verifies sensitivity for only three fields: transfer_profile,
+      envelope_id, and expires_at. Seven fields bound by compute_transcript_hash
+      are not covered: sender_device_id, sender_classical_ephemeral_public_key
+      (ephemeral_pub), recipient_device_id (identified mode),
+      anonymous_recipient_public_key (anonymous mode), pqc_ct, classical_alg_id,
+      and pqc_alg_id. A regression that drops any of these fields from the hash
+      input would not be caught by the existing test.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend the transcript sensitivity test to mutate each bound field
+      independently and assert the hash changes. Cover both identified-recipient
+      and anonymous-recipient branches. Use table-driven test cases with a
+      baseline hash and per-field mutations.
+    verification: >-
+      Each field mutation produces a distinct transcript hash. cargo test
+      -p meissnerseal-core -- transfer passes.
+    commit: ""
+
+  - id: F-171
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      envelope_from_bytes parser negative coverage is incomplete. Not tested:
+      wrong magic bytes (any byte in MAGIC differs), recipient_flag with a
+      value other than 0x00 or 0x01, unsupported version field (version != 1),
+      payload_len = 0 (empty encrypted payload), declared payload_len larger
+      than remaining bytes, and pqc_ct_len != 1088 (wrong ML-KEM ciphertext
+      size). A malformed envelope that passes the existing parser tests could
+      propagate to KEM or AEAD with invalid field sizes.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add table-driven parser negative tests covering: wrong magic (each
+      byte position), invalid recipient_flag, version != 1, zero payload_len,
+      truncated payload, and pqc_ct_len != 1088. Each case must return a
+      parse error before any cryptographic operation is attempted.
+    verification: >-
+      All new cases return the expected error variant. No case panics or
+      reaches KEM/AEAD. cargo test -p meissnerseal-core -- transfer passes.
+    commit: ""
+
+  - id: F-172
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two test names or comments misrepresent what is being tested.
+      (1) envelope_from_bytes_rejects_trailing_garbage (L1139-1152): the inline
+      comment states the trailing bytes are appended "after the minimum field
+      parse" but the test appends bytes after a fully-formed valid envelope,
+      making the comment inaccurate. (2)
+      untrusted_transfer_envelope_validate_for_open_accepts_valid_bytes
+      (L1155-1161): the name implies validate_for_open is exercised (which
+      checks expiry, magic, and flags) but the test only calls from_bytes and
+      asserts Ok — validate_for_open is never invoked, so expiry and flag
+      validation are not covered.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Correct the comment in envelope_from_bytes_rejects_trailing_garbage
+      to describe what the test actually does. (2) Rename
+      untrusted_transfer_envelope_validate_for_open_accepts_valid_bytes to
+      reflect it tests from_bytes only, and add a separate test that calls
+      validate_for_open and asserts its expiry and flag checks.
+    verification: >-
+      Test names and comments match the code under test. No test name
+      implies coverage it does not provide.
+    commit: ""
+
+  - id: F-173
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      create_envelope success invariants are not tested. No test verifies that:
+      (1) the envelope_id in the returned bytes matches the EnvelopeId returned
+      by the call; (2) successive create_envelope calls with the same parameters
+      produce distinct envelope_ids; (3) the returned bytes parse back without
+      error via envelope_from_bytes; (4) recipient_device_id in the parsed
+      envelope matches the input CreateEnvelopeParams.recipient_device_id.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a create_envelope success test that calls create_envelope, parses the
+      result via envelope_from_bytes, and asserts the envelope_id, recipient
+      flag, and recipient_device_id round-trip correctly. Add a second call
+      asserting the envelope_id is distinct from the first.
+    verification: >-
+      create_envelope roundtrip invariants hold. Successive calls produce
+      distinct IDs. cargo test -p meissnerseal-core -- transfer passes.
+    commit: ""
+
+  - id: F-174
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/envelope.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Wrong recipient decryption key negatives are not tested. No test verifies
+      that open_envelope returns an authentication error when called with: (1) a
+      wrong X25519 private key (recipient_classical_private_key does not match
+      the ephemeral key used during encapsulation); (2) a wrong ML-KEM private
+      key (recipient_pqc_private_key does not match the encapsulation target).
+      In both cases the derived transfer key will differ from the one used at
+      create time, and AEAD decryption must fail. Without these tests, a
+      regression that accidentally skips decryption key binding would not be
+      caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests: open_envelope with wrong X25519 private key returns
+      authentication error; open_envelope with wrong ML-KEM private key
+      returns authentication error. Pair each with a control call using the
+      correct key to confirm the positive path still works.
+    verification: >-
+      Both negative cases return the expected error variant. Positive controls
+      pass. cargo test -p meissnerseal-core -- transfer passes.
+    commit: ""
