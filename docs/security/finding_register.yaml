@@ -6905,3 +6905,279 @@ findings:
       Same-vault duplicate label behavior matches the documented policy.
       cargo test -p meissnerseal-core passes.
     commit: ""
+
+# ── meissnerseal-core keys/hierarchy.rs security review (2026-07-05) ────────────
+
+  - id: F-206
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      test_aad() (L346-358) calls build_aad with format_version=1,
+      schema_profile=1, aead_profile=1, kdf_profile=1 as literal integers.
+      The third argument is schema_profile; the value 1 equals
+      SCHEMA_MEISSNER_RECORDS_V1, the pre-release schema that V2 readers must
+      reject. All hierarchy tests that use test_aad() are therefore exercised
+      with a schema value that is explicitly prohibited in production vault
+      files. The fixture should use SCHEMA_MEISSNER_RECORDS_V2 (0x0002) and
+      the production AEAD profile constant. See also F-175 (format.rs) and
+      F-195 (store.rs) for the same class of error in other test modules.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the literal integer arguments in test_aad() with the named
+      constants: FORMAT_VERSION for format_version,
+      SCHEMA_MEISSNER_RECORDS_V2 for schema_profile,
+      AEAD_XCHACHA20_POLY1305_V1 for aead_profile, KDF_ARGON2ID_V1 for
+      kdf_profile, and PQC_NONE for pqc_profile.
+    verification: >-
+      test_aad() no longer embeds SCHEMA_MEISSNER_RECORDS_V1. All hierarchy
+      tests that use the fixture continue to pass.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-207
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      test_create_then_derive_roundtrip (L414-459) verifies that four of the
+      seven HKDF subkeys match after a create→derive cycle using constant-time
+      comparison: item_wrap_key, metadata_key, audit_key, and export_key. The
+      remaining three subkeys — sync_envelope_key, device_enrollment_key, and
+      recovery_wrapping_key — are not asserted. A regression in derive_subkeys
+      that scrambles or zeros any of these three fields would not be caught by
+      the roundtrip test.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add constant-time assertions for sync_envelope_key, device_enrollment_key,
+      and recovery_wrapping_key to test_create_then_derive_roundtrip, matching
+      the pattern already used for the four covered subkeys.
+    verification: >-
+      All seven subkeys are asserted via ct_eq in the roundtrip test.
+      A regression zeroing any single subkey causes the test to fail.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-208
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_session_keys has no negative tests for any of its authentication-
+      critical inputs. Four untested paths exist.
+      (1) Wrong password: a different password from the one used at create time
+      produces a different MUK and VKEK, causing AEAD decryption of the wrapped
+      root key to fail with CoreError::Auth.
+      (2) Wrong AAD: a bitflip in any byte of the 79-byte aad argument changes
+      the AEAD binding and must cause AEAD authentication failure.
+      (3) Wrong wrapped_root_key_nonce: a bitflip in the 24-byte nonce changes
+      the XChaCha20 keystream, producing a Poly1305 tag mismatch.
+      (4) Wrong vault_id or wrong header_nonce: vault_id enters both the VKEK
+      derivation (steps 2-3) and the root PRK (step 5); header_nonce enters
+      the root PRK (step 5). A wrong vault_id causes a different VKEK, making
+      AEAD decryption fail with Auth. A wrong header_nonce after a create call
+      produces a different root PRK and therefore a different subkey set — no
+      AEAD failure occurs, but the derived subkeys silently diverge from the
+      created ones.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add negative tests: (1) wrong password → Err(CoreError::Auth); (2) one
+      byte of aad flipped → Err(CoreError::Auth); (3) one byte of
+      wrapped_root_key_nonce flipped → Err(CoreError::Auth); (4) wrong vault_id
+      → Err (VKEK mismatch → AEAD failure); (5) wrong header_nonce after create
+      → derived subkeys do not match created subkeys (assert ct_eq is false for
+      at least item_wrap_key).
+    verification: >-
+      All five negative cases return the expected error or subkey mismatch.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-209
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_master_unlock_key_with_header_params (L97-110) contains three
+      early-return guards — empty password, unsupported profile_id, and
+      unsupported argon2_version — but none has a corresponding unit test. A
+      regression removing any guard would allow the function to proceed with
+      invalid parameters without failing the test suite. Additionally, no test
+      exercises invalid or operationally unsafe Argon2 cost parameters (e.g.
+      m_cost_kib below ARGON2_MIN_M_COST_KIB) to confirm that the underlying
+      derive() call returns an error for out-of-range values.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add unit tests for derive_master_unlock_key_with_header_params:
+      empty password → Err; profile_id != KDF_ARGON2ID_V1 → Err;
+      argon2_version != ARGON2_VERSION_0X13 → Err; Argon2 params with
+      m_cost_kib below the minimum → Err (if the backend validates this).
+      None of these tests require running the full 64 MiB Argon2id; the first
+      three return immediately without KDF work and can run under Miri.
+    verification: >-
+      Each guard case returns Err. Removing any guard causes its test to fail.
+      The Miri-compatible tests (non-KDF rejections) run without the ignore
+      annotation. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-210
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_subkeys (L289) is a public function but is never called directly
+      by any test; it is only exercised indirectly through derive_session_keys
+      and create_session_keys. Three properties are not covered.
+      (1) Pairwise distinctness: no test verifies that all seven subkeys
+      produced from the same (root_prk, vault_id, aead_id) inputs are pairwise
+      distinct. A collision between any two subkeys would not be caught.
+      (2) AEAD-scoped change: item_wrap_key and metadata_key receive
+      Some(aead_id); the existing profile-binding tests in derive_session_keys
+      cover this indirectly, but derive_subkeys itself is not tested.
+      (3) Non-AEAD-scoped stability: audit_key, sync_envelope_key,
+      device_enrollment_key, recovery_wrapping_key, and export_key receive
+      None for aead_id. No test verifies that changing aead_id leaves these
+      five subkeys unchanged — a regression accidentally passing Some(aead_id)
+      to a non-AEAD subkey would not be caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a direct derive_subkeys unit test that: (1) calls derive_subkeys
+      with a fixed root_prk/vault_id/aead_id and asserts all seven keys are
+      pairwise distinct; (2) calls derive_subkeys again with a different
+      aead_id and asserts item_wrap_key and metadata_key change while
+      audit_key, sync_envelope_key, device_enrollment_key, recovery_wrapping_key,
+      and export_key remain identical.
+    verification: >-
+      All seven subkeys are pairwise distinct. AEAD-scoped keys change with
+      aead_id. Non-AEAD-scoped keys are stable under aead_id changes.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-211
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Four test naming and comment issues reduce readability and may mislead
+      future readers.
+      (1) TEST_AEAD_PROFILE (L344) is declared as
+      AeadProfileId::new_unchecked(0x0002) without an explanatory comment. A
+      reader does not know why new_unchecked is used (0x0002 is not a
+      production-registered profile), or that this constant exists only to
+      exercise HKDF subkey scoping drift, not as a validated profile.
+      (2) derive_session_keys_aead_profile_id_is_bound_to_header (L463): the
+      alternate-profile derive call at L490 succeeds (expect("derive with
+      alternate profile must still derive a distinct subkey set")), meaning
+      the AEAD profile ID does not authenticate or block decryption. The name
+      implies an authentication binding that does not exist; the test actually
+      verifies HKDF subkey domain separation.
+      (3) create_session_keys_aead_profile_id_is_bound (L514): same issue as
+      (2); mismatched profile derive also succeeds (L560). "bound" implies
+      authentication, not HKDF scoping.
+      (4) test_derive_session_keys_auth_failure (L368) comment: "47-byte
+      ciphertext: shorter than the 16-byte Poly1305 tag — guaranteed Err."
+      47 > 16, so the ciphertext is not shorter than the tag. The failure
+      reason is that the 47-byte payload cannot be a valid 32-byte VRK plus
+      a 16-byte tag (total 48), not that the tag is absent.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a comment on TEST_AEAD_PROFILE explaining it is a synthetic
+      non-production value used only to exercise HKDF aead_id scoping and
+      that new_unchecked bypasses AeadProfileId validation intentionally.
+      (2) Rename derive_session_keys_aead_profile_id_is_bound_to_header to
+      derive_session_keys_aead_profile_id_scopes_aead_subkeys.
+      (3) Rename create_session_keys_aead_profile_id_is_bound to
+      create_session_keys_aead_profile_id_scopes_aead_subkeys.
+      (4) Correct the comment in test_derive_session_keys_auth_failure:
+      the 47-byte ciphertext is one byte shorter than the expected 48-byte
+      (32-byte VRK + 16-byte tag) output; the failure is from a length or
+      authentication mismatch, not from being shorter than the tag.
+    verification: >-
+      Test names accurately describe what each test exercises. The comment
+      describes the actual failure reason. cargo test -p meissnerseal-core
+      passes.
+    commit: ""
+
+  - id: F-212
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two create_session_keys postconditions are not tested.
+      (1) test_create_session_keys_succeeds (L389) asserts only that the
+      returned ciphertext is 48 bytes and the nonce is 24 bytes. The returned
+      UnlockedKeys fields are bound to _keys and never inspected. A regression
+      that derives all-zero subkeys or returns the same value for all seven
+      keys would not be caught.
+      (2) No test calls create_session_keys twice with the same inputs and
+      verifies that the two calls produce different ciphertext bytes and
+      different nonce values. create_session_keys generates a fresh random VRK
+      and nonce on each invocation; this randomness property is a security
+      invariant but is not exercised.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Extend test_create_session_keys_succeeds to assert that the returned
+      UnlockedKeys fields are non-zero (or add a sibling smoke test asserting
+      at least one subkey is nonzero and that no two subkeys are equal).
+      (2) Add a test that calls create_session_keys twice with the same
+      arguments and asserts the returned ciphertext slices differ and the
+      nonce slices differ.
+    verification: >-
+      A regression producing all-zero or identical subkeys is caught.
+      Two successive create calls produce distinct ciphertext and nonce.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-213
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The UnlockedKeys docstring (L41) states: "Does not implement Clone,
+      PartialEq, or Debug — contains secret key material." This invariant is
+      not enforced by a compile-time assertion. A future contributor adding
+      #[derive(Debug)] or #[derive(Clone)] to UnlockedKeys would violate the
+      contract without any test or build failure. The static_assertions crate
+      provides assert_not_impl_any! for exactly this purpose.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a compile-time assertion in the test module:
+      static_assertions::assert_not_impl_any!(UnlockedKeys: Clone, PartialEq,
+      core::fmt::Debug). Check whether static_assertions is already a
+      dev-dependency in meissnerseal-core/Cargo.toml before adding; if not,
+      request human approval to add it per the dependency policy.
+    verification: >-
+      Adding #[derive(Debug)] to UnlockedKeys causes a compile error.
+      cargo test -p meissnerseal-core passes without the derive.
+    commit: ""
