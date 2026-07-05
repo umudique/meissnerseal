@@ -6558,3 +6558,350 @@ findings:
       causes the corresponding test to mutate the correct byte.
       cargo test -p meissnerseal-core passes.
     commit: ""
+
+# ── meissnerseal-core export.rs security review (2026-07-05) ────────────────────
+
+  - id: F-184
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Both export() (L118) and UntrustedExportBundle::authenticate() (L54)
+      guard against an empty passphrase with an early Err return, but neither
+      guard has a corresponding unit test. No test named
+      export_empty_passphrase_rejects or authenticate_empty_passphrase_rejects
+      exists in the test module. A regression removing either guard would not
+      be caught by the test suite.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add export_empty_passphrase_rejects: call export() with an empty
+      passphrase and assert Err(CoreError::InvalidState). Add
+      authenticate_empty_passphrase_rejects: call
+      UntrustedExportBundle::authenticate() with an empty passphrase and
+      assert Err(CoreError::InvalidState). Neither test requires a real vault
+      session or KDF invocation.
+    verification: >-
+      Both tests pass. Removing either empty-passphrase guard causes the
+      corresponding test to fail. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-185
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      import() (L181) contains rollback logic (L188-196): when add() fails
+      mid-import, it attempts to delete all previously imported item IDs.
+      Success returns Err(CoreError::InvalidState); rollback failure returns
+      Err(CoreError::PartialImport). Neither rollback path has a test. The
+      rollback is security-relevant because a partial import could leave the
+      vault in an inconsistent state, and PartialImport signals that cleanup
+      also failed.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that exports a multi-item bundle and imports it into a vault
+      where the second add() is forced to fail (e.g. by vault corruption or a
+      mock). Assert that import() returns an error and that no items from the
+      bundle remain in the vault (verifying rollback). Add a second test
+      simulating rollback failure and asserting Err(CoreError::PartialImport).
+    verification: >-
+      Rollback-success path returns Err(CoreError::InvalidState) and the vault
+      contains no imported items. Rollback-failure path returns
+      Err(CoreError::PartialImport). cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-186
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      export() zeroizes the plaintext buffer at L129 and never writes secret
+      material to disk, but no unit test verifies that the returned bundle
+      bytes do not contain the plaintext secret in readable form. The E2E test
+      suite has a secret-leak check, but the core unit tests contain no
+      smoke assertion of the form
+      bundle.windows(secret.len()).any(|w| w == secret) == false.
+      A regression introducing an unencrypted export path would not be caught
+      at the unit test level.
+    cwe: "CWE-312"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      After a successful export() call, assert that the bundle bytes do not
+      contain a sliding-window match for the known secret value. This
+      assertion may be added to the existing export_import_roundtrip_same_vault
+      test or as a dedicated export_bundle_does_not_contain_plaintext_secret
+      test.
+    verification: >-
+      The smoke assertion catches a bundle that embeds the plaintext secret.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-187
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      import_rejects_tampered_ciphertext (L708-722) flips only the last byte
+      of the bundle, which is the last byte of the AEAD tag. Four additional
+      tamper categories are not tested: (1) source_vault_id bytes (L10..26 of
+      the bundle) — changes the AAD, causing AEAD authentication failure;
+      (2) nonce bytes — changes the keystream, producing garbled plaintext
+      whose tag will not match; (3) kdf_params bytes — changes the derived
+      export key, producing an AEAD authentication failure; (4) ciphertext
+      body bytes (any byte before the 16-byte tag) — causes AEAD tag mismatch.
+      A regression that stops verifying one of these fields would not be
+      caught by the existing single-byte tamper test.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add table-driven tamper tests covering: one byte of source_vault_id
+      flipped, one byte of the nonce flipped, one byte of kdf_params flipped,
+      one byte of the ciphertext body (not the tag) flipped. Each case must
+      return an authentication or format error.
+    verification: >-
+      All four tamper categories return Err. cargo test -p meissnerseal-core
+      passes.
+    commit: ""
+
+  - id: F-188
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two related test infrastructure issues exist in the framing test helpers.
+      (1) import_rejects_wrong_magic (L674), import_rejects_unknown_version
+      (L688), and import_rejects_truncated_bundle (L698) each call
+      unlocked_session(), which creates a vault file, runs Argon2id KDF, and
+      unlocks the vault. These framing rejections occur in parse_bundle()
+      before the session is used, making the vault creation overhead wasteful
+      and the Miri-ignore annotations unnecessary. The tests could call
+      parse_bundle() or UntrustedExportBundle::authenticate() directly from
+      within the test module without constructing a session.
+      (2) The framed_bundle() helper (L571) embeds deliberately invalid KDF
+      params ([0x01, 0x00, 0x00, 0x00]) to keep the fixture small for parser
+      reject tests. This is intentional but undocumented: any test that tries
+      to reach authenticate() will fail at parse_kdf_profile_params, not at
+      the intended failure point. No fixture helper with valid canonical KDF
+      params exists for tests that need to exercise the authentication or KDF
+      path without running a full vault.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Rewrite import_rejects_wrong_magic, import_rejects_unknown_version,
+      and import_rejects_truncated_bundle to call parse_bundle() or
+      UntrustedExportBundle::authenticate() directly without creating a vault
+      session. Remove the Miri-ignore annotations from tests that no longer
+      invoke Argon2id.
+      (2) Add a framed_bundle_with_valid_kdf() fixture helper that uses
+      serialize_kdf_profile_params(HeaderKdfParams::canonical_argon2id_v1())
+      for the kdf_params field. Document the existing framed_bundle() with an
+      inline comment stating that the KDF params are intentionally invalid and
+      unsuitable for tests reaching the KDF or AEAD stage.
+    verification: >-
+      Framing rejection tests run without vault creation. Miri runs the
+      rewritten tests without the ignore annotation. The new helper enables
+      authenticate()-level tests without a full vault session.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-189
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      deserialize_item_set_rejects_oversized_tag_count (L766) appends
+      &0u32.to_le_bytes() after the oversized tag_count value. The
+      deserializer rejects at L421 (tag_count > MAX_TAG_COUNT) before reading
+      any tag data, so this extra four bytes are never consumed. However, the
+      byte visually resembles either a first tag length field or the secret
+      length field, making the fixture's intent unclear to a reader. A comment
+      explaining why extra bytes are appended (or that they are not needed and
+      can be removed) is absent.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Either remove the trailing &0u32.to_le_bytes() from the fixture (since
+      the rejection occurs before it is consumed) and add an inline comment
+      explaining the rejection site, or retain it and add a comment clarifying
+      that it is an unreachable placeholder. The fix should make the fixture's
+      intent immediately clear without running the test.
+    verification: >-
+      The test still passes after the fixture is clarified.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-190
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two deserialize_item_set() failure paths are untested.
+      (1) Invalid UTF-8 in a label or tag field: take_utf8 (L505) calls
+      String::from_utf8 and maps the error to CoreError::Format. No test
+      supplies a label or tag field containing invalid UTF-8 bytes.
+      (2) Invalid ItemKind: ItemKind::from_u16 (L418) returns an error for
+      unknown values. No test supplies an unrecognised kind value in the
+      item kind field and verifies that deserialize_item_set returns
+      CoreError::Format.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add deserialize_item_set_rejects_invalid_utf8_label: supply a label
+      length field followed by bytes that are not valid UTF-8 (e.g. [0xFF])
+      and assert Err(CoreError::Format). Add
+      deserialize_item_set_rejects_invalid_utf8_tag: same for the tag field.
+      Add deserialize_item_set_rejects_invalid_item_kind: supply an item kind
+      value that ItemKind::from_u16 does not recognise and assert
+      Err(CoreError::Format).
+    verification: >-
+      All three new negative cases return Err(CoreError::Format).
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-191
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Boundary tests at the MAX_EXPORT_ITEM_COUNT (4096) and MAX_TAG_COUNT
+      limits are missing. deserialize_item_set_rejects_oversized_item_count
+      uses 10,000 (well above 4096); no test verifies that 4096 is accepted
+      and 4097 is rejected. Similarly, deserialize_item_set_rejects_oversized_tag_count
+      uses 10,000; no test verifies that MAX_TAG_COUNT is accepted and
+      MAX_TAG_COUNT + 1 is rejected. An off-by-one error in either comparison
+      (> vs >=) would not be caught by the existing tests.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add boundary tests: item_count = MAX_EXPORT_ITEM_COUNT (4096) must
+      be accepted; item_count = MAX_EXPORT_ITEM_COUNT + 1 (4097) must return
+      Err. tag_count = MAX_TAG_COUNT must be accepted; tag_count =
+      MAX_TAG_COUNT + 1 must return Err. Use deserialize_item_set() directly
+      to avoid vault/KDF overhead.
+    verification: >-
+      Exact-boundary accept cases return Ok. One-over-boundary reject cases
+      return Err(CoreError::Format). An off-by-one in the comparison is
+      caught. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-192
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two related parse and serialization boundary gaps exist.
+      (1) serialize_bundle() (L232) checks nonce.len() != NONCE_LEN (24) and
+      returns Err(CoreError::Format), but no test exercises this guard.
+      A regression removing the check would not be caught.
+      (2) parse_bundle() has several untested truncation and boundary cases:
+      a bundle truncated inside the 24-byte nonce field (after kdf_params but
+      fewer than 24 bytes remain); a bundle truncated inside the 4-byte
+      ciphertext_len field (fewer than 4 bytes remain after the nonce);
+      ciphertext_len = 0 (empty ciphertext accepted by the length parser but
+      too short for an AEAD tag); and ciphertext_len < TAG_LEN (16) (bundle
+      framing is valid but ciphertext cannot hold an authentication tag).
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a test calling serialize_bundle() with a nonce slice not equal
+      to 24 bytes and asserting Err(CoreError::Format).
+      (2) Add parse_bundle (or authenticate) negative tests for: truncated
+      nonce (bundle ends after kdf_params), truncated ciphertext_len field,
+      ciphertext_len = 0, and ciphertext_len < 16. Each must return
+      Err(CoreError::Format) before reaching KDF or AEAD.
+    verification: >-
+      All new negative cases return the expected error. serialize_bundle nonce
+      length guard is exercised. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-193
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      export_aad() (L224) produces source_vault_id[16] || ARCEXP_MAGIC[8] ||
+      version:u16le — a 26-byte AAD. No test verifies the exact byte layout.
+      A regression silently reordering or truncating the AAD fields would
+      produce a different AEAD binding without any test failure until a
+      cross-system interoperability break or security audit.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add an export_aad_layout test that calls export_aad() with a known
+      vault_id and version and asserts: aad[0..16] == vault_id, aad[16..24]
+      == ARCEXP_MAGIC, u16::from_le_bytes(aad[24..26]) == version, and
+      aad.len() == 26.
+    verification: >-
+      A field-reordering regression in export_aad is caught by the layout
+      test. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-194
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/export.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two import postcondition assertions are missing.
+      (1) export_import_roundtrip_cross_vault (L638) verifies that the target
+      vault contains the imported item but does not assert that the source
+      vault is unchanged after the export. If export() were to mutate the
+      source vault (e.g. by accidentally calling add() or delete()), no test
+      would catch it.
+      (2) export_import_roundtrip_same_vault (L618) exports one item and
+      re-imports it into the same vault. After import, the vault contains the
+      original item plus a duplicate with the same label. The test asserts
+      imported_ids.len() == 1 but does not assert total item count or document
+      the policy for duplicate labels within the same vault. If the intended
+      policy is to reject duplicate labels, the test should assert Err; if
+      duplicates are allowed, that policy should be documented and the total
+      item count asserted.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) After cross-vault export and import, assert that list(source).len()
+      equals the pre-export item count and that source item contents are
+      unchanged.
+      (2) Document the same-vault duplicate label policy. If duplicates are
+      rejected, assert that the second import returns Err. If duplicates are
+      allowed, assert that list(session).len() == 2 after the roundtrip and
+      add an inline comment explaining the policy.
+    verification: >-
+      Source vault is confirmed unchanged after cross-vault export.
+      Same-vault duplicate label behavior matches the documented policy.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
