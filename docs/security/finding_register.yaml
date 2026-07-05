@@ -6908,7 +6908,7 @@ findings:
 
 # ── meissnerseal-core keys/hierarchy.rs security review (2026-07-05) ────────────
 
-  - id: F-206
+  - id: F-195
     kind: consistency
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -6939,7 +6939,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-207
+  - id: F-196
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -6966,7 +6966,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-208
+  - id: F-197
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7004,7 +7004,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-209
+  - id: F-198
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7035,7 +7035,7 @@ findings:
       annotation. cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-210
+  - id: F-199
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7072,7 +7072,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-211
+  - id: F-200
     kind: consistency
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7121,7 +7121,7 @@ findings:
       passes.
     commit: ""
 
-  - id: F-212
+  - id: F-201
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7155,7 +7155,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-213
+  - id: F-202
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/hierarchy.rs (2026-07-05)"
@@ -7182,7 +7182,7 @@ findings:
       cargo test -p meissnerseal-core passes without the derive.
     commit: ""
 
-  - id: F-214
+  - id: F-203
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7210,7 +7210,7 @@ findings:
       meissnerseal-core passes.
     commit: ""
 
-  - id: F-215
+  - id: F-204
     kind: security_review
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7246,7 +7246,7 @@ findings:
       produces a blob from_bytes() would reject. cargo test passes.
     commit: ""
 
-  - id: F-216
+  - id: F-205
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7276,7 +7276,7 @@ findings:
       meissnerseal-core passes.
     commit: ""
 
-  - id: F-217
+  - id: F-206
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7308,7 +7308,7 @@ findings:
       test. cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-218
+  - id: F-207
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7340,7 +7340,7 @@ findings:
       meissnerseal-core passes.
     commit: ""
 
-  - id: F-219
+  - id: F-208
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7366,7 +7366,7 @@ findings:
       test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-220
+  - id: F-209
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7396,7 +7396,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-221
+  - id: F-210
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7430,7 +7430,7 @@ findings:
       Empty store serializes to four zero bytes. cargo test passes.
     commit: ""
 
-  - id: F-222
+  - id: F-211
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
@@ -7458,7 +7458,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-223
+  - id: F-212
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7487,7 +7487,7 @@ findings:
       nonces and ciphertexts. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-224
+  - id: F-213
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7515,7 +7515,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-225
+  - id: F-214
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7544,7 +7544,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-226
+  - id: F-215
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7574,7 +7574,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-227
+  - id: F-216
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7601,7 +7601,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-228
+  - id: F-217
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7629,7 +7629,7 @@ findings:
       regenerate the expected bytes using the stated tool.
     commit: ""
 
-  - id: F-229
+  - id: F-218
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7657,7 +7657,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-230
+  - id: F-219
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7683,7 +7683,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-231
+  - id: F-220
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
@@ -7719,7 +7719,7 @@ findings:
       are explicitly covered. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-232
+  - id: F-221
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7753,7 +7753,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-233
+  - id: F-222
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7789,7 +7789,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-234
+  - id: F-223
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7822,7 +7822,7 @@ findings:
       test. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-235
+  - id: F-224
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7849,7 +7849,7 @@ findings:
       test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-236
+  - id: F-225
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7882,7 +7882,7 @@ findings:
       derive_export_bundle_key(). cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-237
+  - id: F-226
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7909,7 +7909,7 @@ findings:
       expected bytes from the stated inputs and tool.
     commit: ""
 
-  - id: F-238
+  - id: F-227
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7936,7 +7936,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-239
+  - id: F-228
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7967,7 +7967,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-240
+  - id: F-229
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -7999,7 +7999,7 @@ findings:
       memory-constrained runners.
     commit: ""
 
-  - id: F-241
+  - id: F-230
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
@@ -8034,7 +8034,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-242
+  - id: F-231
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8075,7 +8075,7 @@ findings:
       explicitly asserted. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-243
+  - id: F-232
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8104,7 +8104,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-244
+  - id: F-233
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8133,7 +8133,7 @@ findings:
       purposes. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-245
+  - id: F-234
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8161,7 +8161,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-246
+  - id: F-235
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8191,7 +8191,7 @@ findings:
       derive_root_prk(). cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-247
+  - id: F-236
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8219,7 +8219,7 @@ findings:
       meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-248
+  - id: F-237
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8247,7 +8247,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-249
+  - id: F-238
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8274,7 +8274,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-250
+  - id: F-239
     kind: consistency
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
@@ -8302,7 +8302,7 @@ findings:
       expected values from the stated inputs and tool.
     commit: ""
 
-  - id: F-251
+  - id: F-240
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/hash.rs (2026-07-05)"
@@ -8330,7 +8330,7 @@ findings:
       Output length asserted == 32. cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-252
+  - id: F-241
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/hash.rs (2026-07-05)"
@@ -8356,7 +8356,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-253
+  - id: F-242
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/rng.rs (2026-07-05)"
@@ -8382,7 +8382,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-254
+  - id: F-243
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
@@ -8412,7 +8412,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-255
+  - id: F-244
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
@@ -8441,7 +8441,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-256
+  - id: F-245
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
@@ -8467,7 +8467,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-257
+  - id: F-246
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/lib.rs (2026-07-05)"
@@ -8493,7 +8493,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-258
+  - id: F-247
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/audit_guard.rs (2026-07-05)"
@@ -8523,7 +8523,7 @@ findings:
       cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-259
+  - id: F-248
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/audit_guard.rs (2026-07-05)"
@@ -8532,7 +8532,7 @@ findings:
       No static_assertions guard prevents future AuditEventKind variants
       from carrying secret-bearing fields. A developer adding a new variant
       with a SecretBytes or raw Vec<u8> field would receive no compile-time
-      warning. Combined with F-258, this creates a silent path for audit log
+      warning. Combined with F-247, this creates a silent path for audit log
       leakage that grows as the variant set expands.
     cwe: "CWE-1270"
     severity: low
@@ -8548,7 +8548,7 @@ findings:
       a compile error or clippy warning.
     commit: ""
 
-  - id: F-260
+  - id: F-249
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
@@ -8577,7 +8577,7 @@ findings:
       SecretString. cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-261
+  - id: F-250
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
@@ -8602,7 +8602,7 @@ findings:
       cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-262
+  - id: F-251
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
@@ -8626,7 +8626,7 @@ findings:
       cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-263
+  - id: F-252
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
@@ -8648,7 +8648,7 @@ findings:
       cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-264
+  - id: F-253
     kind: coverage_gap
     component: meissnerseal-security
     source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
@@ -8677,7 +8677,7 @@ findings:
       read after manual drop. cargo test -p meissnerseal-security passes.
     commit: ""
 
-  - id: F-265
+  - id: F-254
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/item/model.rs (2026-07-05)"
@@ -8703,7 +8703,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-266
+  - id: F-255
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/item/model.rs (2026-07-05)"
@@ -8728,7 +8728,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-267
+  - id: F-256
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-07-05)"
@@ -8755,7 +8755,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-268
+  - id: F-257
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-07-05)"
@@ -8781,7 +8781,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-269
+  - id: F-258
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-07-05)"
@@ -8809,7 +8809,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-270
+  - id: F-259
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-07-05)"
@@ -8834,7 +8834,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-271
+  - id: F-260
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/protocol.rs (2026-07-05)"
@@ -8861,7 +8861,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-272
+  - id: F-261
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/secret_payload.rs (2026-07-05)"
@@ -8886,14 +8886,14 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-273
+  - id: F-262
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/src/transfer/secret_payload.rs (2026-07-05)"
     date: 2026-07-05
     description: >-
       len() and is_empty() exist on SecretPayload but are never tested.
-      These methods mirror the pattern in SecretBytes (F-262). A regression
+      These methods mirror the pattern in SecretBytes (F-251). A regression
       returning wrong values (e.g. always 0) would not be caught and could
       cause callers that gate on is_empty() to silently accept empty
       payloads.
@@ -8909,7 +8909,7 @@ findings:
       cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-274
+  - id: F-263
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/tests/vectors.rs (2026-07-05)"
@@ -8940,7 +8940,7 @@ findings:
       pinned in test vectors. cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-275
+  - id: F-264
     kind: coverage_gap
     component: meissnerseal-core
     source: "security review — crates/meissnerseal-core/tests/vectors.rs (2026-07-05)"
@@ -8966,7 +8966,7 @@ findings:
       not just array length. cargo test -p meissnerseal-core passes.
     commit: ""
 
-  - id: F-276
+  - id: F-265
     kind: coverage_gap
     component: meissnerseal-crypto
     source: "security review — crates/meissnerseal-crypto/src/test_vectors.rs (2026-07-05)"
@@ -8993,7 +8993,7 @@ findings:
       cargo test -p meissnerseal-crypto passes.
     commit: ""
 
-  - id: F-277
+  - id: F-266
     kind: coverage_gap
     component: meissnerseal-pqc
     source: "security review — crates/meissnerseal-pqc/src/hybrid.rs (2026-07-05)"
@@ -9021,7 +9021,7 @@ findings:
       cargo test -p meissnerseal-pqc passes.
     commit: ""
 
-  - id: F-278
+  - id: F-267
     kind: coverage_gap
     component: meissnerseal-pqc
     source: "security review — crates/meissnerseal-pqc/src/hybrid.rs (2026-07-05)"
@@ -9046,7 +9046,7 @@ findings:
       cargo test -p meissnerseal-pqc passes.
     commit: ""
 
-  - id: F-279
+  - id: F-268
     kind: coverage_gap
     component: meissnerseal-pqc
     source: "security review — crates/meissnerseal-pqc/src/mlkem.rs (2026-07-05)"
@@ -9074,7 +9074,7 @@ findings:
       cargo test -p meissnerseal-pqc passes.
     commit: ""
 
-  - id: F-280
+  - id: F-269
     kind: coverage_gap
     component: meissnerseal-pqc
     source: "security review — crates/meissnerseal-pqc/src/mlkem.rs (2026-07-05)"
@@ -9099,7 +9099,7 @@ findings:
       cargo test -p meissnerseal-pqc passes.
     commit: ""
 
-  - id: F-281
+  - id: F-270
     kind: coverage_gap
     component: meissnerseal-cli
     source: "security review — crates/meissnerseal-cli/src/main.rs (2026-07-05)"
