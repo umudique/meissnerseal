@@ -6248,3 +6248,313 @@ findings:
       Both negative cases return the expected error variant. Positive controls
       pass. cargo test -p meissnerseal-core -- transfer passes.
     commit: ""
+
+# ── meissnerseal-core vault/format.rs security review (2026-07-05) ──────────────
+
+  - id: F-175
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      serialize_record_frame_roundtrip_parses_same_frame (L2422) calls
+      build_aad with schema_profile = 1, which equals SCHEMA_MEISSNER_RECORDS_V1
+      (the pre-release schema that V2 readers must reject). The test therefore
+      exercises the roundtrip with a schema value that is explicitly prohibited
+      in production and that parse_header_rejects_schema_profile_v1 confirms
+      must be rejected. The test should use SCHEMA_MEISSNER_RECORDS_V2 (0x0002)
+      to match the shipping schema.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Change the build_aad call in serialize_record_frame_roundtrip_parses_same_frame
+      to pass SCHEMA_MEISSNER_RECORDS_V2 instead of the literal 1.
+    verification: >-
+      The roundtrip test passes with SCHEMA_MEISSNER_RECORDS_V2.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-176
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      validate_stored_record_aad (L1594-1635) performs a partial field-by-field
+      check of the 79-byte canonical AAD rather than a full byte-for-byte
+      comparison. Five fields are silently skipped: vault_id (aad[19..35]),
+      schema_profile (aad[37..39]), kdf_profile (aad[41..43]), pqc_profile
+      (aad[43..45]), and record_kind (aad[77..79]). Corrupting any of these
+      five fields in the stored AAD does not cause validate_stored_record_aad
+      to return an error. The corresponding test
+      parse_record_frame_rejects_corrupted_stored_aad (L2617) only flips
+      bytes[65] (aad[0], the first byte of AAD_DOMAIN) and does not cover the
+      skipped fields. In production, AEAD authentication catches AAD tampering
+      because the tag covers the full AAD; however, the parse layer is not
+      fail-closed for these five fields, which creates a gap if parse_record_frame
+      is ever called in a context that does not subsequently perform AEAD decryption.
+      The safest design is for the caller to reconstruct the expected canonical AAD
+      from header and record metadata and compare the stored AAD byte-for-byte, or
+      for parse_record_frame to accept the expected AAD as a parameter.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the partial field checks in validate_stored_record_aad with a
+      full 79-byte comparison against the caller-supplied canonical AAD, or
+      change parse_record_frame to accept the expected AAD as a parameter and
+      perform a constant-time byte-for-byte comparison. Extend
+      parse_record_frame_rejects_corrupted_stored_aad to flip bytes in the
+      vault_id, schema_profile, kdf_profile, pqc_profile, and record_kind
+      offsets and assert that each flip is rejected.
+    verification: >-
+      Corrupting any byte of the stored AAD causes parse_record_frame to
+      return Err. All five previously-skipped field offsets are covered by
+      dedicated test cases. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-177
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two AAD builder functions lack sufficient test coverage.
+      (1) test_build_aad_length (L2075) asserts only that the return value is
+      79 bytes; it does not verify the layout. The exact byte offsets and
+      values for domain (bytes 0..19), vault_id (19..35), format_version
+      (35..37), schema_profile (37..39), aead_profile (39..41), kdf_profile
+      (41..43), pqc_profile (43..45), record_id (45..61), revision_id (61..77),
+      and record_kind (77..79) are not asserted. A regression that silently
+      reorders or omits a field would not be caught.
+      (2) table_aad_v2_is_vault_id_and_schema_only (L2283) tests only the
+      success path for build_table_aad_v2. The function returns Err for any
+      schema_profile other than SCHEMA_MEISSNER_RECORDS_V2, but no test
+      verifies that SCHEMA_MEISSNER_RECORDS_V1 or an unknown schema profile
+      (e.g. SCHEMA_MEISSNER_RECORDS_V2 + 1) is rejected.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Extend test_build_aad_length (or add a sibling test) to assert the
+      exact value at each field offset: domain bytes, vault_id, all five
+      u16le profile fields, record_id, revision_id, and record_kind.
+      (2) Add two negative tests for build_table_aad_v2: one passing
+      SCHEMA_MEISSNER_RECORDS_V1 and one passing an unknown schema, each
+      asserting Err(CoreError::Format(_)).
+    verification: >-
+      A field-reordering regression in build_aad is caught by the layout test.
+      build_table_aad_v2 with V1 or unknown schema returns the expected error.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-178
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      parse_header negative coverage has three gaps.
+      (1) Missing required TLV negatives: no test omits a required tag and
+      verifies rejection. The required tags — TAG_VAULT_ID, TAG_CREATED_AT,
+      TAG_KDF_PROFILE, TAG_AEAD_PROFILE, TAG_SCHEMA_PROFILE, TAG_HEADER_NONCE
+      — each have no corresponding "missing tag → Err" test. TAG_PQC_PROFILE
+      uses flags = 0 (non-critical) in the fixture; if a missing pqc_profile
+      defaults to 0 intentionally, a test must pin that behavior explicitly.
+      (2) Unknown critical TLV reject: no test inserts a TLV with an unknown
+      tag and critical flag set and verifies that parse_header returns Err.
+      (3) Unknown non-critical TLV accept: no test inserts a TLV with an
+      unknown tag and flags = 0 and verifies that parse_header succeeds and
+      ignores the unknown field. The behavior for duplicate unknown critical
+      and unknown non-critical TLVs is also untested.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests: parse_header rejects a header with each required tag absent
+      (one test per tag); parse_header rejects a header with an unknown
+      critical TLV; parse_header accepts (and ignores) a header with an
+      unknown non-critical TLV; document and pin the pqc_profile missing
+      default behavior; add tests for duplicate unknown critical and
+      non-critical TLVs.
+    verification: >-
+      Missing required-tag cases return Err(CoreError::Format(_)). Unknown
+      critical TLV returns Err. Unknown non-critical TLV returns Ok.
+      pqc_profile missing behavior matches the documented default.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-179
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      serialize_vault_file (L1091) produces prefix || header || body ||
+      record_table but no test verifies the full byte layout of the output.
+      The spec V2 layout is prefix || header || WRK frame || sealed table ||
+      item frames. The prefix roundtrip test (serialize_prefix_roundtrip,
+      L2092) checks only the prefix section. The header roundtrip test
+      (serialize_header_roundtrip, L2155) reconstructs the file manually and
+      only checks header field values. No test asserts: the magic appears at
+      offset 0 of the serialize_vault_file output; the header section starts
+      immediately after the prefix; the record_table section follows the body;
+      or that a multi-item body appears in the correct order. This area is
+      bug-prone because the section ordering is not enforced by the type system.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a serialize_vault_file layout test that calls serialize_vault_file
+      with known header, record_table, and body slices and asserts the exact
+      byte ranges of each section in the output. Add a multi-item body ordering
+      test asserting that body content appears between the header and
+      record_table sections in the correct sequence.
+    verification: >-
+      A section-reordering regression in serialize_vault_file is caught by the
+      layout test. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-180
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      serialize_sealed_record_table_v2 (L612) accepts any frame_offset and
+      frame_len values in the entries it serializes — it does not validate that
+      offsets are in-bounds or that frame_len is non-zero. The existing tests
+      at L2636-2762 exercise the contract by constructing entries with invalid
+      offsets via serialize_sealed_record_table_v2 and then confirming that
+      open_sealed_record_table_v2 rejects them. This implies that the serializer
+      contract is "serialize any entries, validation is the opener's responsibility,"
+      but the serializer's documentation does not state this explicitly. If the
+      intent is that the serializer rejects invalid entries (matching the opener's
+      contract), the serializer must be updated; if the intent is that only the
+      opener validates, the serializer contract must document this split.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Document the intended validation split explicitly: either add contract
+      language to serialize_sealed_record_table_v2 stating that frame
+      offset/length validation is delegated to the opener, or add offset/length
+      guards to the serializer matching the opener's constraints and update the
+      tests to verify serializer-level rejection.
+    verification: >-
+      The contract comment on serialize_sealed_record_table_v2 clearly states
+      which validations are the serializer's responsibility versus the opener's.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-181
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Three boundary and authentication negative cases are not tested.
+      (1) frame_len = 0 in a sealed table entry: open_sealed_record_table_v2
+      should reject an entry where frame_len = 0 because the resulting
+      frame_end equals frame_offset, but no test exercises this case.
+      (2) ciphertext_len < TAG_LEN in parse_record_frame: parse_record_frame
+      (L1526) reads ciphertext_len and checks that ciphertext_end does not
+      exceed frame_len, but does not check that ciphertext_len >= TAG_LEN (16).
+      A ciphertext shorter than the authentication tag is accepted by the parser
+      and would only fail at AEAD decrypt time. The parser is not fail-closed
+      for this boundary.
+      (3) open_sealed_record_table_v2 wrong-authentication negatives: the
+      existing test only tampers with ciphertext bytes. No test calls
+      open_sealed_record_table_v2 with a wrong metadata key (different AeadKey),
+      a different vault_id (AAD mismatch), or a different schema_profile
+      (build_table_aad_v2 returns a different AAD) and verifies that each
+      returns an authentication error.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a test: open_sealed_record_table_v2 rejects an entry with
+      frame_len = 0 (confirm it returns Err(CoreError::Format(_))).
+      (2) Add a guard in parse_record_frame: if ciphertext_len < TAG_LEN,
+      return Err before building the RecordFrame. Add a test for this case.
+      (3) Add tests: open_sealed_record_table_v2 with wrong metadata key,
+      wrong vault_id, and wrong schema_profile each return Err.
+    verification: >-
+      All three negative categories return the expected error variant.
+      parse_record_frame rejects ciphertext_len < TAG_LEN without reaching
+      the AEAD layer. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-182
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two related parser coverage gaps exist.
+      (1) parse_item_record_frame_envelope (L960) has only a roundtrip test
+      (L2451). Not tested: empty wrapped_rek (wrapped_rek_len = 0), empty
+      encrypted_payload (encrypted_payload_len = 0), a truncated nonce (fewer
+      than 24 bytes for either nonce field), a declared length that overruns the
+      remaining bytes, and trailing garbage after the payload.
+      (2) The proptest no-panic coverage exists only for parse_header
+      (parse_header_no_panic, L1924). The same property — no arbitrary input
+      causes a panic — is not verified for parse_record_frame,
+      parse_item_record_frame_envelope, or parse_record_table. A panic on
+      malformed input in any of these parsers is a denial-of-service vector.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add negative tests for parse_item_record_frame_envelope: empty
+      wrapped_rek, empty encrypted_payload, truncated nonce, length overrun,
+      and trailing garbage — each asserting Err(CoreError::Format(_)).
+      (2) Add proptest no-panic properties for parse_record_frame,
+      parse_item_record_frame_envelope, and parse_record_table matching the
+      pattern of parse_header_no_panic.
+    verification: >-
+      All parse_item_record_frame_envelope negative cases return Err.
+      Proptest confirms no panic on arbitrary input for all four parsers.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-183
+    kind: consistency
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/vault/format.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Three record frame negative tests use hardcoded raw byte offsets into
+      the serialized frame rather than named constants or a builder:
+      parse_record_frame_rejects_wrong_aead_profile (L2590) writes to bytes[34..36],
+      parse_record_frame_rejects_wrong_aad_len (L2609) writes to bytes[61..65],
+      and parse_record_frame_rejects_corrupted_stored_aad (L2628) writes to
+      bytes[65]. These offsets are correct for the current frame layout but are
+      not derived from the layout constants (RECORD_FRAME_FIXED_PREFIX_LEN,
+      XCHACHA20_NONCE_LEN, etc.). A layout change that shifts any field would
+      silently leave the tests mutating the wrong bytes, producing false-positive
+      passes.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace raw byte offsets in these three tests with expressions derived
+      from the existing layout constants (e.g. 2 + 16 + 16 for the aead_profile
+      offset, or introduce named offset constants for each record frame field).
+      Alternatively, use a record frame builder that exposes field mutation by
+      name rather than by byte index.
+    verification: >-
+      A layout-constant change that shifts the aead_profile or aad_len field
+      causes the corresponding test to mutate the correct byte.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
