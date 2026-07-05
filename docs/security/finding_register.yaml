@@ -7181,3 +7181,279 @@ findings:
       Adding #[derive(Debug)] to UnlockedKeys causes a compile error.
       cargo test -p meissnerseal-core passes without the derive.
     commit: ""
+
+  - id: F-214
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      from_bytes() rejects count > MAX_REPLAY_ENTRIES (65_536), so 65_536 is
+      the largest accepted count and 65_537 is the smallest rejected count.
+      The only existing boundary test (seen_ids_from_bytes_rejects_u32_max_entry_count_before_allocation)
+      uses u32::MAX, which is many orders of magnitude above the limit.
+      The exact boundary values — a count of 65_536 (must succeed) and a
+      count of 65_537 (must return MalformedReplayStore) — are not pinned by
+      any test. A change to MAX_REPLAY_ENTRIES would not be caught.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add two tests: (1) build a byte slice with count == 65_536 followed by
+      65_536 * 24 zero bytes and assert from_bytes returns Ok; (2) build a
+      byte slice with count == 65_537 and assert from_bytes returns
+      Err(MalformedReplayStore). This pins the exact constant and makes any
+      change to MAX_REPLAY_ENTRIES a test failure.
+    verification: >-
+      Both boundary values are explicitly asserted. cargo test -p
+      meissnerseal-core passes.
+    commit: ""
+
+  - id: F-215
+    kind: security_review
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two related invariant gaps in SeenEnvelopeIds.
+      (1) check_and_insert() does not cap the number of live entries at
+      MAX_REPLAY_ENTRIES. If evict_expired() removes nothing (all entries are
+      non-expiring or not yet expired), the store grows without bound. When
+      entries.len() exceeds 65_536 the serialized blob produced by to_bytes()
+      is valid UTF-8 but will be rejected by from_bytes() on the next load,
+      silently breaking persistence.
+      (2) to_bytes() uses u32::try_from(self.entries.len()).unwrap_or(u32::MAX)
+      to encode the count. If entries.len() somehow exceeds u32::MAX on a
+      64-bit host the count field is silently clamped to u32::MAX rather than
+      returning an error, producing a structurally corrupt blob. There is no
+      test for either behavior.
+    cwe: "CWE-190"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Enforce the MAX_REPLAY_ENTRIES cap in check_and_insert(): after
+      evict_expired(), if self.entries.len() >= MAX_REPLAY_ENTRIES as usize,
+      return Err(TransferError::ReplayStoreFull) or evict the oldest entry.
+      (2) Change to_bytes() to return Result<Vec<u8>, TransferError> and
+      propagate a conversion error instead of clamping. Alternatively,
+      enforce the cap in (1) and add a debug_assert in to_bytes(). Add tests
+      for both behaviors.
+    verification: >-
+      Inserting MAX_REPLAY_ENTRIES + 1 entries without expiry is rejected or
+      causes the oldest to be evicted. to_bytes() on a valid store never
+      produces a blob from_bytes() would reject. cargo test passes.
+    commit: ""
+
+  - id: F-216
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      from_bytes() parses the serialized entry list into a Vec without
+      checking for duplicate EnvelopeId values. A crafted or corrupted byte
+      blob containing two entries with the same ID is accepted silently. The
+      first subsequent call to check_and_insert() with that ID will return
+      ReplayedEnvelopeId regardless of whether the envelope was legitimately
+      seen, because the duplicate ID in the store matches before the new ID
+      is compared. If the persisted replay store is the authoritative
+      record of accepted envelopes, the parser should treat duplicate IDs as
+      malformed input rather than deferring the check to runtime.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      In from_bytes(), after parsing each entry, check whether its ID is
+      already in the partially built entries Vec and return
+      Err(MalformedReplayStore) on a duplicate. Add a test that serializes a
+      blob with count == 2 and identical 16-byte IDs and asserts the result
+      is Err(MalformedReplayStore).
+    verification: >-
+      A blob with duplicate IDs is rejected by from_bytes(). cargo test -p
+      meissnerseal-core passes.
+    commit: ""
+
+  - id: F-217
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      from_bytes() stores expired entries verbatim — no eviction happens at
+      parse time. Expired entries are only removed on the first subsequent
+      call to check_and_insert() via evict_expired(). Until then, the store's
+      entry count and equality semantics reflect stale data. The contract
+      comment (Postconditions, L21-22) says "Expired entries are evicted
+      before every replay check" — load time does not count as a replay
+      check, so the behavior is technically consistent with the contract, but
+      the policy (lazy eviction vs. parse-time eviction) is unspecified and
+      untested. A test that deserializes a store containing expired entries
+      and immediately asserts on store size or equality would surface
+      whichever policy is chosen.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Decide and document the eviction policy: either evict during from_bytes()
+      or explicitly state that eviction is lazy and only occurs on
+      check_and_insert(). Add a test that calls from_bytes() with a blob
+      containing one expired and one live entry, then asserts the expected
+      entry count (1 for eager, 2 for lazy) without calling check_and_insert().
+    verification: >-
+      Eviction policy is documented in the contract comment and pinned by a
+      test. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-218
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The SeenEnvelopeIds contract states that callers must invoke
+      check_and_insert after envelope validation and before key derivation or
+      decryption. In open_envelope() the actual call order is: validate_envelope
+      → hybrid::receive_transfer_key (key derivation) → aead::decrypt →
+      mldsa::verify → check_and_insert. The replay check therefore occurs
+      after key derivation, decryption, and signature verification. The
+      replay.rs test suite exercises the store in isolation and cannot catch
+      this ordering. F-167 covers the stale contract doc; this finding covers
+      the missing integration test that would pin the expected call order.
+    cwe: "CWE-362"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add an integration test (or extend open_envelope tests) that uses a
+      spy or instrumented SeenEnvelopeIds to record when check_and_insert is
+      called relative to decryption, then asserts the expected order. If the
+      current post-decrypt ordering is intentional (F-167 resolves stale doc),
+      update the contract comment in SeenEnvelopeIds to match and add a test
+      that verifies a replayed ID is caught after decryption rather than before.
+    verification: >-
+      The ordering of check_and_insert relative to key derivation and
+      decryption in open_envelope is pinned by a test. cargo test -p
+      meissnerseal-core passes.
+    commit: ""
+
+  - id: F-219
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      seen_ids_evicts_expired_entries_before_check() only tests the case where
+      an expired entry with the same ID is re-inserted after eviction. It does
+      not test that inserting a different ID after an expiry also triggers
+      eviction of the unrelated stale entry. The eviction is unconditional
+      (evict_expired is always called before the duplicate check), but the test
+      only exercises the one scenario where the eviction is observable via
+      duplicate-ID acceptance.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that inserts ID-A with past_timestamp(), then inserts ID-B
+      (different value) and asserts Ok(()). After the second insert, assert
+      that the store contains only ID-B (i.e., the expired ID-A was evicted).
+    verification: >-
+      Eviction of a different-ID expired entry is explicitly tested. cargo
+      test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-220
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      evict_expired() retains entries where expires > now (strictly greater),
+      meaning an entry with expires_at == now is considered expired. This
+      boundary semantics is not covered by any test. The existing
+      future_timestamp() and past_timestamp() helpers bracket the boundary but
+      neither constructs a timestamp equal to the current time. Additionally,
+      unix_time_millis() calls SystemTime::now() directly, making deterministic
+      boundary tests impossible without a clock abstraction. The expires == now
+      policy is a security-relevant invariant (grace-period implications) that
+      should be pinned.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Introduce a clock abstraction (e.g., a fn pointer or trait injected into
+      evict_expired or check_and_insert) so tests can supply a fixed timestamp.
+      Add a test that inserts an entry with expires_at == injected_now and
+      asserts that it is treated as expired (evicted before the next
+      check_and_insert).
+    verification: >-
+      expires_at == now boundary is explicitly tested with a fixed clock.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-221
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Three serialization format test gaps in the replay store:
+      (1) No exact byte-layout assertion. seen_ids_roundtrip_serialization
+      exercises round-trip equality but never asserts the raw bytes against a
+      known-good vector (count:u32le || id[16] || expires_at:u64le). A wire
+      format regression would not be caught.
+      (2) Truncated count field variants are not tested. The existing
+      seen_ids_from_bytes_rejects_truncated_input test truncates an entry
+      body (pops one byte from a 1-entry store) but does not test a count
+      field that is itself truncated: zero bytes, 1 byte, 2 bytes, or 3 bytes.
+      (3) The empty-store serialization ([0x00, 0x00, 0x00, 0x00]) is not
+      asserted. A regression encoding the empty case differently would not
+      be caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a KAT test: build a store with a known ID and expires_at, call
+      to_bytes(), and assert the result byte-for-byte against a hand-computed
+      expected slice.
+      (2) Add a table test for from_bytes() with inputs: [], [0x01], [0x00,
+      0x01], [0x00, 0x00, 0x01], each asserting Err(MalformedReplayStore).
+      (3) Add assert_eq!(SeenEnvelopeIds::new().to_bytes(), [0, 0, 0, 0]).
+    verification: >-
+      Wire format is pinned by a KAT. Truncated count field is rejected.
+      Empty store serializes to four zero bytes. cargo test passes.
+    commit: ""
+
+  - id: F-222
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/replay.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The existing proptest (seen_ids_allows_different_envelope_ids) only
+      covers the success path: two distinct IDs both accepted. There is no
+      proptest exercising from_bytes() on arbitrary byte slices to verify
+      no-panic behavior. A malformed input that triggers a panic (e.g.,
+      integer overflow in the parser, an unexpected unwrap) would not be
+      found by the current property tests. This is a fuzz-coverage gap on
+      a parsing function that processes persisted, potentially attacker-
+      controlled data.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a proptest that generates an arbitrary Vec<u8> and calls
+      from_bytes() on it, asserting only that the result is either Ok or
+      Err (no panic). This covers the no-panic invariant under arbitrary
+      input without needing to enumerate all malformed cases.
+    verification: >-
+      from_bytes() does not panic on any arbitrary byte input per proptest.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
