@@ -7718,3 +7718,318 @@ findings:
       Empty plaintext test is non-redundant and complete. Boundary sizes
       are explicitly covered. cargo test -p meissnerseal-crypto passes.
     commit: ""
+
+  - id: F-232
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_device_keypair_key() (L196) has zero test coverage. No test
+      exercises KAT/determinism, wrong random_salt changes key, invalid
+      params rejection, or domain separation. Additionally, the cross-domain
+      separation property — that the same passphrase and comparable salt
+      input produce distinct keys across vault (derive), export
+      (derive_export_bundle_key), and device (derive_device_keypair_key)
+      derivation paths — is only partially tested:
+      export_bundle_key_differs_from_vault_muk_same_passphrase_same_vault_id
+      covers vault vs. export, but vault vs. device and export vs. device
+      are untested. The contract states "Domain separator is distinct from
+      vault KDF" (L194) but no test verifies this invariant.
+    cwe: "CWE-330"
+    severity: high
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests for derive_device_keypair_key(): (1) KAT — same passphrase
+      and random_salt produce the same AeadKey (determinism); (2) different
+      random_salt → different key; (3) invalid params (m below min, t=0,
+      p=0, output_len wrong) each return Err(KdfError::InvalidInput);
+      (4) same passphrase and analogous input produce a key distinct from
+      the vault MUK and from the export bundle key (cross-domain assertion).
+    verification: >-
+      derive_device_keypair_key() is exercised for KAT, salt sensitivity,
+      invalid param rejection, and cross-domain separation. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-233
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_export_bundle_key() (L165) has no tests for invalid params or
+      empty passphrase. The function delegates to derive() (L170), which
+      performs param validation, but no test calls
+      derive_export_bundle_key() with a below-minimum or out-of-range param
+      and asserts Err(KdfError::InvalidInput). More critically, the contract
+      (L144) requires the passphrase to be non-empty, but the implementation
+      does not enforce this: derive() passes the passphrase directly to the
+      Argon2 backend without an empty check, and the backend accepts empty
+      passwords. An empty export passphrase is therefore accepted silently,
+      violating the contract precondition. This is either an implementation
+      bug (missing guard) or a contract drift (the non-empty requirement
+      should be removed if upper layers always enforce it).
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Decide whether the empty passphrase guard belongs at the KDF layer or
+      exclusively at upper layers (export.rs). If KDF layer: add a check in
+      derive_export_bundle_key() that returns Err(KdfError::InvalidInput)
+      for empty passphrase, and add a test asserting this. If upper layer
+      only: update the contract comment to remove the non-empty precondition
+      and add a note pointing to where it is enforced. In either case, add
+      tests for invalid Argon2Params passed to derive_export_bundle_key().
+    verification: >-
+      Empty passphrase handling is consistent between contract and
+      implementation. Invalid params are tested. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-234
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive() (L67) does not check for an empty password slice. The
+      contract (L49-52) describes password as "caller-owned secret input"
+      but does not require it to be non-empty. The Argon2 backend accepts
+      empty passwords. It is unclear whether the policy is (a) KDF layer
+      accepts empty passwords and upper layers must enforce non-empty,
+      (b) KDF layer should reject empty passwords as a defence-in-depth
+      guard, or (c) empty passwords are a supported edge case. This policy
+      is unspecified and untested at the KDF boundary. With export.rs
+      (F-184) independently guarding empty passphrase, there is a risk of
+      inconsistent enforcement if future callers bypass the upper-layer
+      guard.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Decide the empty-password policy for derive() and document it
+      explicitly in the contract comment. If the policy is reject: add a
+      guard and a test. If the policy is accept (delegated to callers): add
+      a contract note and add a test that empty password succeeds (to
+      prevent future accidental rejection). Pin the chosen policy with a
+      test in either case.
+    verification: >-
+      Empty-password policy is documented in the contract and pinned by a
+      test. cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-235
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_vkek() (L121) binds the VKEK to vault_id via the salt
+      b"meissnerseal-vkek-salt-v1" || vault_id. test_vkek_derivation (L310)
+      asserts only that a fixed MUK and VAULT_ID produce the expected VKEK
+      constant. No test verifies that the same MUK with a different vault_id
+      produces a different VKEK. A regression that drops the vault_id from
+      the salt (or uses a constant salt) would not be caught: the KAT still
+      passes because it uses a fixed vault_id, but the domain-binding
+      invariant is silently broken.
+    cwe: "CWE-330"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that calls derive_vkek() twice with the same MUK but two
+      different vault_ids and asserts the two returned VKEKs are not equal.
+      This pins the vault_id-binding property independently of the KAT.
+    verification: >-
+      vault_id sensitivity of derive_vkek() is explicitly tested. cargo
+      test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-236
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The vault_id (source_vault_id) binding is not verified for either
+      derive() or derive_export_bundle_key(). (1) derive():
+      test_muk_derivation uses a single VAULT_ID; no test calls derive()
+      with the same password and two different vault_ids and asserts the
+      MUKs differ. A salt construction bug that ignores vault_id bytes
+      would not be caught. (2) derive_export_bundle_key(): no test supplies
+      the same passphrase with two different source_vault_ids and asserts
+      the export keys differ. Both properties are security invariants: an
+      export bundle sealed for vault A must not be decryptable using vault
+      B's ID as source_vault_id.
+    cwe: "CWE-330"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a test that calls derive() with the same password and two
+      distinct vault_ids (e.g., all-zeros vs. all-ones) and asserts the
+      returned MUKs are not equal.
+      (2) Add a test that calls derive_export_bundle_key() with the same
+      passphrase and two distinct source_vault_ids and asserts the returned
+      AeadKeys are not equal. Both tests can use fast params (m=MIN, t=MIN,
+      p=MIN) to avoid CI slowness.
+    verification: >-
+      vault_id sensitivity is pinned for both derive() and
+      derive_export_bundle_key(). cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-237
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      EXPECTED_MUK (L281) and EXPECTED_VKEK (L286) are 32-byte KAT
+      constants with no comment identifying the tool, command, or reference
+      implementation used to generate them. Without a source note, a future
+      contributor cannot verify whether the vectors are correct, reproduce
+      them independently, or detect a silent regression if the constants are
+      ever regenerated. This reduces the audit value of test_muk_derivation
+      and test_vkek_derivation.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a comment above the EXPECTED_MUK and EXPECTED_VKEK constants
+      identifying the generation method (e.g., a standalone Rust snippet
+      using the same argon2 crate version, or a reference CLI tool) and
+      the input values (PASSWORD, VAULT_ID, PARAMS) used to produce them.
+    verification: >-
+      KAT source is documented. A future reviewer can regenerate the
+      expected bytes from the stated inputs and tool.
+    commit: ""
+
+  - id: F-238
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_rejects_wrong_output_len (L442) tests only output_len ==
+      MasterUnlockKey::LEN + 1. Two additional rejection cases are missing:
+      (1) output_len == 0, which should be caught by the param guards or
+      the Argon2 backend, and (2) output_len == MasterUnlockKey::LEN - 1
+      (one byte short), which tests the exact lower boundary of the != LEN
+      check. Without these cases, a mutation that changes the output_len
+      check from != to > or < would not be caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add two tests: (1) output_len == 0 → Err(KdfError::InvalidInput);
+      (2) output_len == MasterUnlockKey::LEN - 1 →
+      Err(KdfError::InvalidInput). These can be structured as a table test
+      alongside the existing LEN + 1 case.
+    verification: >-
+      All three output_len rejection cases are covered. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-239
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Positive boundary tests exist for maximum parameter values
+      (derive_accepts_t_cost_at_max, derive_accepts_p_lanes_at_max,
+      derive_accepts_m_cost_at_max). No equivalent tests pin the minimum
+      boundary: there is no explicit test asserting that
+      m=ARGON2_MIN_M_COST_KIB, t=ARGON2_MIN_T_COST, and p=ARGON2_MIN_P_LANES
+      are each individually accepted. The rejection tests use valid_params()
+      (all fields at MIN) as a baseline, but they do not name or assert the
+      min-boundary acceptance as a standalone invariant. A mutation of <
+      to <= on any minimum check would not be caught without a dedicated
+      min-accept test.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add three tests mirroring the max-accept pattern:
+      derive_accepts_m_cost_at_min (m=ARGON2_MIN_M_COST_KIB, others valid),
+      derive_accepts_t_cost_at_min (t=ARGON2_MIN_T_COST), and
+      derive_accepts_p_lanes_at_min (p=ARGON2_MIN_P_LANES), each asserting
+      Ok(). These share the same fast-params baseline as valid_params().
+    verification: >-
+      Min boundary acceptance is explicitly pinned for all three params.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-240
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two tests allocate large amounts of memory in CI: test_muk_derivation
+      (L301) and export_bundle_key_is_deterministic (L342) each run Argon2id
+      at 64 MiB; derive_accepts_m_cost_at_max (L517) runs at 256 MiB. All
+      three are guarded only by #[cfg_attr(miri, ignore)], suppressing them
+      under Miri but running them in every standard cargo test invocation.
+      There is no slow-test feature gate, #[ignore] annotation, or nightly
+      security suite designation. On memory-constrained CI runners or
+      developer machines this can cause OOM failures or flaky test results
+      unrelated to code correctness.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Consider gating heavy Argon2 tests behind a Cargo feature flag (e.g.,
+      slow-tests) or marking them #[ignore] with a documented reason so
+      they run only in the dedicated security test suite (cargo test
+      --ignored or a nightly CI job). Fast param-validation tests
+      (rejection, min/max boundary) do not allocate large memory and should
+      remain ungated.
+    verification: >-
+      Standard cargo test completes without large memory allocation.
+      Security suite still exercises the KATs. CI is not flaky on
+      memory-constrained runners.
+    commit: ""
+
+  - id: F-241
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/argon2.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Argon2Params derives Debug (L32). Its fields — m_cost_kib, t_cost,
+      p_lanes, output_len — contain no secret material, so the derive is
+      not a direct information-disclosure risk. However, there is no
+      explicit policy comment or documented decision stating that KDF
+      parameters are intentionally public in log output. If an operator
+      logs a failed unlock attempt including the Argon2Params debug
+      representation, the parameters (memory cost, iteration count,
+      parallelism) are visible in logs. An attacker who learns the exact
+      KDF parameters can tune offline brute-force attacks more precisely.
+      Whether this is acceptable depends on the threat model; the absence
+      of a documented policy leaves the decision implicit and unreviewable.
+    cwe: "CWE-532"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a comment on the Argon2Params struct (or in the security policy
+      document) explicitly stating that KDF parameters are considered
+      non-secret and may appear in log output, and note whether this is
+      intentional (parameters are already serialized into the vault header
+      and are therefore not confidential). If the threat model requires
+      parameter confidentiality, replace #[derive(Debug)] with a manual
+      impl that redacts or omits field values.
+    verification: >-
+      The loggability policy for Argon2Params is documented. If redaction
+      is chosen, a test pins the Debug output format. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
