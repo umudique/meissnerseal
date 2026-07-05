@@ -8301,3 +8301,830 @@ findings:
       KAT source is documented. A future reviewer can regenerate all eight
       expected values from the stated inputs and tool.
     commit: ""
+
+  - id: F-251
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/hash.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      blake2b_256_bytes() (L45) has zero unit tests. The function is used as
+      the sole integrity primitive in identity_fingerprint() (device.rs L689),
+      which is verified on every SealedDeviceKeyFile::open() call. A silent
+      regression in the BLAKE2b output (wrong hash length, wrong personalization,
+      wrong digest) would not be caught by the test suite. The only hash test
+      present is sha256_bytes_empty_matches_known_hash, which does not exercise
+      blake2b_256_bytes at all.
+    cwe: "CWE-392"
+    severity: high
+    blocking: false
+    status: open
+    remediation: >-
+      Add at least one KAT for blake2b_256_bytes with a known-output input
+      (e.g. the BLAKE2b-256 digest of b"abc" from RFC 7693 Appendix A or
+      an independent reference implementation). Assert the output length is
+      exactly 32 bytes. Add a second test with empty input to establish
+      the empty-message hash value.
+    verification: >-
+      blake2b_256_bytes("abc") matches the RFC 7693 reference value.
+      Output length asserted == 32. cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-252
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/hash.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      sha256_bytes() has only one test: sha256_bytes_empty_matches_known_hash,
+      which tests the empty-input case. No KAT exists for a non-empty known
+      input (e.g. SHA-256("abc") = ba7816bf...). The output length (32 bytes)
+      is never asserted. A mutation changing the digest truncation or encoding
+      would not be caught for non-empty inputs. sha256_bytes is used in
+      identity_fingerprint, pairing payload fingerprints, and transcript
+      computation — all security-critical paths.
+    cwe: "CWE-392"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a KAT test for sha256_bytes(b"abc") asserting the output equals
+      the FIPS 180-4 reference digest ba7816bf8f01cfea414140de5dae2ec73b00361b
+      b41f20d00f151d1c0e3b9e3b. Assert output length == 32.
+    verification: >-
+      sha256_bytes("abc") matches FIPS 180-4 reference. Output length asserted.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-253
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/rng.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      random_bytes(RANDOM_BYTES_MAX_LEN) — the exact maximum accepted value
+      (4096) — is never tested as an accepted boundary. The test suite covers
+      random_bytes(RANDOM_BYTES_MAX_LEN + 1) triggering a panic, and several
+      lengths well below the maximum, but no test calls
+      random_bytes(RANDOM_BYTES_MAX_LEN) and asserts it returns a 4096-byte
+      Vec without panicking. An off-by-one error in the boundary check (> vs >=)
+      would not be detected.
+    cwe: "CWE-193"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test calling random_bytes(RANDOM_BYTES_MAX_LEN) and asserting
+      the returned Vec has length RANDOM_BYTES_MAX_LEN (4096) and does not
+      panic. Place it adjacent to the existing panic-at-MAX-plus-1 test.
+    verification: >-
+      random_bytes(4096) returns a 4096-byte Vec without panic.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-254
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The debug_redacted test for Key<N> uses !contains("ab") and
+      !contains("171") rather than an exact-string assertion. The test byte
+      pattern is [0xAB; 32], whose decimal representation contains neither
+      "ab" nor "171" if printed differently, but the negative-containment
+      approach cannot detect all leakage patterns. A mutation returning a
+      partially redacted output (e.g. "Key([0x..., REDACTED])") or a
+      different format string would pass these checks as long as the
+      specific hex nibbles are absent. An exact assert_eq! on the full
+      Debug string provides a stronger guarantee.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the negative-containment assertions with
+      assert_eq!(format!("{:?}", key), "Key<32>([REDACTED])") or whatever
+      the canonical Debug format string is, so any deviation is immediately
+      caught. Retain the !contains checks for the specific test-byte values
+      as a belt-and-suspenders supplement.
+    verification: >-
+      Debug output asserted to exact expected string. No key bytes appear.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-255
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The Key<N> contract (docstring) states that Key<N> intentionally does
+      not implement PartialEq, Eq, or Display to prevent accidental
+      secret-material comparison via == and to prevent formatting leakage.
+      No static_assertions::assert_not_impl_any! call enforces this at
+      compile time. A future derive macro or blanket impl addition could
+      inadvertently re-introduce these impls without triggering a build
+      failure. The ct_eq contract would then be silently bypassed by callers
+      using == in newly written code.
+    cwe: "CWE-697"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add assert_not_impl_any!(Key<32>: PartialEq, Eq, core::fmt::Display)
+      to the test module in types.rs. Because Key<N> is generic, the check
+      must instantiate a concrete size (e.g. Key<32>); add a comment noting
+      that the guarantee applies to all Key<N> due to the absence of
+      blanket impls.
+    verification: >-
+      assert_not_impl_any!(Key<32>: PartialEq, Eq, Display) compiles.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-256
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/types.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      All five unit tests in types.rs (const_len, slice_length, ct_eq_true,
+      ct_eq_false, debug_redacted) use only AeadKey (Key<32>). The other
+      public type aliases — MasterUnlockKey, VaultRootKey, HkdfPrk,
+      HeaderNonce (Key<24>), XChaCha20Nonce (Key<24>) — are never
+      instantiated in the test module. A size-specific regression in
+      Key<24> (e.g. a wrong LEN constant or a ZeroizeOnDrop impl gap for
+      non-32-byte keys) would go undetected.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add at least one test exercising a Key<24> alias (e.g. HeaderNonce or
+      XChaCha20Nonce) to confirm the const LEN, slice length, ct_eq, and
+      debug redaction behave correctly for the 24-byte size.
+    verification: >-
+      At least one Key<24> alias is tested for LEN, ct_eq, and debug.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-257
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/lib.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The two tests in lib.rs (aead_module_exports_encrypt_and_decrypt,
+      kdf_module_exports_argon2_and_hkdf) are compile-level re-export smoke
+      tests only. They verify that the public API symbols resolve, but do not
+      call any function or assert any behavior. A breaking change to a
+      re-exported function signature or its semantics would not be caught
+      by these tests alone.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Either remove the tests as redundant (the crate-level integration tests
+      and unit tests in submodules provide the actual coverage) or promote
+      them to behavioral smoke tests that call each re-exported function with
+      minimal inputs and assert a basic property.
+    verification: >-
+      lib.rs tests either removed as redundant or promoted to behavioral tests.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-258
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/audit_guard.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      AuditEventKind variants carry String fields (e.g. item_id, vault_id,
+      operation) that can hold arbitrary content, including secret material
+      if a caller passes it. The two existing tests only verify that all
+      variants can be constructed without panic and that emit() does not
+      panic. No test asserts that emit() avoids writing secret-bearing content
+      to the audit log, and no static constraint prevents callers from passing
+      secret values into the String fields. The contract says fields are
+      non-secret, but this is enforced only by convention, not by type.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace plain String fields in AuditEventKind with a dedicated
+      AuditLabel newtype that enforces a maximum length and character
+      whitelist (e.g. alphanumeric + hyphens), making it structurally
+      impossible to pass arbitrary bytes. Alternatively, add a clippy or
+      semgrep rule that forbids passing values derived from secret paths
+      into AuditEventKind constructors.
+    verification: >-
+      AuditEventKind fields cannot hold arbitrary secret-bearing strings.
+      cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-259
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/audit_guard.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No static_assertions guard prevents future AuditEventKind variants
+      from carrying secret-bearing fields. A developer adding a new variant
+      with a SecretBytes or raw Vec<u8> field would receive no compile-time
+      warning. Combined with F-258, this creates a silent path for audit log
+      leakage that grows as the variant set expands.
+    cwe: "CWE-1270"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Document in a code comment above AuditEventKind that all fields must
+      be non-secret and safe to log in plaintext. Consider adding a marker
+      trait (e.g. AuditSafe) and requiring all field types to implement it,
+      enforced at compile time.
+    verification: >-
+      Adding a secret-bearing field to a new AuditEventKind variant triggers
+      a compile error or clippy warning.
+    commit: ""
+
+  - id: F-260
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The debug redaction tests for SecretBytes and SecretString use
+      assert!(!debug.contains("1")) as the primary leakage check. This
+      assertion is fragile: a test value whose bytes never produce the
+      digit "1" in any rendering (e.g. [0x20; N] renders as decimal 32,
+      which contains no "1") would pass even if the Debug impl is partially
+      leaking. The assertion cannot catch all leakage patterns. An exact
+      assert_eq! on the full debug string (e.g. "SecretBytes([REDACTED])")
+      provides a stronger and unambiguous guarantee.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace assert!(!debug.contains("1")) with
+      assert_eq!(debug, "SecretBytes([REDACTED])") (and the equivalent for
+      SecretString). Choose a test byte value that is easy to spot in any
+      rendering (e.g. 0xAB → "171" in decimal, "ab" in hex) and add
+      supplementary !contains checks for those specific representations.
+    verification: >-
+      Debug output asserted to exact expected string for both SecretBytes and
+      SecretString. cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-261
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      SecretBytes and SecretString lack assert_not_impl_any! guards for
+      Clone, PartialEq, and Display. The contract states these traits are
+      intentionally absent to prevent secret copying and formatting leakage,
+      but the absence is not enforced at compile time. A future derive
+      attribute addition would silently re-introduce these impls without a
+      build failure.
+    cwe: "CWE-697"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add assert_not_impl_any!(SecretBytes: Clone, PartialEq, core::fmt::Display)
+      and the equivalent for SecretString to the test module. This mirrors
+      the existing pattern in secret_payload.rs which already has these guards.
+    verification: >-
+      assert_not_impl_any! guards compile for both types.
+      cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-262
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      len() and is_empty() exist on both SecretBytes and SecretString but
+      are never tested. A regression changing their semantics (e.g.
+      always returning 0, or returning capacity instead of length) would
+      not be caught. These methods are used in caller code to gate
+      zero-length secret checks.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests asserting SecretBytes::new(vec![0u8; 4]).len() == 4,
+      SecretBytes::new(vec![]).is_empty() == true, and the equivalents for
+      SecretString.
+    verification: >-
+      len() and is_empty() tested for both SecretBytes and SecretString.
+      cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-263
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      SecretString::with_secret is never functionally tested. The test
+      module exercises SecretBytes::with_secret but not the SecretString
+      equivalent. A regression in SecretString::with_secret (e.g. passing
+      the wrong slice or panicking) would not be caught by the test suite.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test constructing a SecretString with a known value and calling
+      with_secret to assert the closure receives the expected byte content.
+    verification: >-
+      SecretString::with_secret tested with a known value.
+      cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-264
+    kind: coverage_gap
+    component: meissnerseal-security
+    source: "security review — crates/meissnerseal-security/src/secret_lifecycle.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The zeroize tests call explicit .zeroize() via ManuallyDrop, which
+      verifies that the Zeroize impl clears memory when called directly.
+      No test exercises the ZeroizeOnDrop contract (i.e. that dropping a
+      SecretBytes or SecretString actually zeroes its backing memory via
+      the Drop impl). The drop-path test in secret_payload.rs has the same
+      gap: drop(payload) is called but post-drop memory content is not
+      verified. A regression removing ZeroizeOnDrop or the Drop glue would
+      not be caught.
+    cwe: "CWE-226"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that uses ManuallyDrop to obtain a raw pointer to the
+      backing buffer, manually drops the SecretBytes/SecretString, then
+      reads through the raw pointer (unsafe) to assert the bytes are zero.
+      This is the same pattern used in the existing explicit-zeroize tests
+      and confirms the drop path.
+    verification: >-
+      Drop path tested for SecretBytes and SecretString via raw pointer
+      read after manual drop. cargo test -p meissnerseal-security passes.
+    commit: ""
+
+  - id: F-265
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/model.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The unknown_wire_value_rejected test starts at 0x0006u16, but valid
+      ItemKind wire values are 0x0001–0x0005 (Password, SeedPhrase,
+      SshPrivateKey, ApiToken, SecureNote). Wire value 0x0000 is never
+      tested as a rejection case. If the parser accidentally accepts 0x0000
+      (e.g. due to a match arm ordering bug or a default branch), a
+      zero-initialised record kind field in a malformed vault file would be
+      silently accepted instead of rejected.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test asserting that ItemKind::try_from(0x0000u16) returns Err.
+      Also verify that the gap values 0x0001–0x0005 are the only accepted
+      wire values and that the full range 0x0006–0xFFFF is rejected.
+    verification: >-
+      ItemKind::try_from(0x0000u16) returns Err.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-266
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/model.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      PlainItem and PlainItemView have no assert_not_impl_any! guards for
+      Clone or Display. PlainItem contains a SecretBytes secret field;
+      accidental Clone derivation would copy secret material on the stack
+      without zeroing, and accidental Display derivation would format it
+      into a string. The absence of these traits is documented only by
+      convention.
+    cwe: "CWE-1270"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add assert_not_impl_any!(PlainItem: Clone, core::fmt::Display) and
+      assert_not_impl_any!(PlainItemView<'_>: Clone, core::fmt::Display)
+      to the test module.
+    verification: >-
+      assert_not_impl_any! guards compile for both types.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-267
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      serialize_identity_text and deserialize_identity_text have no
+      roundtrip test. These functions are used in the CLI to persist and
+      load device identity files. A regression in the text serialisation
+      format (e.g. wrong field order, missing field, encoding change) would
+      not be caught by the test suite. The binary serialization path
+      (serialize_keypair_bytes / deserialize_keypair_bytes) has a roundtrip
+      test, but the text path does not.
+    cwe: "CWE-392"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a roundtrip test: generate() a DeviceIdentity, call
+      serialize_identity_text, then deserialize_identity_text, and assert
+      all fields (device_id, display_name, public keys, created_at,
+      signing_key algorithm) are preserved exactly.
+    verification: >-
+      serialize_identity_text / deserialize_identity_text roundtrip tested.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-268
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/device.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      device_trust_state_from_u8 is not directly tested for unknown byte
+      values. The function returns Err(InvalidFileFormat) for values 7–255,
+      but this path is only exercised implicitly through the
+      deserialize_identity_bytes code path in integration scenarios. A
+      direct unit test is absent; a mutation to the match arm coverage
+      (e.g. adding a wildcard Ok branch) would not be caught at the unit
+      level.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a unit test calling device_trust_state_from_u8(7) and asserting
+      Err(DeviceIdentityError::InvalidFileFormat). Optionally test 255 as
+      well.
+    verification: >-
+      device_trust_state_from_u8(7) returns Err(InvalidFileFormat).
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-269
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      compute_pairing_transcript produces a SHA-256 transcript hash that
+      binds protocol version, device ID, display name, all three public key
+      fingerprints, capabilities, and pairing nonce. No test verifies the
+      transcript byte content against a known-answer value. Without a KAT,
+      a mutation reordering fields, omitting a field length prefix, or
+      changing the hash function would not be detected. The SAS test
+      (sas_differs_for_two_different_pairing_nonces) only checks inequality,
+      not the actual transcript content.
+    cwe: "CWE-392"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a KAT for compute_pairing_transcript using a fixed PairingPayload
+      and asserting the transcript_hash equals an independently computed
+      SHA-256 reference value. This pins the canonical byte layout and
+      makes field-order regressions immediately visible.
+    verification: >-
+      compute_pairing_transcript KAT passes against reference value.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-270
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/keys/pairing.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      validate_trust_transition is tested for several representative
+      transitions but the test any_state_to_revoked_is_valid only covers
+      Untrusted, Verified, and Approved — it omits PendingInbound and
+      PendingOutbound. Both of those are allowed by the match arm at L298
+      and L299 but are not covered by any test. A mutation removing those
+      arms would not be caught.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend the any_state_to_revoked_is_valid test (or add a new test) to
+      assert that PendingInbound → Revoked and PendingOutbound → Revoked
+      both return Ok(()).
+    verification: >-
+      PendingInbound → Revoked and PendingOutbound → Revoked both return Ok.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-271
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/protocol.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      TransferProfileId has only two tests: from_le_bytes rejection for
+      0x7fff and a v1 wire roundtrip. TransferProfileId::from_u16(0x0000)
+      and from_u16(0x0002) are never tested as rejection cases. The profile
+      ID is downgrade-critical: accepting an unknown value could allow a
+      protocol downgrade to an unimplemented profile whose handling falls
+      through to an error path that may be less secure. A mutation changing
+      the equality check to <= TRANSFER_PROFILE_V1_ID would accept 0x0000
+      silently.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests asserting that from_u16(0x0000) and from_u16(0x0002) both
+      return Err(TransferError::UnknownProfile). Optionally use a proptest
+      over the full u16 range minus 0x0001 to ensure exhaustive rejection.
+    verification: >-
+      from_u16(0) and from_u16(2) return Err(UnknownProfile).
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-272
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/secret_payload.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      drop_path_uses_zeroizing_backing_storage only calls drop(payload)
+      and makes no assertion about post-drop memory content. The test name
+      implies ZeroizeOnDrop coverage but it does not actually verify that
+      the backing buffer is zeroed after drop. A regression removing the
+      Zeroizing wrapper from the inner Vec or deleting the ZeroizeOnDrop
+      impl would not be caught.
+    cwe: "CWE-226"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rewrite the drop path test using ManuallyDrop and a raw pointer to
+      assert the backing buffer bytes are zero after drop, mirroring the
+      pattern used in meissnerseal-security's secret_lifecycle tests.
+    verification: >-
+      Drop path verified via raw pointer read. Bytes are zero after drop.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-273
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/transfer/secret_payload.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      len() and is_empty() exist on SecretPayload but are never tested.
+      These methods mirror the pattern in SecretBytes (F-262). A regression
+      returning wrong values (e.g. always 0) would not be caught and could
+      cause callers that gate on is_empty() to silently accept empty
+      payloads.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests asserting SecretPayload::new(vec![0u8; 4]).len() == 4 and
+      SecretPayload::new(vec![]).is_empty() == true.
+    verification: >-
+      len() and is_empty() tested for SecretPayload.
+      cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-274
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/tests/vectors.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The record_frame_len_at helper (L312) is a shadow parser that
+      duplicates production frame-layout knowledge from vault/format.rs
+      in test code. It manually computes nonce_len, aad_len, and
+      ciphertext_len offsets using hardcoded field offsets. If the
+      production frame layout changes (e.g. a new field is inserted before
+      the nonce), record_frame_len_at will compute a wrong section_offset,
+      silently feeding open_sealed_record_table_v2 incorrect input. This
+      can make coverage appear stronger than it is by testing an incorrect
+      section boundary that happens to produce an error or success via a
+      different code path than intended.
+    cwe: "CWE-1076"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Expose a production function (e.g. record_frame_len or frame_end_offset)
+      from vault/format.rs under #[cfg(test)] and use it in vectors.rs
+      instead of the shadow parser. Alternatively, embed expected
+      section_offset values directly in the test vector JSON so the test
+      asserts the known value rather than computing it.
+    verification: >-
+      Shadow parser removed. section_offset derived from production code or
+      pinned in test vectors. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-275
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/tests/vectors.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      unlocked_keys_exposes_all_seven_registry_subkeys (L885) only asserts
+      that require_all_fields returns an array of length 7. It does not
+      verify that the returned slices are non-empty or that they match
+      expected key values. The test would pass even if all seven fields
+      held the same zero key, providing no assurance about key diversity
+      or correctness. The pairwise-distinct test (L870) provides stronger
+      guarantees but is a separate test that could be skipped independently.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Strengthen the test to assert that each slice is exactly 32 bytes
+      and non-zero, or merge it with vault_kdf_v1_all_seven_subkeys_match_vectors
+      which already verifies each subkey against the vector expected values.
+    verification: >-
+      unlocked_keys_exposes_all_seven_registry_subkeys asserts key content,
+      not just array length. cargo test -p meissnerseal-core passes.
+    commit: ""
+
+  - id: F-276
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/test_vectors.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The load() helper in test_vectors.rs panics on unknown vector file
+      names with panic!("unknown vector file {other}"). This is appropriate
+      for test-only infrastructure, but the unhex() helper performs no
+      validation of hex character validity: non-hex characters (e.g. 'g',
+      ' ') are silently converted to wrong byte values via to_digit(16)
+      returning None, which causes an expect() panic with an opaque message.
+      A malformed test vector file would produce a confusing panic rather
+      than a clear error message pointing to the offending character.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a character validity assertion in unhex() before calling to_digit,
+      e.g. assert!(c.is_ascii_hexdigit(), "invalid hex char {c}"). This
+      produces a readable error when a test vector file contains typos.
+    verification: >-
+      unhex() panics with a clear message on invalid hex characters.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-277
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "security review — crates/meissnerseal-pqc/src/hybrid.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      transfer_hybrid_v1_vectors tests only two KAT vectors
+      (ug-combiner-transcript-00 and ug-combiner-transcript-01). The UG
+      combiner IKM order (ss_ML_KEM || ss_X25519 || ct_X25519 || pk_X25519
+      || ct_ML_KEM) is a downgrade-critical layout: a field transposition
+      would produce a different transfer key that decrypts correctly for an
+      adversary constructing an envelope with the swapped order. Two vectors
+      with different transcript_hash values test the hash-binding property
+      but do not independently test each IKM field's contribution.
+    cwe: "CWE-392"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add at least one KAT vector where only one IKM field differs (e.g.
+      ct_ML_KEM changed while all others are fixed) and assert the transfer
+      key changes. This isolates each field's binding contribution. Document
+      the IKM field order in the vector file header for future auditors.
+    verification: >-
+      Each IKM field tested individually for transfer key sensitivity.
+      cargo test -p meissnerseal-pqc passes.
+    commit: ""
+
+  - id: F-278
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "security review — crates/meissnerseal-pqc/src/hybrid.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      x25519_keypair() is not tested for keypair uniqueness across calls.
+      All other tests use fixture() which calls x25519_keypair() and
+      mlkem::keypair() but does not assert that two successive calls produce
+      different private keys. A regression in the RNG path (e.g. a constant
+      seed returning the same bytes) would not be caught at the hybrid layer.
+      The rng.rs tests (calls_differ) cover the rng primitive but not the
+      x25519_keypair wrapper.
+    cwe: "CWE-338"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test calling x25519_keypair() twice and asserting the two
+      private keys differ (using ct_eq returning false).
+    verification: >-
+      Two successive x25519_keypair() calls produce different private keys.
+      cargo test -p meissnerseal-pqc passes.
+    commit: ""
+
+  - id: F-279
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "security review — crates/meissnerseal-pqc/src/mlkem.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      encapsulate_adversarial_keys_do_not_panic tests only all-zero and
+      all-0xFF 1184-byte public keys. The ML-KEM-768 encapsulation key
+      is a polynomial ring element; arbitrary byte patterns may produce
+      different NTT failure modes that all-zero and all-0xFF do not
+      exercise. The test verifies no panic but does not assert that the
+      result is Ok or Err consistently. Intermediate adversarial patterns
+      (e.g. random 1184-byte values) are not covered.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Extend the adversarial key test with at least one random-looking
+      1184-byte pattern (e.g. incrementing byte values) and assert the
+      outcome is either consistently Ok or consistently Err without panic.
+      Consider adding a proptest over arbitrary [u8; 1184] inputs to
+      assert no_panic for the full input space.
+    verification: >-
+      encapsulate does not panic for arbitrary 1184-byte public keys.
+      cargo test -p meissnerseal-pqc passes.
+    commit: ""
+
+  - id: F-280
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "security review — crates/meissnerseal-pqc/src/mlkem.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      shared_secret_memory_is_zeroize_on_drop_wrapped calls explicit
+      secret.zeroize() and asserts the bytes are zero, but does not test
+      the drop path. The Zeroizing<SharedSecret> wrapper should zero the
+      bytes on drop via ZeroizeOnDrop, but this is not directly verified.
+      A regression removing the Zeroizing wrapper from key_from_slice
+      would not be caught by this test.
+    cwe: "CWE-226"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that obtains a raw pointer to the SharedSecret backing
+      bytes, manually drops the Zeroizing wrapper, and asserts the bytes
+      are zero — the same approach used in secret_lifecycle.rs.
+    verification: >-
+      Drop path zeroing verified via raw pointer for SharedSecret.
+      cargo test -p meissnerseal-pqc passes.
+    commit: ""
+
+  - id: F-281
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "security review — crates/meissnerseal-cli/src/main.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      meissnerseal-cli has no unit tests. The run() dispatch function and
+      all command handlers (init_vault, add_command, list_command,
+      get_command, export_command, import_command, transfer_create_command,
+      transfer_receive_command, device_pair_command) are entirely untested
+      at the unit level. Error paths, output formatting, and argument
+      handling are exercised only by manual invocation. A regression in
+      any command handler (e.g. wrong exit code, missing output, secret
+      written to stdout instead of a file) would not be caught
+      automatically.
+    cwe: "CWE-392"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test module to main.rs with at least one test per public
+      command handler using an in-memory Write impl for stdout and
+      temporary vault files. The run() function accepts a &mut dyn Write
+      and a Cli struct, making it directly testable without spawning a
+      subprocess.
+    verification: >-
+      At least one unit test per command handler in main.rs.
+      cargo test -p meissnerseal-cli passes.
+    commit: ""
