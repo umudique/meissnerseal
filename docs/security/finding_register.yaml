@@ -7457,3 +7457,264 @@ findings:
       from_bytes() does not panic on any arbitrary byte input per proptest.
       cargo test -p meissnerseal-core passes.
     commit: ""
+
+  - id: F-223
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The production encrypt() function (L102) is never called in any test.
+      Every test in both the prop_tests and tests modules uses the test-only
+      encrypt_with_nonce() API (L136, #[cfg(test)]). As a result, the OS
+      CSPRNG nonce generation path inside encrypt() → generate_nonce() is not
+      exercised, and no test verifies that (1) encrypt() output can be
+      successfully decrypted, or (2) two successive calls to encrypt() with
+      the same key and plaintext produce different nonce and ciphertext bytes.
+      A regression in nonce generation (e.g., a constant nonce) would not be
+      caught by the current test suite.
+    cwe: "CWE-330"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a smoke test that calls encrypt() (not encrypt_with_nonce()),
+      decrypts the result with the returned nonce, and asserts the recovered
+      plaintext matches the original. Add a second call and assert the two
+      returned nonces differ and the two ciphertexts differ.
+    verification: >-
+      encrypt() production path is exercised. Two calls produce distinct
+      nonces and ciphertexts. cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-224
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      There is no test for the wrong-nonce rejection case: correct key +
+      correct AAD + wrong nonce supplied to decrypt() must return
+      Err(AeadError::Decrypt). The existing negative tests cover wrong key
+      (wrong_key_rejected proptest) and wrong AAD (test_wrong_aad_rejected,
+      wrong_aad_rejected proptest), but the nonce is always correct in every
+      decrypt call. XChaCha20-Poly1305 authentication covers the nonce
+      implicitly through the keystream, so a wrong nonce produces a
+      different keystream and the tag check fails; this property should be
+      pinned explicitly.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a unit test or proptest: encrypt with nonce1, then decrypt with
+      nonce2 where nonce1 != nonce2, and assert Err(AeadError::Decrypt).
+      A proptest variant can generate nonce1 and nonce2 with prop_assume!(nonce1 != nonce2).
+    verification: >-
+      Wrong nonce is explicitly rejected by decrypt(). cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-225
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The bit_flip_rejected proptest (L291) flips only the last byte of the
+      ciphertext, which is the last byte of the Poly1305 authentication tag.
+      It does not test flipping a byte in the ciphertext body (indices 0 to
+      plaintext.len()-1). While XChaCha20-Poly1305 should reject both, the
+      test does not distinguish the two tamper scenarios. A mutation or
+      regression that strips tag verification but still decrypts ciphertext
+      bytes would pass the existing test if only tag bytes are flipped, yet
+      might fail on a body-byte flip test that expects an Err.
+    cwe: "CWE-345"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add a separate test or extend bit_flip_rejected to also flip a byte
+      in the ciphertext body (e.g., tampered[0] ^= 0xff where plaintext is
+      non-empty) and assert Err(AeadError::Decrypt). The two scenarios
+      (tag flip, body flip) can be separate test cases or a table-driven
+      parameterized test.
+    verification: >-
+      Both tag-byte and body-byte tampering are asserted to return Err.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-226
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Ciphertext (L41-45) and Plaintext (L57-61) both implement Debug with
+      redacted output ("Ciphertext([REDACTED])" and "Plaintext([REDACTED])").
+      The implementations look correct but no test asserts that
+      format!("{:?}", value) does not contain the actual secret bytes. A
+      future refactor that adds #[derive(Debug)] or changes the fmt
+      implementation to include the inner Vec would silently pass all existing
+      tests while leaking secret material into log output.
+    cwe: "CWE-312"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add two tests: (1) assert that format!("{:?}", ciphertext) equals
+      "Ciphertext([REDACTED])" exactly (or at minimum does not contain any
+      byte of the known ciphertext); (2) assert that format!("{:?}", plaintext)
+      equals "Plaintext([REDACTED])" and does not contain any byte of the
+      known plaintext. Use the fixed KAT constants already present in the
+      test module.
+    verification: >-
+      Debug output for both types is pinned to the redacted string. A
+      derive(Debug) on either type causes the test to fail.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-227
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      RECORD_AAD_LEN is declared as 79 (L21) with a doc comment describing
+      the layout: domain (19) + vault_id (16) + 5×u16 (10) + record_id (16)
+      + revision_id (16) + kind (2) = 79. The constant is used as the AAD
+      array length in tests ([u8; 79]) but no test explicitly asserts
+      assert_eq!(RECORD_AAD_LEN, 79) or verifies the field-level sum. A
+      change to any field size in the layout would silently change the
+      constant without a dedicated test failure pointing to the invariant.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a unit test: assert_eq!(RECORD_AAD_LEN, 19 + 16 + 5*2 + 16 + 16 + 2)
+      with each addend labeled by field name. This makes any change to the
+      layout formula an explicit test failure with a clear breakdown of
+      which field changed.
+    verification: >-
+      RECORD_AAD_LEN is pinned to the sum of its component fields.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-228
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The fixed KAT constants in the tests module (KEY_BYTES, NONCE_BYTES,
+      AAD, EXPECTED_CIPHERTEXT_WITHOUT_TAG, EXPECTED_TAG,
+      EXPECTED_CIPHERTEXT_TAG) have no comment identifying which tool or
+      reference implementation produced them and how they can be regenerated
+      or cross-checked. Without a source note, a future contributor cannot
+      verify whether the vectors are correct or reproduce them independently,
+      reducing the audit value of the known-answer tests.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a comment above the KAT constant block stating the tool or command
+      used to generate the expected ciphertext (e.g., a reference to the
+      chacha20poly1305 crate, a standalone script, or an external tool),
+      and noting the plaintext ("secret-payload-for-meissnerseal-test") that
+      the constants encode.
+    verification: >-
+      KAT source is documented in the test file. A future reviewer can
+      regenerate the expected bytes using the stated tool.
+    commit: ""
+
+  - id: F-229
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      WRONG_AAD (L360-367) is a 79-byte static constant that duplicates all
+      of AAD except the last byte (0xff instead of 0x00). Any change to the
+      AAD constant (e.g., adding a field or shifting an offset) requires
+      WRONG_AAD to be updated separately; a missed update would silently make
+      WRONG_AAD identical to AAD at the differing byte, causing
+      test_wrong_aad_rejected to pass vacuously if the only difference is
+      accidentally lost. Runtime derivation (let mut wrong = AAD; wrong[78]
+      ^= 0xff;) is less error-prone and self-documenting.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Remove the WRONG_AAD constant and replace its use in test_wrong_aad_rejected
+      with a locally derived value: let mut wrong_aad = AAD; wrong_aad[78]
+      ^= 0xff;. The XOR makes the intent (single-byte difference) explicit
+      and the derivation stays in sync with AAD automatically.
+    verification: >-
+      WRONG_AAD static constant is removed. Test still rejects modified AAD.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-230
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      test_decrypt_round_trip (L415) decrypts the fixed KAT constant
+      EXPECTED_CIPHERTEXT_TAG with the fixed nonce and key — it is a
+      known-answer decrypt test, not an encrypt→decrypt roundtrip. The
+      actual roundtrip (encrypt with random nonce, then decrypt) is exercised
+      by the prop_tests::roundtrip proptest, not by this unit test. The
+      misleading name makes it harder to assess test coverage at a glance and
+      may lead reviewers to think the proptest roundtrip is redundant.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rename test_decrypt_round_trip to decrypts_fixed_kat_ciphertext (or
+      similar) to accurately reflect that it asserts decryption of a
+      pre-computed vector, not a live roundtrip.
+    verification: >-
+      Test name accurately describes its behavior. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-231
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/aead.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Two related boundary coverage gaps for plaintext length:
+      (1) test_empty_plaintext_ok (L443) encrypts an empty plaintext and
+      asserts only ciphertext.len() == TAG_LEN. It does not decrypt the
+      result and assert the recovered plaintext is empty. This partial
+      assertion is functionally superseded by decrypt_accepts_valid_ciphertext_of_exact_tag_len
+      (L472), which does both — making test_empty_plaintext_ok redundant and
+      incomplete relative to the sibling test.
+      (2) Deterministic unit tests for boundary plaintext sizes 1, 15, 16,
+      17, and 1024 bytes are absent. The proptest roundtrip covers 0..512
+      bytes probabilistically but does not guarantee coverage of the
+      specific boundary values around the ChaCha20 block size (64 bytes)
+      or the Poly1305 block size (16 bytes). A regression at a specific
+      boundary would require luck to surface in proptest.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Extend test_empty_plaintext_ok to also decrypt the produced
+      ciphertext and assert the recovered plaintext is empty, or remove it
+      in favor of the already-complete decrypt_accepts_valid_ciphertext_of_exact_tag_len.
+      (2) Add parameterized or individual unit tests for plaintext lengths
+      1, 15, 16, 17, and 1024: each should encrypt via encrypt_with_nonce
+      and assert both the ciphertext length (plaintext_len + TAG_LEN) and
+      successful decryption back to the original plaintext.
+    verification: >-
+      Empty plaintext test is non-redundant and complete. Boundary sizes
+      are explicitly covered. cargo test -p meissnerseal-crypto passes.
+    commit: ""
