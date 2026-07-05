@@ -8033,3 +8033,271 @@ findings:
       is chosen, a test pins the Debug output format. cargo test -p
       meissnerseal-crypto passes.
     commit: ""
+
+  - id: F-242
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      build_subkey_info() (L158, pub(crate)) is never called directly in the
+      test module. test_subkey_derivation_all exercises it indirectly through
+      derive_subkey(), but no test asserts the exact info string produced for
+      any purpose. The Kani proof (L208-225) checks ends_with(":aead:1") and
+      ASCII validity, but only under Kani and not for the full canonical
+      format. A registry drift — e.g., a typo in info_label() changing
+      "item-wrap" to "item_wrap", or a format change inserting an extra
+      separator — would produce a different HKDF output that silently
+      invalidates all existing vault data, yet the existing tests would still
+      pass (the KAT constants would need to be regenerated to catch it).
+      Additionally, VAULT_ID in tests uses bytes 0x01–0x10, none of which
+      are in 0x0a–0x0f range, so the lowercase hex formatting ({byte:02x})
+      of alphabetic hex digits (e.g., "0a", "0f") is never asserted.
+      SubkeyPurpose::info_label() (L186, private) is indirectly covered but
+      its mapping is not directly verified.
+    cwe: "CWE-1068"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add unit tests that call build_subkey_info() directly and assert the
+      exact returned string for at least one AEAD-scoped purpose (e.g.,
+      ItemKeyWrappingKey, Some(1), VAULT_ID →
+      "meissnerseal:item-wrap:v1:vault:0102030405060708090a0b0c0d0e0f10:aead:1")
+      and one non-AEAD purpose (e.g., LocalAuditEventKey →
+      "meissnerseal:audit:v1:vault:..."). Use a vault_id containing bytes
+      in 0x0a–0x0f range (e.g., [0x0a, 0x0b, ..., 0x0f, ...]) to pin
+      lowercase hex encoding. This also directly verifies info_label()
+      mappings for all seven SubkeyPurpose variants.
+    verification: >-
+      build_subkey_info() output is pinned byte-for-byte for AEAD and
+      non-AEAD purposes. Lowercase hex encoding of alphabetic digits is
+      explicitly asserted. cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-243
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_subkey_rejects_unexpected_aead_for_local_audit_event_key (L463)
+      is the only test asserting that a non-AEAD-scoped SubkeyPurpose returns
+      Err(KdfError::InvalidInput) when aead_id is Some(_). The four remaining
+      non-AEAD purposes — SyncEnvelopeKey, DeviceEnrollmentKey,
+      RecoveryWrappingKey, and ExportBundleKey — have no equivalent rejection
+      test. A mutation that removes one of these variants from the
+      needs_aead() match (L198-200) would silently accept unexpected aead_id
+      values for the affected purposes, producing domain-mismatched subkeys
+      without any test failure.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add four tests mirroring derive_subkey_rejects_unexpected_aead_for_local_audit_event_key,
+      one for each of SyncEnvelopeKey, DeviceEnrollmentKey,
+      RecoveryWrappingKey, and ExportBundleKey, each passing Some(1) as
+      aead_id and asserting Err(KdfError::InvalidInput).
+    verification: >-
+      All five non-AEAD SubkeyPurpose variants reject aead_id Some(_).
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-244
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No test verifies that changing the aead_id value produces a different
+      subkey for AEAD-scoped purposes (ItemKeyWrappingKey and
+      MetadataEncryptionKey). test_subkey_derivation_all calls each with
+      Some(1) and asserts against a fixed constant, but never calls the same
+      purpose with Some(2) and asserts the result differs from Some(1). The
+      aead_id is encoded in the HKDF info string as ":aead:{decimal}", so a
+      regression that truncates or ignores the aead_id in the format string
+      would cause Some(1) and Some(2) to produce identical keys — a domain
+      collision that no existing test would catch.
+    cwe: "CWE-330"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add tests that call derive_subkey() twice for ItemKeyWrappingKey and
+      MetadataEncryptionKey — once with Some(1) and once with Some(2) —
+      and assert the two returned subkeys are not equal. This pins the
+      aead_id-binding property independently of the KAT constants.
+    verification: >-
+      aead_id sensitivity is explicitly tested for both AEAD-scoped
+      purposes. cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-245
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_subkey() encodes vault_id as a 32-character lowercase hex string
+      in the HKDF info (L171), binding each subkey to a specific vault.
+      test_subkey_derivation_all uses a single fixed VAULT_ID and no test
+      calls derive_subkey() with the same root_prk, purpose, and aead_id but
+      a different vault_id to assert the outputs differ. A regression that
+      omits vault_id from the info string or uses a constant placeholder
+      would cause subkeys to be shared across vaults — a critical
+      cross-vault key collision — without being caught by any test.
+    cwe: "CWE-330"
+    severity: high
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that calls derive_subkey() with the same root_prk, purpose
+      (e.g., LocalAuditEventKey), and aead_id (None), but two distinct
+      vault_ids, and asserts the two returned subkeys are not equal. This
+      pins the vault_id-binding property for the entire derive_subkey() path.
+    verification: >-
+      vault_id sensitivity is explicitly tested for derive_subkey().
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-246
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      derive_root_prk() constructs the root salt as
+      SHA256(ROOT_SALT_DOMAIN_V1 || vault_id || header_nonce) and then calls
+      HKDF-Extract. test_root_prk_derivation (L365) asserts only the KAT
+      (fixed inputs → expected PRK). No test verifies that changing vault_id
+      alone, or changing header_nonce alone, produces a different root PRK.
+      A regression that drops vault_id or header_nonce from the SHA256 input
+      (or uses them in the wrong order) would produce an incorrect PRK that
+      still passes the KAT if the constant is regenerated, but would not be
+      caught by a differential binding test.
+    cwe: "CWE-330"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add two differential tests: (1) same VaultRootKey and header_nonce,
+      two distinct vault_ids — assert the PRKs differ; (2) same
+      VaultRootKey and vault_id, two distinct header_nonces — assert the
+      PRKs differ. These pin the binding of both inputs independently of
+      the KAT.
+    verification: >-
+      vault_id and header_nonce sensitivity are each explicitly tested for
+      derive_root_prk(). cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-247
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      test_subkey_derivation_all asserts each of the seven subkeys against
+      its own expected constant, but no test verifies that all seven
+      constants are pairwise distinct. The constants look visually different,
+      but a registry collision — two SubkeyPurpose variants mapping to the
+      same info_label() string or a copy-paste error in the EXPECTED_*
+      constants — would not be caught. A dedicated pairwise uniqueness test
+      provides a regression guard independent of the KAT values.
+    cwe: "CWE-330"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test that collects all seven derived subkeys into a slice and
+      asserts that no two elements are equal (e.g., by iterating all pairs
+      with (i, j) where i < j and asserting key_i != key_j). Use the same
+      root_prk and vault_id as the KAT to avoid re-running heavy derivation.
+    verification: >-
+      All seven subkeys are confirmed pairwise distinct. A registry collision
+      (duplicate info_label) causes a test failure. cargo test -p
+      meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-248
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The proptest distinct_info_distinct_key (L288) asserts that two
+      distinct info byte slices always produce different expanded keys. The
+      test name implies a universal cryptographic guarantee, but HKDF output
+      collision for distinct info strings is theoretically possible (with
+      2^-256 probability). The test is practically sound but the name
+      overstates the guarantee. A future reviewer may cite this test name
+      as proof of an absolute property that is in fact a statistical one.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rename distinct_info_distinct_key to a name that reflects the
+      probabilistic nature of the property, such as
+      distinct_info_produces_distinct_key_with_overwhelming_probability or
+      distinct_info_changes_key_under_test_domain. Update the comment above
+      the proptest to clarify that collision is negligible but not impossible.
+    verification: >-
+      Proptest name and comment accurately characterize the guarantee.
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-249
+    kind: coverage_gap
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      expand::<N>() (L84) delegates to hkdf::Hkdf::expand(), which returns
+      an error when the requested output length exceeds 255 * HashLen (255 *
+      32 = 8160 bytes for SHA-256). The error is mapped to
+      Err(KdfError::InvalidInput) at L90. No test exercises this boundary:
+      there is no test calling expand::<8161>() (or any N > 8160) and
+      asserting Err(KdfError::InvalidInput). A mutation removing the error
+      mapping or changing the const generic bound would not be caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test (or compile-time-conditional test) that calls
+      expand::<8161>() with an arbitrary PRK and asserts the result is
+      Err(KdfError::InvalidInput). Note: because N is a const generic,
+      the test must instantiate expand with the oversized N explicitly.
+    verification: >-
+      expand with N > 8160 returns Err(KdfError::InvalidInput).
+      cargo test -p meissnerseal-crypto passes.
+    commit: ""
+
+  - id: F-250
+    kind: consistency
+    component: meissnerseal-crypto
+    source: "security review — crates/meissnerseal-crypto/src/kdf/hkdf.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The eight KAT constants in the test module (EXPECTED_ROOT_PRK and
+      seven EXPECTED_*_KEY values, L323-362) have no comment identifying the
+      tool, command, or reference implementation used to generate them.
+      Without a source note, a future contributor cannot verify whether the
+      vectors are correct, reproduce them independently, or detect a silent
+      regression if the constants are ever regenerated. This reduces the
+      audit value of test_root_prk_derivation and test_subkey_derivation_all.
+    cwe: "CWE-1068"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a comment above the KAT constant block identifying the generation
+      method (e.g., a standalone Rust snippet using RustCrypto hkdf + sha2
+      crates at the versions pinned in Cargo.lock) and the input values
+      (VAULT_ROOT_KEY, VAULT_ID, HEADER_NONCE, each subkey purpose and
+      aead_id) used to produce each constant.
+    verification: >-
+      KAT source is documented. A future reviewer can regenerate all eight
+      expected values from the stated inputs and tool.
+    commit: ""
