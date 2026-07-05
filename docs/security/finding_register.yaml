@@ -5477,3 +5477,509 @@ findings:
       Both tests fail when escape_default() is removed and pass with it
       in place. cargo test -p meissnerseal-cli exits 0.
     commit: ""
+
+  # ── engine.rs test module review findings (2026-07-05) ───────────────────────
+  - id: F-154
+    kind: consistency
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs #[cfg(test)] (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      The test helper tmp_path_for() (engine.rs:793) returns
+      path.with_extension("arcv.tmp"), which matches the old deterministic
+      temp path that existed before CORE-7. Production unique_tmp_path()
+      (engine.rs:479) now returns
+      path.with_extension("{hex16(record_id)}.msv.tmp"). This drift causes
+      three vacuous temp-cleanup assertions:
+
+      (1) create_success_leaves_vault_file_and_no_tmp (L1168): asserts
+      !tmp_path_for(&path).exists() — arcv.tmp was never created by
+      production; assertion is always true regardless of cleanup behaviour.
+
+      (2) mutation_rewrite_uses_v2_crash_safe_path_and_leaves_no_tmp
+      (L1501): calls persist_vault_mutation_v2(&path, &bytes, &[0x91;16])
+      whose production temp is unique_tmp_path(&path, &[0x91;16]) =
+      path.with_extension("{91x32}.msv.tmp"), then asserts
+      !tmp_path_for(&path).exists() — wrong path, always true.
+
+      (3) concurrent_loser_does_not_delete_winner_temp (L1082): winner
+      writes valid bytes to tmp_path_for(&path) = arcv.tmp, loser calls
+      persist_vault with record_id=[0x66;16] whose cleanup targets
+      unique_tmp_path = path.with_extension("{66x32}.msv.tmp") — a
+      different path. The assertion tmp_path.exists() passes vacuously
+      because the loser never could have deleted arcv.tmp. Additionally,
+      the test comment (L1078) still reads "This test is intentionally
+      red: the current cleanup removes the deterministic arcv.tmp" —
+      stale since CORE-7; the test is GREEN and the described bug is fixed.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace tmp_path_for() with unique_tmp_path() using a known seed:
+
+        fn tmp_path_for_seed(path: &std::path::Path, seed: &[u8; 16])
+            -> std::path::PathBuf
+        {
+            unique_tmp_path(path, seed)
+        }
+
+      For create_success_leaves_vault_file_and_no_tmp: parse the WRK
+      frame after create to recover the CSPRNG record_id, then assert
+      !unique_tmp_path(&path, &record_id).exists().
+
+      For mutation_rewrite: use the known seed [0x91;16]:
+        assert!(!unique_tmp_path(&path, &[0x91;16]).exists()).
+
+      For concurrent_loser: have the winner write its valid bytes to
+      unique_tmp_path(&path, &winner_seed), update the test to use a
+      real winner seed, and assert that path survives after the loser
+      runs. Remove the stale "intentionally red" comment; replace with
+      a description of the current GREEN invariant being tested.
+    verification: >-
+      All three tests assert the correct unique temp path. A deliberate
+      bug that fails to remove the correct temp causes the assertions to
+      fail. cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-155
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:1000 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      persist_failure_leaves_no_partial_output (engine.rs:1000) triggers
+      failure by supplying a path inside a non-existent parent directory.
+      This causes target_claim.open(path) to fail with ENOENT before
+      target_claimed is ever set to true. As a result:
+      - The tmp_path remove_file in the error handler is a no-op (tmp
+        was never created because parent is missing).
+      - The target remove_file is skipped (target_claimed = false).
+      - assert!(!path.exists()) and assert!(!tmp_path.exists()) are
+        trivially true: neither file was ever created.
+
+      The test does not exercise the cleanup path it claims to verify.
+      A regression where cleanup fails after a successful target_claim
+      or a successful tmp_file write would not be caught.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Rewrite the test to trigger failure after target_claim and/or after
+      tmp_file write. One approach: create the parent directory, start a
+      persist_vault call, and trigger failure by writing to a path that
+      exists but is not writable (e.g. set permissions 0o444 on the
+      parent after claim). A simpler approach: call persist_vault with a
+      valid path but pass an aad that causes a serialization error after
+      the target has been claimed, then assert target and temp are both
+      absent. The test must verify cleanup when the cleanup handler
+      actually has files to remove.
+    verification: >-
+      Test exercises the cleanup path after at least one file has been
+      created. Assertions fail when remove_file calls are removed.
+      cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-156
+    kind: consistency
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:826 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      record_table_entries_for_test() (engine.rs:826) calls
+      open_sealed_record_table_v2 with wrk_frame_offset as the
+      boundary parameter (L857), while the production unlock_impl
+      (engine.rs:698) passes wrk_frame_end = wrk_frame_offset +
+      wrk_frame_len. These are different values. The boundary parameter
+      is used to validate that the record table does not overlap the WRK
+      frame region. Passing wrk_frame_offset instead of wrk_frame_end
+      makes the boundary check in the helper less strict than in
+      production. Tests that use this helper may accept table layouts
+      that the production path would reject.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      In record_table_entries_for_test(), compute wrk_frame_end from
+      wrk_frame_offset and wrk_frame_len and pass it as the boundary
+      argument, matching the production call site exactly:
+
+        let wrk_frame_end = wrk_frame_offset
+            .checked_add(usize::try_from(wrk_frame_len)
+                .expect("WRK frame length usize"))
+            .expect("wrk_frame_end fixture");
+        open_sealed_record_table_v2(
+            &bytes, record_table_offset, record_table_len,
+            &session.keys().metadata_key, &header.vault_id,
+            header.schema_profile,
+            wrk_frame_end,   // was wrk_frame_offset
+            bytes.len(),
+        )
+    verification: >-
+      record_table_entries_for_test passes wrk_frame_end. A vault
+      blob crafted to overlap the WRK region is rejected by both
+      production and the test helper. cargo test -p meissnerseal-core
+      exits 0.
+    commit: ""
+
+  - id: F-157
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:1388 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      unlock_rejects_vault_file_exceeding_max_size_before_read
+      (engine.rs:1388) has a misleading name and reveals an
+      implementation gap:
+
+      The test name implies the size check happens before the file read,
+      preventing OOM for oversized inputs. In practice, unlock_impl
+      (L650) calls std::fs::read(&params.path) unconditionally, which
+      allocates up to file_size bytes before parse_and_validate performs
+      the MAX_VAULT_FILE_LEN (64 MiB) check. For a sparse or
+      adversarially-crafted file of 64 MiB + 1 bytes, the process
+      allocates ~64 MiB before rejection. An attacker with write access
+      to the vault path can cause the unlocking process to allocate up
+      to MAX_VAULT_FILE_LEN bytes before the guard fires.
+
+      The correct defense is to check std::fs::metadata(&path).len()
+      against MAX_VAULT_FILE_LEN before calling std::fs::read, so no
+      allocation occurs for oversized inputs.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      In unlock_impl, replace the current unconditional read with a
+      size-gated read:
+
+        let file_len = std::fs::metadata(&params.path)?.len();
+        if file_len > MAX_VAULT_FILE_LEN {
+            return Err(CoreError::Format(
+                "vault file exceeds maximum length".into()));
+        }
+        let bytes = std::fs::read(&params.path)?;
+
+      The check inside parse_and_validate can remain as a defence-in-
+      depth guard for callers that bypass unlock_impl. Rename the test
+      to unlock_rejects_vault_file_exceeding_max_size (remove
+      "before_read") or rename it to
+      unlock_rejects_vault_file_exceeding_max_size_without_full_read
+      once the metadata check is in place.
+    verification: >-
+      A 64 MiB + 1 sparse file is rejected by unlock_impl before
+      std::fs::read is called. Peak allocation during the rejection
+      path is O(1), not O(file_size). cargo test -p meissnerseal-core
+      exits 0.
+    commit: ""
+
+  - id: F-158
+    kind: consistency
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:1356 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      create_persists_vault_file_with_mode_0o600_under_permissive_umask
+      (engine.rs:1356) calls unsafe { umask(0) } to set the process-wide
+      umask. Rust test threads share a single process. If this test runs
+      concurrently with any other test that creates files (vault, temp
+      file, or tempdir), those files may be created with overly
+      permissive modes (0o666 or 0o777) for the duration of this test.
+      The UmaskGuard restores the original umask on drop, but the window
+      between umask(0) and the drop is a race condition.
+    cwe: "CWE-732"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Serialize the umask test against all other tests that create files.
+      Options:
+      (a) Add #[serial_test::serial] (serial_test crate) to the umask
+          test and any other test that relies on file creation mode.
+      (b) Use a static Mutex to serialize manually without a new
+          dependency:
+
+            static UMASK_LOCK: std::sync::Mutex<()> =
+                std::sync::Mutex::new(());
+            let _guard = UMASK_LOCK.lock().unwrap();
+            // then set and restore umask
+
+      Option (a) requires adding serial_test as a dev-dependency (human
+      approval required per project policy). Option (b) adds no new
+      dependency.
+    verification: >-
+      The umask test cannot run concurrently with other file-creating
+      tests. No other test observes umask(0) side-effects. cargo test
+      -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-159
+    kind: consistency
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:1036 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      persist_failure_preserves_preexisting_target_file (engine.rs:1038)
+      carries the comment: "The current cleanup path deletes path on
+      failure, which is acceptable while an atomic create-new claim is
+      not yet in place." The atomic create-new claim (create_new(true))
+      was added in CORE-7 (F-12 residual fix, commit 19bfd65) and IS in
+      place. The comment now describes a state that no longer exists and
+      contradicts why the test actually passes: persist_vault rejects the
+      duplicate path via create_new → AlreadyExists before any cleanup
+      could reach the pre-existing file.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the stale comment with an accurate description:
+
+        /// persist_vault uses create_new(true) to claim the final path.
+        /// When the path already exists, open() returns AlreadyExists
+        /// before target_claimed is set, so the error-path cleanup
+        /// never touches the pre-existing vault file.
+    verification: >-
+      Comment describes the actual create_new behaviour. cargo test
+      -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-160
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:319 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Vault::<Locked>::unlock() (engine.rs:319) contains an early guard:
+        if params.path != self.path {
+            return Err(CoreError::InvalidState(...));
+        }
+      No test exercises this guard. A test should call
+      Vault::<Locked>::open(path_a).unlock(UnlockParams { path: path_b,
+      ... }) and assert Err(CoreError::InvalidState).
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test:
+
+        #[test]
+        fn unlock_rejects_path_mismatch() {
+            let path_a = unique_temp_vault_path("mismatch-a");
+            let path_b = unique_temp_vault_path("mismatch-b");
+            let locked = Vault::<Locked>::open(&path_a)
+                .expect("open locked");
+            let result = locked.unlock(UnlockParams {
+                path: path_b.clone(),
+                password: SecretBytes::new(b"irrelevant".to_vec()),
+            });
+            assert!(matches!(result,
+                Err(CoreError::InvalidState(_))));
+        }
+    verification: >-
+      Test returns Err(InvalidState) on path mismatch without touching
+      the filesystem. cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-161
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs #[cfg(test)] (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      No engine-level unit test verifies that unlock with a wrong
+      (non-empty) password returns Err. test_unlock_rejects_empty_password
+      (L929) covers the empty-password path. The wrong-password rejection
+      (AEAD authentication failure during WRK decapsulation) is covered
+      at the E2E layer but not in the engine unit tests. An engine-level
+      test is valuable because it exercises the exact key derivation and
+      AEAD verification path without going through the CLI.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a test:
+
+        #[test]
+        #[cfg_attr(miri, ignore = "KDF too slow under Miri")]
+        fn unlock_rejects_wrong_password() {
+            let path = unique_temp_vault_path("wrong-pw");
+            create_test_vault(&path, b"correct-password-never-real");
+            let result = unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(
+                    b"wrong-password-never-real".to_vec()),
+            });
+            assert!(result.is_err());
+            let _ = std::fs::remove_file(&path);
+        }
+    verification: >-
+      Test returns Err for a wrong non-empty password. cargo test
+      -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-162
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs #[cfg(test)] (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      unlock_rejects_patched_frame_revision_id (L1521) and
+      unlock_rejects_patched_frame_record_id (L1547) tamper with the
+      AEAD-committed AAD metadata. No test flips a byte in the WRK
+      ciphertext itself or in the Poly1305 authentication tag. These are
+      the two most direct paths for an attacker to forge an encrypted
+      WRK frame: corrupting ciphertext bytes or tag bytes. Both must
+      cause unlock to return Err with no key material exposed.
+    cwe: "CWE-354"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add two tests:
+
+        #[test]
+        fn unlock_rejects_flipped_wrk_ciphertext_byte() {
+            let path = unique_temp_vault_path("flip-ciphertext");
+            create_test_vault(&path, b"flip-ct-password");
+            let (mut bytes, frame, frame_offset, _) =
+                wrapped_root_frame_for_test(&path);
+            // ciphertext starts after the fixed frame prefix and nonce
+            let ct_start = frame_offset + 2 + 16 + 16 + 2 + 1
+                + frame.nonce.len() + 4 + 79 + 4;
+            bytes[ct_start] ^= 0xFF;
+            std::fs::write(&path, bytes).expect("write tampered");
+            assert!(unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(b"flip-ct-password".to_vec()),
+            }).is_err());
+            let _ = std::fs::remove_file(&path);
+        }
+
+        #[test]
+        fn unlock_rejects_flipped_wrk_tag_byte() {
+            // flip the last byte of the ciphertext (Poly1305 tag region)
+            // same structure, flip bytes.last_mut()
+        }
+    verification: >-
+      Both tests return Err. No key material is returned on ciphertext
+      or tag corruption. cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-163
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs:573 (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      record_frame_len_at() (engine.rs:573) contains five checked
+      arithmetic paths that each return a distinct Format error:
+      "record frame prefix overflow", "truncated record frame",
+      "nonce length offset overflow", "AAD length offset overflow",
+      "ciphertext length offset overflow", "record frame length overflow".
+      No unit test calls record_frame_len_at() directly with inputs that
+      trigger each of these paths. F-68 (resolved) added negative vectors
+      at the full vault blob level, but those tests exercise
+      record_frame_len_at indirectly through parse_and_validate. A huge
+      nonce_len, aad_len, or ciphertext_len that causes arithmetic
+      overflow is not explicitly tested at the function boundary.
+    cwe: "CWE-20"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add direct unit tests for record_frame_len_at with crafted byte
+      slices:
+        - slice shorter than FRAME_FIXED_PREFIX → "truncated record frame"
+        - nonce_len = 0xFF causing fixed_end + nonce_len to overflow →
+          "nonce length offset overflow"
+        - aad_len = u32::MAX causing aad_len_offset + 4 + aad_len to
+          overflow → "ciphertext length offset overflow"
+        - ciphertext_len = u32::MAX causing final frame_len to overflow →
+          "record frame length overflow"
+    verification: >-
+      Each crafted input triggers the expected Format error variant.
+      cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-164
+    kind: coverage_gap
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      create_persists_vault_file_with_mode_0o600_under_permissive_umask
+      (engine.rs:1356) verifies the create path file permission. No
+      equivalent test covers persist_vault_mutation_v2: after mutation
+      the final vault file must still carry mode 0o600, not a wider mode
+      introduced by the rename-over-existing behaviour on some platforms.
+    cwe: "CWE-276"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add a Unix-only test that creates a vault, sets umask(0) via
+      UmaskGuard, calls persist_vault_mutation_v2, then asserts the
+      final vault file mode is 0o600:
+
+        #[test]
+        #[cfg(unix)]
+        fn mutation_preserves_vault_file_mode_0o600() {
+            let _guard = UmaskGuard(unsafe { umask(0) });
+            let path = unique_temp_vault_path("mutation-mode");
+            create_test_vault(&path, b"mutation-mode-password");
+            let bytes = std::fs::read(&path).expect("read");
+            persist_vault_mutation_v2(&path, &bytes, &[0xAB; 16])
+                .expect("mutation");
+            let mode = std::fs::metadata(&path).expect("meta")
+                .permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+            let _ = std::fs::remove_file(&path);
+        }
+
+      Note: this test must be serialized against F-158's umask test.
+    verification: >-
+      Test fails when persist_vault_mutation_v2 does not set mode 0o600
+      on the temp file. Final vault mode is 0o600 under umask(0).
+      cargo test -p meissnerseal-core exits 0.
+    commit: ""
+
+  - id: F-165
+    kind: consistency
+    component: meissnerseal-core
+    source: "test module review — crates/meissnerseal-core/src/vault/engine.rs #[cfg(test)] (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      Every engine test cleans up vault and temp files with explicit
+      let _ = std::fs::remove_file(&path) calls at the end of the test
+      body. Rust tests do not run destructors on panic, so if a test
+      panics mid-execution (e.g. at an expect() call), the cleanup lines
+      are skipped and the temp files remain in the system temp directory.
+      TempDir (from the tempfile crate, already a dev-dependency in
+      meissnerseal-cli) implements Drop-based cleanup that runs even on
+      panic, preventing temp file accumulation on CI.
+    cwe: ""
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the manual temp-dir / temp-file pattern with TempDir:
+
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("vault-name.msv");
+        // no manual remove_file needed; TempDir::drop cleans up
+
+      Check that tempfile is already listed as a dev-dependency in
+      meissnerseal-core/Cargo.toml before adding; if not, request human
+      approval to add it. The unique_temp_vault_path() helper can be
+      retained for tests that specifically test behaviour relative to the
+      system temp directory (e.g. path uniqueness), but test body cleanup
+      should be TempDir-based.
+    verification: >-
+      Tests leave no files in the system temp directory on panic.
+      cargo test -p meissnerseal-core exits 0.
+    commit: ""
