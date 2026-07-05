@@ -5450,3 +5450,30 @@ findings:
       fails the assertion under a permissive umask (0o022).
       cargo test -p meissnerseal-cli exits 0 on Unix.
     commit: ""
+
+  - id: F-153
+    kind: coverage_gap
+    component: meissnerseal-cli
+    source: "E2E test harness review — crates/meissnerseal-cli/tests/e2e.rs (2026-07-05)"
+    date: 2026-07-05
+    description: >-
+      list_label_with_newline_does_not_inject tests \n and \t injection.
+      No test case covers carriage return (\r) or ANSI escape sequence
+      (\x1b[...m) injection. The implementation uses escape_default()
+      which handles both, but the absence of tests means a future
+      refactor that bypasses escape_default on a new output path would
+      go undetected.
+    cwe: "CWE-116"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Add two label-injection tests analogous to
+      list_label_with_newline_does_not_inject: one with a label containing
+      "\x1b[31mfake\x1b[0m" asserting the ANSI sequence is escaped in
+      output, one with "\rfake-id" asserting \r does not produce a second
+      apparent row.
+    verification: >-
+      Both tests fail when escape_default() is removed and pass with it
+      in place. cargo test -p meissnerseal-cli exits 0.
+    commit: ""
