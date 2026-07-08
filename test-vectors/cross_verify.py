@@ -9,15 +9,15 @@ every value in this script.
 Usage:
     python3 cross_verify.py           # run all verifications
     python3 cross_verify.py kdf       # run KDF vectors only
-    python3 cross_verify.py hkdf      # run HKDF domain separation only
+    python3 cross_verify.py kdf       # includes HKDF domain separation cases
     python3 cross_verify.py aead      # run AEAD vectors only
 
 Requirements:
     pip install argon2-cffi cryptography
 
-This script produces JSON output compatible with the test-vectors/ format.
-It does NOT read existing vector files — it computes from scratch for
-maximum independence.
+This script regenerates the self-generated JSON vector files in this directory.
+It does NOT use the Rust implementation as an oracle — values are computed from
+Python libraries and stdlib primitives for maximum independence.
 """
 
 import hashlib
@@ -225,65 +225,6 @@ def derive_subkey(
 # AEAD_XCHACHA20_POLY1305_V1
 # ─────────────────────────────────────────────────────────────────────────────
 
-def xchacha20_poly1305_encrypt(
-    key: bytes,
-    nonce: bytes,
-    plaintext: bytes,
-    aad: bytes,
-) -> bytes:
-    """Encrypt using XChaCha20-Poly1305."""
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-    except ImportError:
-        raise ImportError("cryptography is required: pip install cryptography")
-
-    assert len(key) == 32, f"key must be 32 bytes, got {len(key)}"
-    assert len(nonce) == 24, f"nonce must be 24 bytes (XChaCha20), got {len(nonce)}"
-
-    # Note: Python cryptography library uses ChaCha20Poly1305 with 12-byte nonce.
-    # XChaCha20-Poly1305 with 24-byte nonce requires the xchacha20poly1305 variant.
-    # Using PyNaCl or the xchacha20 extension for true XChaCha20 support.
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import XChaCha20Poly1305
-        cipher = XChaCha20Poly1305(key)
-        return cipher.encrypt(nonce, plaintext, aad)
-    except ImportError:
-        # Fallback: use PyNaCl
-        try:
-            import nacl.secret
-            import nacl.bindings
-            # XChaCha20-Poly1305 via libsodium bindings
-            # TODO: implement via PyNaCl when available
-            raise NotImplementedError(
-                "XChaCha20-Poly1305 requires cryptography >= 41.0 or PyNaCl. "
-                "Install: pip install 'cryptography>=41.0'"
-            )
-        except ImportError:
-            raise ImportError(
-                "XChaCha20-Poly1305 requires 'cryptography >= 41.0': "
-                "pip install 'cryptography>=41.0'"
-            )
-
-
-def xchacha20_poly1305_decrypt(
-    key: bytes,
-    nonce: bytes,
-    ciphertext: bytes,
-    aad: bytes,
-) -> bytes:
-    """Decrypt using XChaCha20-Poly1305. Raises on authentication failure."""
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import XChaCha20Poly1305
-    except ImportError:
-        raise ImportError("cryptography >= 41.0 required: pip install 'cryptography>=41.0'")
-
-    assert len(key) == 32
-    assert len(nonce) == 24
-
-    cipher = XChaCha20Poly1305(key)
-    return cipher.decrypt(nonce, ciphertext, aad)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # AAD construction (vault_format_v1.md §7)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,6 +292,12 @@ def generate_kdf_vectors() -> dict:
 
     # Derive MUK
     muk = derive_master_unlock_key(password, vault_id)
+    vault_id_b = bytearray(vault_id)
+    vault_id_b[-1] ^= 0x01
+    vault_id_b = bytes(vault_id_b)
+    password_b = "tv-domain-sep-password-b"
+    muk_vault_id_b = derive_master_unlock_key(password, vault_id_b)
+    muk_password_b = derive_master_unlock_key(password_b, vault_id)
 
     # Derive VKEK
     vkek = derive_vkek(muk, vault_id)
@@ -426,6 +373,44 @@ def generate_kdf_vectors() -> dict:
                 },
                 "expected": subkeys,
             },
+            {
+                "id": "muk-domain-sep-vault-id",
+                "description": "Same password, different vault_id values must produce different MUKs",
+                "inputs": {
+                    "password": password,
+                    "vault_id_a": to_hex(vault_id),
+                    "vault_id_b": to_hex(vault_id_b),
+                    "m_cost_kib": 65536,
+                    "t_cost": 3,
+                    "p_lanes": 4,
+                    "output_len": 32,
+                    "argon2_version": "0x13",
+                },
+                "expected": {
+                    "master_unlock_key_a": to_hex(muk),
+                    "master_unlock_key_b": to_hex(muk_vault_id_b),
+                    "must_differ": True,
+                },
+            },
+            {
+                "id": "muk-domain-sep-password",
+                "description": "Same vault_id, different passwords must produce different MUKs",
+                "inputs": {
+                    "password_a": password,
+                    "password_b": password_b,
+                    "vault_id": to_hex(vault_id),
+                    "m_cost_kib": 65536,
+                    "t_cost": 3,
+                    "p_lanes": 4,
+                    "output_len": 32,
+                    "argon2_version": "0x13",
+                },
+                "expected": {
+                    "master_unlock_key_a": to_hex(muk),
+                    "master_unlock_key_b": to_hex(muk_password_b),
+                    "must_differ": True,
+                },
+            },
         ],
     }
 
@@ -451,7 +436,7 @@ def generate_aad_vectors() -> dict:
     return {
         "profile": "SCHEMA_MEISSNER_RECORDS_V2_AAD",
         "version": 1,
-        "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
+        "description": "Canonical AAD v1 construction (79 bytes, all fixed-width)",
         "generated_by": "cross_verify.py",
         "cases": [
             {
@@ -493,7 +478,7 @@ def generate_aad_vectors() -> dict:
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0x0001, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0002)),
-                    "aad_length": 74,
+                    "aad_length": 79,
                 },
             },
             {
@@ -516,7 +501,7 @@ def generate_aad_vectors() -> dict:
                         aead_profile=AEAD_XCHACHA20_POLY1305_V1, kdf_profile=1,
                         pqc_profile=0, record_id=record_id,
                         revision_id=revision_id, record_kind=0x0005)),
-                    "aad_length": 74,
+                    "aad_length": 79,
                 },
             },
         ],
@@ -530,6 +515,7 @@ def generate_aad_vectors() -> dict:
 def generate_aead_vectors() -> dict:
     """Generate aead_xchacha20_v1.json test vectors."""
     import nacl.bindings
+    import nacl.exceptions
 
     key   = bytes.fromhex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
     nonce = bytes.fromhex("010203040506070809101112131415161718192021222324")
@@ -560,8 +546,6 @@ def generate_aead_vectors() -> dict:
         raise AssertionError("wrong AAD must not decrypt successfully")
     except nacl.exceptions.CryptoError:
         pass  # expected
-
-    import nacl.exceptions
 
     # C1 — tampered ciphertext byte -> decrypt fails
     tampered_ct = bytearray(ciphertext_with_tag)
@@ -840,6 +824,60 @@ def generate_wrap_vectors() -> dict:
         },
     })
 
+    wrong_password = "tv-wrap-wrong-password-never-real"
+    wrong_muk = derive_master_unlock_key(wrong_password, FIX_VAULT_ID)
+    wrong_vkek = derive_vkek(wrong_muk, FIX_VAULT_ID)
+    assert wrong_vkek != vkek
+    cases.append({
+        "id": "unwrap-wrong-vkek",
+        "description": "Unwrap must reject when the VKEK comes from a different password",
+        "inputs": {
+            "vault_kek": to_hex(wrong_vkek),
+            "wrong_vkek_hex": to_hex(wrong_vkek),
+            "vkek_nonce": to_hex(vkek_nonce),
+            "wrap_aad": to_hex(wrap_aad),
+            "wrapped_root_key": to_hex(wrapped),
+            "wrong_password": wrong_password,
+        },
+        "expected": {
+            "result": "Err",
+            "reason": "auth",
+        },
+    })
+
+    tampered_nonce = bytearray(vkek_nonce)
+    tampered_nonce[0] ^= 0x01
+    cases.append({
+        "id": "unwrap-tampered-nonce",
+        "description": "Unwrap must reject when the wrapped bundle nonce is tampered",
+        "inputs": {
+            "vault_kek": to_hex(vkek),
+            "vkek_nonce": to_hex(bytes(tampered_nonce)),
+            "wrap_aad": to_hex(wrap_aad),
+            "wrapped_root_key": to_hex(wrapped),
+        },
+        "expected": {
+            "result": "Err",
+            "reason": "auth",
+        },
+    })
+
+    truncated_wrapped = wrapped[:-8]
+    cases.append({
+        "id": "unwrap-truncated-ciphertext",
+        "description": "Unwrap must reject when ciphertext||tag is truncated",
+        "inputs": {
+            "vault_kek": to_hex(vkek),
+            "vkek_nonce": to_hex(vkek_nonce),
+            "wrap_aad": to_hex(wrap_aad),
+            "wrapped_root_key": to_hex(truncated_wrapped),
+        },
+        "expected": {
+            "result": "Err",
+            "reason": "auth",
+        },
+    })
+
     return {
         "profile": "AEAD_XCHACHA20_POLY1305_V1",
         "version": 1,
@@ -911,6 +949,75 @@ def generate_kdf_tlv_vectors() -> dict:
     }
 
 
+def generate_kdf_tlv_negative_vectors() -> dict:
+    """Negative KDF parameter TLV fixtures for parser-reject paths."""
+    params = [
+        kdf_param_tlv(0x0101, u32le(65536)),
+        kdf_param_tlv(0x0102, u32le(3)),
+        kdf_param_tlv(0x0103, u32le(4)),
+        kdf_param_tlv(0x0104, u16le(32)),
+        kdf_param_tlv(0x0105, u32le(0x13)),
+    ]
+    duplicate_required = params + [kdf_param_tlv(0x0101, u32le(65536))]
+    missing_required = params[:-1]
+    overflow_m_cost = [
+        kdf_param_tlv(0x0101, u32le(0xFFFFFFFF)),
+        kdf_param_tlv(0x0102, u32le(3)),
+        kdf_param_tlv(0x0103, u32le(4)),
+        kdf_param_tlv(0x0104, u16le(32)),
+        kdf_param_tlv(0x0105, u32le(0x13)),
+    ]
+
+    def profile_block(tlvs: list[bytes]) -> bytes:
+        body = b"".join(tlvs)
+        return u16le(KDF_ARGON2ID_V1) + u32le(len(body)) + body
+
+    return {
+        "profile": "KDF_ARGON2ID_V1",
+        "version": 1,
+        "description": "Negative KDF parameter TLV fixtures for parse_kdf_profile_params() fail-closed behavior",
+        "generated_by": "cross_verify.py",
+        "cases": [
+            {
+                "id": "kdf-tlv-duplicate-required-tag",
+                "description": "Python-constructed raw TLV block: valid Argon2id profile value with duplicate 0x0101 m_cost tag",
+                "inputs": {
+                    "input_hex": to_hex(profile_block(duplicate_required)),
+                    "generation_comment": "Manual TLV byte construction: start from canonical Argon2id V1 parameter list and append a second 0x0101 TLV.",
+                },
+                "expected": {
+                    "result": "Err",
+                    "reason": "duplicate_required_tag",
+                },
+            },
+            {
+                "id": "kdf-tlv-missing-required-tag",
+                "description": "Python-constructed raw TLV block: omit required 0x0105 argon2_version tag",
+                "inputs": {
+                    "input_hex": to_hex(profile_block(missing_required)),
+                    "generation_comment": "Manual TLV byte construction: canonical profile block with the final 0x0105 tag removed.",
+                },
+                "expected": {
+                    "result": "Err",
+                    "reason": "missing_required_tag",
+                },
+            },
+            {
+                "id": "kdf-tlv-m-cost-overflow",
+                "description": "Python-constructed raw TLV block: m_cost_kib set to 0xFFFFFFFF to force validation failure",
+                "inputs": {
+                    "input_hex": to_hex(profile_block(overflow_m_cost)),
+                    "generation_comment": "Manual TLV byte construction: canonical profile block with 0x0101 value replaced by u32::MAX.",
+                },
+                "expected": {
+                    "result": "Err",
+                    "reason": "m_cost_overflow",
+                },
+            },
+        ],
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # D1–D4 — Vault binary format structures  (vault_format_v1.md §2,§3,§5,§6)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -958,7 +1065,7 @@ def sealed_table_plaintext_v2(entries: list, pad_byte: int = 0) -> bytes:
 
 
 def seal_record_table_v2(entries: list, mek: bytes, vault_id: bytes, nonce: bytes, pad_byte: int = 0) -> tuple:
-    """Return (section, plaintext, ciphertext_and_tag) for the V2 sealed table."""
+    """Return section where sealed_table_len = nonce[24] + ciphertext_and_tag."""
     plaintext = sealed_table_plaintext_v2(entries, pad_byte=pad_byte)
     aad = table_aad_v2(vault_id)
     ct_tag = xchacha_encrypt(mek, nonce, plaintext, aad)
@@ -1286,6 +1393,77 @@ def generate_format_negative_vectors() -> dict:
         "sealed_table_ciphertext_and_tag[-1] ^= 0x01",
     ))
 
+    created_at_ms = 1_700_000_000_000
+    header, _ = header_v2(created_at_ms)
+    unknown_critical_tlv = header_tlv(0xFF00, b"\xAA\x55", True)
+    wrk_frame, _, _ = record_frame_v1(
+        FIX_RECORD_ID,
+        FIX_REVISION_ID,
+        KIND_WRAPPED_ROOTKEY,
+        FIX_AEAD_KEY,
+        FIX_AEAD_NONCE,
+        FIX_VAULT_ROOT_KEY,
+        SCHEMA_MEISSNER_RECORDS_V2,
+    )
+    table_section = u32le(len(meta["table_nonce"]) + len(xchacha_encrypt(
+        meta["metadata_encryption_key"],
+        meta["table_nonce"],
+        u32le(0) + b"\x00" * 42,
+        table_aad_v2(FIX_VAULT_ID),
+    ))) + meta["table_nonce"] + xchacha_encrypt(
+        meta["metadata_encryption_key"],
+        meta["table_nonce"],
+        u32le(0) + b"\x00" * 42,
+        table_aad_v2(FIX_VAULT_ID),
+    )
+    body = wrk_frame + table_section
+    prefix = MAGIC + u16le(1) + u32le(len(header + unknown_critical_tlv)) + u32le(len(table_section)) + u64le(len(body))
+    blob_unknown = prefix + header + unknown_critical_tlv + body
+    cases.append(_neg_case(
+        "neg-unknown-critical-header-tlv",
+        "§10: unknown critical header TLV must be rejected fail-closed",
+        "unknown_critical_tlv",
+        blob_unknown,
+        "append header_tlv(tag=0xFF00, critical=1, value=aa55) to a valid V2 header",
+    ))
+
+    header_dup, _ = header_v2(created_at_ms)
+    duplicate_vault_id = header_tlv(0x0001, FIX_VAULT_ID, True)
+    prefix_dup = MAGIC + u16le(1) + u32le(len(header_dup + duplicate_vault_id)) + u32le(len(table_section)) + u64le(len(body))
+    blob_dup = prefix_dup + header_dup + duplicate_vault_id + body
+    cases.append(_neg_case(
+        "neg-duplicate-critical-header-tlv",
+        "§10: duplicate required header TLV (vault_id) must be rejected",
+        "duplicate_critical_tlv",
+        blob_dup,
+        "append a second critical vault_id TLV to an otherwise valid V2 header",
+    ))
+
+    unsupported_header = bytearray(header)
+    aead_tlv_offset = find_tlv_offset_in_header(header, 0x0004)
+    unsupported_header[aead_tlv_offset + 7:aead_tlv_offset + 9] = u16le(0x9999)
+    prefix_unsupported = MAGIC + u16le(1) + u32le(len(unsupported_header)) + u32le(len(table_section)) + u64le(len(body))
+    blob_unsupported = prefix_unsupported + bytes(unsupported_header) + body
+    cases.append(_neg_case(
+        "neg-unsupported-aead-profile",
+        "§10: unsupported AEAD profile id in the header must reject during profile validation",
+        "unsupported_aead_profile",
+        blob_unsupported,
+        "mutate header.aead_profile from 0x0001 to 0x9999",
+    ))
+
+    blob_nonce, meta_nonce = _build_valid_v2_vault()
+    nonce_len_offset = 26 + meta_nonce["header_len"] + 2 + 16 + 16 + 2
+    blob_nonce = bytearray(blob_nonce)
+    blob_nonce[nonce_len_offset] = 12
+    cases.append(_neg_case(
+        "neg-record-frame-nonce-len-12",
+        "§10: record frame nonce_len must be 24 for XChaCha20-Poly1305; 12-byte nonce is rejected",
+        "record_frame_nonce_len",
+        bytes(blob_nonce),
+        "mutate fixed WRK frame nonce_len byte from 24 to 12",
+    ))
+
     return {
         "profile": "SCHEMA_MEISSNER_RECORDS_V2",
         "version": 2,
@@ -1293,6 +1471,17 @@ def generate_format_negative_vectors() -> dict:
         "generated_by": "cross_verify.py (pynacl/libsodium)",
         "cases": cases,
     }
+
+
+def find_tlv_offset_in_header(header: bytes, wanted_tag: int) -> int:
+    cursor = 0
+    while cursor + 7 <= len(header):
+        tag = int.from_bytes(header[cursor:cursor + 2], "little")
+        value_len = int.from_bytes(header[cursor + 3:cursor + 7], "little")
+        if tag == wanted_tag:
+            return cursor
+        cursor += 7 + value_len
+    raise ValueError(f"missing TLV tag 0x{wanted_tag:04x}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1305,6 +1494,7 @@ GENERATORS = {
     "aead": ("aead_xchacha20_v1.json", generate_aead_vectors),
     "wrap": ("vault_wrap_v1.json", generate_wrap_vectors),
     "kdf_tlv": ("vault_kdf_param_tlv_v1.json", generate_kdf_tlv_vectors),
+    "kdf_tlv_negative": ("vault_kdf_param_tlv_negative_v1.json", generate_kdf_tlv_negative_vectors),
     "format_struct": ("vault_format_struct_v1.json", generate_format_struct_vectors),
     "format_negative": ("vault_format_negative_v1.json", generate_format_negative_vectors),
     # "transfer": ("transfer_hybrid_v1.json", generate_transfer_vectors),  # TODO MVP-2
@@ -1317,6 +1507,8 @@ def run(target: Optional[str] = None) -> None:
     vectors_dir = os.path.dirname(os.path.abspath(__file__))
 
     targets = {target: GENERATORS[target]} if target else GENERATORS
+    failed = []
+    skipped = []
 
     for name, (filename, generator) in targets.items():
         print(f"Generating {filename} ...")
@@ -1328,13 +1520,23 @@ def run(target: Optional[str] = None) -> None:
                 f.write("\n")
             case_count = len(vectors.get("cases", []))
             print(f"  ✓ {filename} — {case_count} case(s)")
-        except NotImplementedError as e:
+        except (ImportError, NotImplementedError, AttributeError) as e:
+            skipped.append((filename, str(e)))
             print(f"  ! {filename} — skipped: {e}")
-        except ImportError as e:
-            print(f"  ! {filename} — missing dependency: {e}")
         except Exception as e:
+            failed.append((filename, str(e)))
             print(f"  ✗ {filename} — error: {e}")
-            raise
+
+    if skipped:
+        print("Skipped vector generators:")
+        for filename, reason in skipped:
+            print(f"  - {filename}: {reason}")
+    if failed:
+        print("Failed vector generators:")
+        for filename, reason in failed:
+            print(f"  - {filename}: {reason}")
+    if skipped or failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

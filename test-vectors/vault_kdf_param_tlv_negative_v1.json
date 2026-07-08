@@ -1,0 +1,44 @@
+{
+  "profile": "KDF_ARGON2ID_V1",
+  "version": 1,
+  "description": "Negative KDF parameter TLV fixtures for parse_kdf_profile_params() fail-closed behavior",
+  "generated_by": "cross_verify.py",
+  "cases": [
+    {
+      "id": "kdf-tlv-duplicate-required-tag",
+      "description": "Python-constructed raw TLV block: valid Argon2id profile value with duplicate 0x0101 m_cost tag",
+      "inputs": {
+        "input_hex": "01002e00000001010400000001000201040003000000030104000400000004010200200005010400130000000101040000000100",
+        "generation_comment": "Manual TLV byte construction: start from canonical Argon2id V1 parameter list and append a second 0x0101 TLV."
+      },
+      "expected": {
+        "result": "Err",
+        "reason": "duplicate_required_tag"
+      }
+    },
+    {
+      "id": "kdf-tlv-missing-required-tag",
+      "description": "Python-constructed raw TLV block: omit required 0x0105 argon2_version tag",
+      "inputs": {
+        "input_hex": "01001e000000010104000000010002010400030000000301040004000000040102002000",
+        "generation_comment": "Manual TLV byte construction: canonical profile block with the final 0x0105 tag removed."
+      },
+      "expected": {
+        "result": "Err",
+        "reason": "missing_required_tag"
+      }
+    },
+    {
+      "id": "kdf-tlv-m-cost-overflow",
+      "description": "Python-constructed raw TLV block: m_cost_kib set to 0xFFFFFFFF to force validation failure",
+      "inputs": {
+        "input_hex": "01002600000001010400ffffffff020104000300000003010400040000000401020020000501040013000000",
+        "generation_comment": "Manual TLV byte construction: canonical profile block with 0x0101 value replaced by u32::MAX."
+      },
+      "expected": {
+        "result": "Err",
+        "reason": "m_cost_overflow"
+      }
+    }
+  ]
+}
