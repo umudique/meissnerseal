@@ -1169,7 +1169,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     // correct fail-safe while PQC is not active and the 79-byte AAD already
     // binds pqc_profile. When PQC becomes active this MUST change to `None` +
     // reject so a stripped tag cannot force a silent downgrade.
-    let mut pqc_profile = Some(0);
+    let mut pqc_profile: u16 = 0;
     let mut schema_profile = None;
     let mut header_nonce = None;
     let mut seen_header_tags = 0u16;
@@ -1231,7 +1231,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
                     mark_seen_header_tag(&mut seen_header_tags, tag),
                     "duplicate pqc_profile",
                 )?;
-                pqc_profile = Some(read_tlv_u16(value, "invalid pqc_profile length")?);
+                pqc_profile = read_tlv_u16(value, "invalid pqc_profile length")?;
             }
             TAG_SCHEMA_PROFILE => {
                 reject_duplicate(
@@ -1268,7 +1268,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
         aead_profile: aead_profile.ok_or_else(|| format_error("missing aead_profile"))?,
         kdf_profile: kdf_profile.ok_or_else(|| format_error("missing kdf_profile"))?,
         kdf_params: kdf_params.ok_or_else(|| format_error("missing kdf params"))?,
-        pqc_profile: pqc_profile.ok_or_else(|| format_error("missing pqc_profile"))?,
+        pqc_profile,
         header_nonce: header_nonce.ok_or_else(|| format_error("missing header_nonce"))?,
         profile_set: VaultProfileSet {
             aead_profile: AeadProfileId(AEAD_XCHACHA20_POLY1305_V1),

@@ -24,10 +24,10 @@ use crate::{
 /// Magic bytes for the encrypted MeissnerSeal export container.
 ///
 /// The value is public format metadata, not secret material.
-pub const ARCEXP_MAGIC: [u8; 8] = *b"ARCEXP\x01\0";
+pub const MSEXP_MAGIC: [u8; 8] = *b"MSEXP\x01\0\0";
 
 /// MVP-0 encrypted export container version.
-pub const ARCEXP_VERSION_V1: u16 = 1;
+pub const MSEXP_VERSION_V1: u16 = 1;
 
 const MAGIC_LEN: usize = 8;
 const VERSION_LEN: usize = 2;
@@ -92,14 +92,14 @@ impl UntrustedExportBundle {
 ///
 /// ## Postconditions
 /// - On success, returns a versioned `.msexp` byte container:
-///   `ARCEXP_MAGIC[8] || version:u16le || source_vault_id[16] ||
+///   `MSEXP_MAGIC[8] || version:u16le || source_vault_id[16] ||
 ///   kdf_params_len:u32le || kdf_params[N] || nonce[24] ||
 ///   ciphertext_len:u32le || ciphertext_and_tag`.
 /// - `kdf_params` is the Argon2id parameter TLV structure used to derive the
 ///   export AEAD key from `passphrase` via `KDF_ARGON2ID_V1`; it includes the
 ///   export salt needed for cross-vault import.
 /// - Export AEAD AAD is exactly
-///   `source_vault_id[16] || ARCEXP_MAGIC[8] || version:u16le`.
+///   `source_vault_id[16] || MSEXP_MAGIC[8] || version:u16le`.
 /// - The plaintext serialized inside the encrypted payload is exactly the
 ///   vault's live item set at export time: tombstones and non-item records are
 ///   excluded.
@@ -124,7 +124,7 @@ pub fn export(session: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>> {
     let kdf_params_bytes = serialize_kdf_profile_params(&kdf_params)?;
     let mut plaintext = serialize_live_item_set(session)?;
     let export_key = derive_export_key(passphrase, &source_vault_id, &kdf_params)?;
-    let aad = export_aad(&source_vault_id, ARCEXP_VERSION_V1);
+    let aad = export_aad(&source_vault_id, MSEXP_VERSION_V1);
     let encrypt_result = encrypt(&export_key, &plaintext, &aad);
     plaintext.zeroize();
     drop(export_key);
@@ -151,13 +151,13 @@ pub fn export(session: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>> {
 ///
 /// ## Postconditions
 /// - Parses only the MVP-0 encrypted export container:
-///   `ARCEXP_MAGIC[8] || version:u16le || source_vault_id[16] ||
+///   `MSEXP_MAGIC[8] || version:u16le || source_vault_id[16] ||
 ///   kdf_params_len:u32le || kdf_params[N] || nonce[24] ||
 ///   ciphertext_len:u32le || ciphertext_and_tag`.
 /// - Re-derives the export AEAD key from `passphrase` and the cleartext
 ///   Argon2id `kdf_params` carried by the bundle.
 /// - Export AEAD AAD is exactly
-///   `source_vault_id[16] || ARCEXP_MAGIC[8] || version:u16le`, reconstructed
+///   `source_vault_id[16] || MSEXP_MAGIC[8] || version:u16le`, reconstructed
 ///   from the parsed framing before decryption.
 /// - Rejects wrong magic bytes, unknown versions, malformed or truncated
 ///   framing, ciphertext lengths that overrun the input, trailing garbage,
@@ -224,7 +224,7 @@ fn derive_export_key(
 fn export_aad(source_vault_id: &[u8; 16], version: u16) -> [u8; 26] {
     let mut aad = [0u8; 26];
     aad[0..16].copy_from_slice(source_vault_id);
-    aad[16..24].copy_from_slice(&ARCEXP_MAGIC);
+    aad[16..24].copy_from_slice(&MSEXP_MAGIC);
     aad[24..26].copy_from_slice(&version.to_le_bytes());
     aad
 }
@@ -247,8 +247,8 @@ fn serialize_bundle(
         .and_then(|len| len.checked_add(ciphertext_and_tag.len()))
         .ok_or_else(|| CoreError::Format("export bundle length overflow".into()))?;
     let mut out = Vec::with_capacity(capacity);
-    out.extend_from_slice(&ARCEXP_MAGIC);
-    out.extend_from_slice(&ARCEXP_VERSION_V1.to_le_bytes());
+    out.extend_from_slice(&MSEXP_MAGIC);
+    out.extend_from_slice(&MSEXP_VERSION_V1.to_le_bytes());
     out.extend_from_slice(source_vault_id);
     out.extend_from_slice(&kdf_len.to_le_bytes());
     out.extend_from_slice(kdf_params);
@@ -280,12 +280,12 @@ fn parse_bundle(bundle: &[u8]) -> Result<ParsedBundle<'_>> {
     let magic = bundle
         .get(0..MAGIC_LEN)
         .ok_or_else(|| CoreError::Format("truncated export magic".into()))?;
-    if magic != ARCEXP_MAGIC {
+    if magic != MSEXP_MAGIC {
         return Err(CoreError::Format("wrong export magic".into()));
     }
 
     let version = read_u16(bundle, MAGIC_LEN, "export version")?;
-    if version != ARCEXP_VERSION_V1 {
+    if version != MSEXP_VERSION_V1 {
         return Err(CoreError::Format("unsupported export version".into()));
     }
 
@@ -570,7 +570,7 @@ mod tests {
 
     fn framed_bundle(version: u16, ciphertext_and_tag: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend_from_slice(&ARCEXP_MAGIC);
+        out.extend_from_slice(&MSEXP_MAGIC);
         out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(&[0xa5; 16]);
         let kdf_params = [
@@ -673,7 +673,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn import_rejects_wrong_magic() {
         let (path, session) = unlocked_session("wrong-magic");
-        let mut bundle = framed_bundle(ARCEXP_VERSION_V1, &[0x7b; 16]);
+        let mut bundle = framed_bundle(MSEXP_VERSION_V1, &[0x7b; 16]);
         bundle
             .get_mut(0..8)
             .expect("fixture magic range")
@@ -697,7 +697,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn import_rejects_truncated_bundle() {
         let (path, session) = unlocked_session("truncated");
-        let bundle = &ARCEXP_MAGIC[..4];
+        let bundle = &MSEXP_MAGIC[..4];
 
         assert!(import(&session, bundle, EXPORT_PASSPHRASE).is_err());
         cleanup(&path, session);
@@ -782,7 +782,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn import_rejects_kdf_params_len_overrunning_remaining_input() {
         let (path, session) = unlocked_session("kdf-len-overrun");
-        let mut bundle = framed_bundle(ARCEXP_VERSION_V1, &[0x7b; 16]);
+        let mut bundle = framed_bundle(MSEXP_VERSION_V1, &[0x7b; 16]);
         let offset = MAGIC_LEN + VERSION_LEN + VAULT_ID_LEN;
         bundle
             .get_mut(offset..offset + 4)
@@ -800,7 +800,7 @@ mod tests {
     fn import_rejects_ciphertext_len_overrunning_remaining_input() {
         let (path, session) = unlocked_session("ciphertext-len-overrun");
         let ciphertext = [0x7b_u8; 16];
-        let mut bundle = framed_bundle(ARCEXP_VERSION_V1, &ciphertext);
+        let mut bundle = framed_bundle(MSEXP_VERSION_V1, &ciphertext);
         // ciphertext_len field sits immediately before the ciphertext bytes at the
         // end of the bundle; use bundle.len() to locate it correctly.
         let ciphertext_len_offset = bundle.len() - CIPHERTEXT_LEN_FIELD - ciphertext.len();

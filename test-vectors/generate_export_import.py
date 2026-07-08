@@ -25,8 +25,8 @@ from nacl.bindings import crypto_aead_xchacha20poly1305_ietf_encrypt
 SCRIPT_PATH = Path(__file__)
 VECTOR_PATH = SCRIPT_PATH.with_name("export_import_v1.json")
 
-ARCEXP_MAGIC = b"ARCEXP\x01\x00"
-ARCEXP_VERSION_V1 = 1
+MSEXP_MAGIC = b"MSEXP\x01\x00\x00"
+MSEXP_VERSION_V1 = 1
 AEAD_XCHACHA20_POLY1305_V1 = 1
 KDF_ARGON2ID_V1 = 1
 
@@ -110,9 +110,22 @@ def derive_export_key(passphrase: str, vault_id: bytes) -> bytes:
     return hkdf_expand_32(muk, EXPORT_BUNDLE_INFO)
 
 
+def derive_muk(passphrase: str, vault_id: bytes) -> bytes:
+    return hash_secret_raw(
+        secret=passphrase.encode("utf-8"),
+        salt=argon2id_salt(vault_id),
+        time_cost=ARGON2_T_COST,
+        memory_cost=ARGON2_M_COST_KIB,
+        parallelism=ARGON2_P_LANES,
+        hash_len=ARGON2_OUTPUT_LEN,
+        type=Type.ID,
+        version=ARGON2_VERSION,
+    )
+
+
 def export_aad(source_vault_id: bytes, version: int) -> bytes:
     assert len(source_vault_id) == 16
-    return source_vault_id + ARCEXP_MAGIC + u16le(version)
+    return source_vault_id + MSEXP_MAGIC + u16le(version)
 
 
 def serialize_kdf_profile_params() -> bytes:
@@ -155,7 +168,7 @@ def build_bundle(
     kdf_params = serialize_kdf_profile_params()
     plaintext = serialize_item_set(items)
     export_key = derive_export_key(passphrase, source_vault_id)
-    aad = export_aad(source_vault_id, ARCEXP_VERSION_V1)
+    aad = export_aad(source_vault_id, MSEXP_VERSION_V1)
     ciphertext_and_tag = crypto_aead_xchacha20poly1305_ietf_encrypt(
         plaintext,
         aad,
@@ -163,8 +176,8 @@ def build_bundle(
         export_key,
     )
     bundle = (
-        ARCEXP_MAGIC
-        + u16le(ARCEXP_VERSION_V1)
+        MSEXP_MAGIC
+        + u16le(MSEXP_VERSION_V1)
         + source_vault_id
         + u32le(len(kdf_params))
         + kdf_params
@@ -188,6 +201,15 @@ def flip_ciphertext_bit(bundle_hex: str, ciphertext_and_tag_hex: str) -> tuple[s
     ciphertext_len = len(ciphertext_and_tag)
     ciphertext_offset = len(bundle) - ciphertext_len
     flip_offset = ciphertext_offset + 7
+    bundle[flip_offset] ^= 0x01
+    return hexlify(bytes(bundle)), flip_offset
+
+
+def flip_tag_bit(bundle_hex: str, ciphertext_and_tag_hex: str) -> tuple[str, int]:
+    bundle = bytearray.fromhex(bundle_hex)
+    ciphertext_and_tag = bytes.fromhex(ciphertext_and_tag_hex)
+    ciphertext_offset = len(bundle) - len(ciphertext_and_tag)
+    flip_offset = ciphertext_offset + len(ciphertext_and_tag) - 1
     bundle[flip_offset] ^= 0x01
     return hexlify(bytes(bundle)), flip_offset
 
@@ -219,9 +241,15 @@ def main() -> int:
     tampered_bundle_hex, flipped_offset = flip_ciphertext_bit(
         base["bundle_hex"], base["ciphertext_and_tag_hex"]
     )
+    tag_flipped_bundle_hex, tag_flip_offset = flip_tag_bit(
+        base["bundle_hex"], base["ciphertext_and_tag_hex"]
+    )
+    unsupported_version_bundle = bytearray.fromhex(base["bundle_hex"])
+    unsupported_version_bundle[8:10] = u16le(2)
+    muk = derive_muk(export_passphrase, source_vault_id)
 
     vector = {
-        "profile": "ARCEXP_EXPORT_IMPORT_V1",
+        "profile": "MSEXP_EXPORT_IMPORT_V1",
         "version": 1,
         "description": (
             "Known-answer vectors for encrypted .msexp export/import framing and "
@@ -256,8 +284,8 @@ def main() -> int:
                     "items": items,
                 },
                 "expected": {
-                    "bundle_magic_hex": hexlify(ARCEXP_MAGIC),
-                    "bundle_version": ARCEXP_VERSION_V1,
+                    "bundle_magic_hex": hexlify(MSEXP_MAGIC),
+                    "bundle_version": MSEXP_VERSION_V1,
                     "aead_profile_id": AEAD_XCHACHA20_POLY1305_V1,
                     "kdf_profile_id": KDF_ARGON2ID_V1,
                     "kdf_params_hex": base["kdf_params_hex"],
@@ -289,6 +317,44 @@ def main() -> int:
                 },
                 "expected": {
                     "rejection": "auth",
+                },
+            },
+            {
+                "id": "export-import-kdf-chain-v1",
+                "type": "kdf_chain",
+                "inputs": {
+                    "source_vault_id_hex": hexlify(source_vault_id),
+                    "export_passphrase_utf8": export_passphrase,
+                },
+                "expected": {
+                    "argon2id_salt_hex": hexlify(argon2id_salt(source_vault_id)),
+                    "muk_hex": hexlify(muk),
+                    "hkdf_info_utf8": EXPORT_BUNDLE_INFO.decode("utf-8"),
+                    "aead_key_hex": base["export_key_hex"],
+                    "aad_hex": base["aad_hex"],
+                },
+            },
+            {
+                "id": "export-import-tag-flip-rejection-v1",
+                "type": "tag_flip",
+                "inputs": {
+                    "export_passphrase_utf8": export_passphrase,
+                    "bundle_hex": tag_flipped_bundle_hex,
+                    "flipped_bundle_byte_offset": tag_flip_offset,
+                },
+                "expected": {
+                    "rejection": "auth",
+                },
+            },
+            {
+                "id": "export-import-unsupported-version-v1",
+                "type": "unsupported_version",
+                "inputs": {
+                    "export_passphrase_utf8": export_passphrase,
+                    "bundle_hex": hexlify(bytes(unsupported_version_bundle)),
+                },
+                "expected": {
+                    "rejection": "format",
                 },
             },
         ],
