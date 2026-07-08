@@ -96,6 +96,15 @@ transfer::
 
 ```
 
+`CreateEnvelopeParams` supports two recipient-binding modes:
+- identified mode: `recipient_device_id = Some(DeviceId)`,
+  `anonymous_recipient_public_key = None`
+- anonymous mode: `recipient_device_id = None`,
+  `anonymous_recipient_public_key = Some(recipient_classical_public_key)`
+
+Anonymous mode fails closed if the explicit public-key transcript binding is
+absent.
+
 ---
 
 ## Planned (post-MVP-0)
@@ -149,6 +158,7 @@ recovery::  [MVP-1 — ADR-010]
        — replayed envelope_ids through SeenEnvelopeIds::check_and_insert
        — transcript hash mismatches
        — unknown or mismatched algorithm IDs
+       — anonymous envelopes missing the recipient public-key transcript binding
        — untrusted sender identities at the API boundary through
          TrustedSender::from_verified
        SeenEnvelopeIds serializes accepted envelope IDs with expiry-aware
@@ -213,4 +223,8 @@ recovery::  [MVP-1 — ADR-010]
 [I-03] Item metadata (label, tags) is encrypted where possible.
        Cleartext metadata in vault format is limited to what is
        required for unlock and migration.
+
+[I-04] Anonymous transfer envelopes bind the recipient classical public key
+       into the transcript at both create and open time. The create-side API
+       requires this binding explicitly when `recipient_device_id` is absent.
 ```

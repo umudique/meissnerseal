@@ -127,6 +127,7 @@ const TRANSFER_ENVELOPE_MAGIC: &[u8; 6] = b"MSENV\x01";
 ///     CreateEnvelopeParams {
 ///         sender_device_id: [0x11; 16],
 ///         recipient_device_id: Some([0x22; 16]),
+///         anonymous_recipient_public_key: None,
 ///         recipient_classical_public_key: Key::from_bytes([0x44; 32]),
 ///         recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
 ///         sender_signing_private_key: SigningPrivateKey::new(
@@ -208,7 +209,10 @@ pub struct TranscriptParams<'a> {
 /// ## Preconditions
 /// - Sender private signing material must be algorithm-tagged and used only
 ///   with `TRANSFER_ENVELOPE_SIGNING_DOMAIN`.
-/// - Recipient public keys must come from an authenticated `DeviceIdentity`.
+/// - Recipient public keys must come from an authenticated `DeviceIdentity` or
+///   an explicitly supplied anonymous recipient binding.
+/// - If `recipient_device_id` is `None`, `anonymous_recipient_public_key` must
+///   be `Some(recipient_classical_public_key)`.
 /// - `expires_at`, when present, must not be in the past.
 ///
 /// ## Postconditions
@@ -217,11 +221,14 @@ pub struct TranscriptParams<'a> {
 ///
 /// ## Invariants
 /// - Expiry is checked before key derivation.
+/// - Anonymous mode fails closed when the recipient public-key transcript
+///   binding is absent.
 /// - `plaintext_payload` is `SecretPayload`, preventing raw-byte plaintext
 ///   callers at this boundary.
 pub struct CreateEnvelopeParams {
     pub sender_device_id: DeviceId,
     pub recipient_device_id: Option<DeviceId>,
+    pub anonymous_recipient_public_key: Option<X25519PublicKey>,
     pub recipient_classical_public_key: X25519PublicKey,
     pub recipient_pqc_public_key: MlKemPublicKey,
     pub sender_signing_private_key: SigningPrivateKey,
@@ -378,6 +385,8 @@ pub fn validate_envelope(
 /// ## Preconditions
 /// - `expires_at`, when present, must be in the future at call time.
 /// - Transfer signing must prepend `TRANSFER_ENVELOPE_SIGNING_DOMAIN`.
+/// - Anonymous mode requires `anonymous_recipient_public_key` to be present
+///   and equal to the recipient classical public key bound into the KEM.
 ///
 /// ## Postconditions
 /// - Returns a sealed envelope authenticated under the v1 transcript.
@@ -394,6 +403,9 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
             return Err(TransferError::ExpiredEnvelope);
         }
     }
+    if params.recipient_device_id.is_none() && params.anonymous_recipient_public_key.is_none() {
+        return Err(TransferError::MissingAnonymousRecipientPublicKey);
+    }
 
     let envelope_id: EnvelopeId = rng::random_bytes(16)
         .try_into()
@@ -406,7 +418,7 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
         sender_device_id: &params.sender_device_id,
         sender_classical_ephemeral_public_key: &ephemeral_public,
         recipient_device_id: params.recipient_device_id.as_ref(),
-        anonymous_recipient_public_key: None,
+        anonymous_recipient_public_key: params.anonymous_recipient_public_key.as_ref(),
         pqc_ciphertext: &pqc_ciphertext,
         classical_algorithm_id: CLASSICAL_ALG_ID_X25519,
         pqc_algorithm_id: PQC_ALG_ID_MLKEM768,
@@ -590,6 +602,9 @@ fn parse_envelope_bytes(bytes: &[u8]) -> Result<TransferEnvelope, TransferError>
     };
     let classical_ephemeral_public_key = X25519PublicKey::from_bytes(parser.take_array()?);
     let pqc_ct_len = parser.take_u32_le()? as usize;
+    if pqc_ct_len != 1088 {
+        return Err(TransferError::UnknownProfile);
+    }
     let pqc_ciphertext = MlKemCiphertext::from_bytes(
         parser
             .take(pqc_ct_len)?
@@ -604,6 +619,9 @@ fn parse_envelope_bytes(bytes: &[u8]) -> Result<TransferEnvelope, TransferError>
         _ => return Err(TransferError::UnknownProfile),
     };
     let payload_len = parser.take_u32_le()? as usize;
+    if payload_len == 0 {
+        return Err(TransferError::UnknownProfile);
+    }
     let encrypted_payload = parser.take(payload_len)?.to_vec();
     if !parser.is_empty() {
         return Err(TransferError::UnknownProfile);
