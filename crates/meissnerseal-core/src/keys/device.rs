@@ -585,6 +585,9 @@ pub fn create_signed_transfer_envelope(
     create_envelope(CreateEnvelopeParams {
         sender_device_id,
         recipient_device_id,
+        anonymous_recipient_public_key: recipient_device_id
+            .is_none()
+            .then_some(recipient_classical_public_key.clone()),
         recipient_classical_public_key,
         recipient_pqc_public_key,
         sender_signing_private_key,
