@@ -294,6 +294,54 @@ mod tests {
             );
         }
     }
+
+    // NIST ACVP VAL vectors (tgId=5, ML-KEM-768, commit 65370b8).
+    // Shared dk at group level; per-test c and k.
+    // "modify ciphertext" cases: FIPS 203 §6.3 implicit rejection —
+    //   decapsulate(dk, tampered_c) must return a deterministic pseudorandom
+    //   K' (not Err), preventing chosen-ciphertext oracle attacks.
+    // "no modification" cases: normal decapsulation positive KATs.
+    #[test]
+    fn nist_val_implicit_rejection_and_positive_decapsulate() {
+        let val_group = {
+            let marker = "\"val_group\"";
+            KAT.split_once(marker).expect("val_group present").1
+        };
+
+        let dk_hex = val_group
+            .split_once("\"dk\": \"")
+            .expect("val_group dk")
+            .1
+            .split_once('"')
+            .expect("val_group dk close")
+            .0;
+        let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("val dk 2400 bytes");
+        let private_key = MlKemPrivateKey::from_bytes(dk_bytes);
+
+        // tcIds with their expected k values; (tcId, reason) pairs.
+        // Extracted from NIST ACVP internalProjection.json tgId=5.
+        let tc_ids: &[usize] = &[86, 87, 88, 89, 90, 91, 92, 93, 94, 95];
+        for &tc_id in tc_ids {
+            let c_hex = parse_kat_field(val_group, "c", tc_id);
+            let k_hex = parse_kat_field(val_group, "k", tc_id);
+            let c_bytes: [u8; 1088] = from_hex(c_hex)
+                .try_into()
+                .expect("VAL tcId c must be 1088 bytes");
+            let k_bytes: [u8; 32] = from_hex(k_hex)
+                .try_into()
+                .expect("VAL tcId k must be 32 bytes");
+            let ciphertext = MlKemCiphertext::from_bytes(c_bytes);
+            // FIPS 203 §6.3: decapsulate never returns Err — it returns either
+            // the real shared secret (valid c) or a pseudorandom K' (tampered c).
+            let result = decapsulate(&private_key, &ciphertext)
+                .expect("decapsulate must not return Err (FIPS 203 §6.3 implicit rejection)");
+            assert_eq!(
+                result.as_slice(),
+                k_bytes.as_slice(),
+                "tcId {tc_id}: decapsulate output does not match NIST VAL known answer"
+            );
+        }
+    }
 }
 
 #[cfg(kani)]
