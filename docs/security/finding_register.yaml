@@ -899,7 +899,8 @@ findings:
     component: meissnerseal-cli
     source: "External E2E test review — crates/meissnerseal-cli/tests/e2e.rs (2026-06-25)"
     date: 2026-06-25
-    status: open
+    status: resolved
+    severity: low
     blocking: false
     description: >-
       list_label_with_newline_does_not_inject: assertion assert!(!first_row.contains('\n'))
@@ -907,7 +908,7 @@ findings:
       can never contain '\n'. The test passes vacuously and does not verify that the
       label's embedded newline was escaped before output (the actual security property).
     cwe: null
-    commit: ""
+    commit: "7602211"
     remediation: >-
       Replace the tautological assert!(!first_row.contains(chr(10))) with an
       assertion that the label's embedded newline was escaped or rejected in
