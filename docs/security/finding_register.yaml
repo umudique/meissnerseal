@@ -6018,7 +6018,7 @@ findings:
     cwe: "CWE-325"
     severity: high
     blocking: true
-    status: open
+    status: resolved
     remediation: >-
       Add an anonymous_recipient_public_key: Option<X25519PublicKey> field to
       CreateEnvelopeParams. In create_envelope, when recipient_device_id is
@@ -6032,7 +6032,7 @@ findings:
       confirms anonymous hash changes when anonymous_recipient_public_key
       changes. create_envelope with recipient_device_id: None and no
       anonymous key returns an error.
-    commit: ""
+    commit: "f68256d"
 
   - id: F-167
     kind: consistency
@@ -6079,7 +6079,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests: TrustedSender rejects Pending and Revoked device identity
       status; TrustedSender rejects Verified/Approved identity with no signing
@@ -6090,7 +6090,7 @@ findings:
       cargo test -p meissnerseal-core -- transfer passes. TrustedSender
       negative cases return the expected error variants. Replay store is
       empty after a wrong-sender-key open attempt.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-169
     kind: coverage_gap
@@ -6109,7 +6109,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       After resolving F-166, add: (1) a full anonymous create→open roundtrip
       test confirming plaintext recovery; (2) a negative test supplying a
@@ -6119,7 +6119,7 @@ findings:
     verification: >-
       Anonymous roundtrip test passes after F-166 fix. Wrong-anon-key test
       returns TranscriptMismatch. cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-170
     kind: coverage_gap
@@ -6138,7 +6138,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Extend the transcript sensitivity test to mutate each bound field
       independently and assert the hash changes. Cover both identified-recipient
@@ -6147,7 +6147,7 @@ findings:
     verification: >-
       Each field mutation produces a distinct transcript hash. cargo test
       -p meissnerseal-core -- transfer passes.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-171
     kind: coverage_gap
@@ -6165,7 +6165,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add table-driven parser negative tests covering: wrong magic (each
       byte position), invalid recipient_flag, version != 1, zero payload_len,
@@ -6174,7 +6174,7 @@ findings:
     verification: >-
       All new cases return the expected error variant. No case panics or
       reaches KEM/AEAD. cargo test -p meissnerseal-core -- transfer passes.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-172
     kind: consistency
@@ -6195,7 +6195,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Correct the comment in envelope_from_bytes_rejects_trailing_garbage
       to describe what the test actually does. (2) Rename
@@ -6205,7 +6205,7 @@ findings:
     verification: >-
       Test names and comments match the code under test. No test name
       implies coverage it does not provide.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-173
     kind: coverage_gap
@@ -6222,7 +6222,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a create_envelope success test that calls create_envelope, parses the
       result via envelope_from_bytes, and asserts the envelope_id, recipient
@@ -6231,7 +6231,7 @@ findings:
     verification: >-
       create_envelope roundtrip invariants hold. Successive calls produce
       distinct IDs. cargo test -p meissnerseal-core -- transfer passes.
-    commit: ""
+    commit: "476cd1e"
 
   - id: F-174
     kind: coverage_gap
@@ -6251,7 +6251,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests: open_envelope with wrong X25519 private key returns
       authentication error; open_envelope with wrong ML-KEM private key
@@ -6260,7 +6260,7 @@ findings:
     verification: >-
       Both negative cases return the expected error variant. Positive controls
       pass. cargo test -p meissnerseal-core -- transfer passes.
-    commit: ""
+    commit: "476cd1e"
 
 # ── meissnerseal-core vault/format.rs security review (2026-07-05) ──────────────
 
