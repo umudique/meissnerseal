@@ -812,25 +812,85 @@ mod tests {
 
     #[test]
     fn compute_transcript_hash_changes_when_bound_fields_change() {
-        let original_fixture = TranscriptFixture::new();
-        let original = original_fixture.params();
-        let changed_profile_fixture = TranscriptFixture::new();
-        let mut changed_profile = changed_profile_fixture.params();
-        changed_profile.transfer_profile = TransferProfileId::test_only_unchecked(0x0002);
-        let changed_envelope_fixture = TranscriptFixture {
-            envelope_id: [0x99; 16],
-            ..TranscriptFixture::new()
-        };
-        let changed_envelope = changed_envelope_fixture.params();
-        let changed_expiry_fixture = TranscriptFixture::new();
-        let mut changed_expiry = changed_expiry_fixture.params();
-        changed_expiry.expires_at = Some(future_timestamp().checked_add(1).expect("timestamp"));
+        let identified = TranscriptFixture::new();
+        let identified_baseline = compute_transcript_hash(&identified.params());
+        for (label, params) in [
+            (
+                "sender_device_id",
+                identified.with_sender_device_id([0x91; 16]).params(),
+            ),
+            (
+                "sender_classical_ephemeral_public_key",
+                identified
+                    .with_sender_classical_ephemeral_public_key(Key::from_bytes([0x92; 32]))
+                    .params(),
+            ),
+            (
+                "recipient_device_id",
+                identified.with_recipient_device_id([0x93; 16]).params(),
+            ),
+            (
+                "pqc_ciphertext",
+                identified
+                    .with_pqc_ciphertext(Key::from_bytes([0x94; 1088]))
+                    .params(),
+            ),
+            (
+                "classical_algorithm_id",
+                identified.with_classical_algorithm_id(0x0002).params(),
+            ),
+            (
+                "pqc_algorithm_id",
+                identified.with_pqc_algorithm_id(0x0002).params(),
+            ),
+        ] {
+            assert_ne!(
+                identified_baseline,
+                compute_transcript_hash(&params),
+                "identified branch must bind {label}"
+            );
+        }
 
-        let original_hash = compute_transcript_hash(&original);
-
-        assert_ne!(original_hash, compute_transcript_hash(&changed_profile));
-        assert_ne!(original_hash, compute_transcript_hash(&changed_envelope));
-        assert_ne!(original_hash, compute_transcript_hash(&changed_expiry));
+        let anonymous = TranscriptFixture::anonymous();
+        let anonymous_baseline = compute_transcript_hash(&anonymous.params());
+        for (label, params) in [
+            (
+                "sender_device_id",
+                anonymous.with_sender_device_id([0xA1; 16]).params(),
+            ),
+            (
+                "sender_classical_ephemeral_public_key",
+                anonymous
+                    .with_sender_classical_ephemeral_public_key(Key::from_bytes([0xA2; 32]))
+                    .params(),
+            ),
+            (
+                "anonymous_recipient_public_key",
+                anonymous
+                    .with_anonymous_recipient_public_key(Key::from_bytes([0xA3; 32]))
+                    .params(),
+            ),
+            (
+                "pqc_ciphertext",
+                anonymous
+                    .with_pqc_ciphertext(Key::from_bytes([0xA4; 1088]))
+                    .params(),
+            ),
+            (
+                "classical_algorithm_id",
+                anonymous.with_classical_algorithm_id(0x0002).params(),
+            ),
+            (
+                "pqc_algorithm_id",
+                anonymous.with_pqc_algorithm_id(0x0002).params(),
+            ),
+        ] {
+            assert_ne!(
+                anonymous_baseline,
+                compute_transcript_hash(&params),
+                "anonymous branch must bind {label}"
+            );
+        }
     }
 
     #[test]
@@ -921,6 +981,7 @@ mod tests {
         let envelope = create_envelope(CreateEnvelopeParams {
             sender_device_id: [0x11; 16],
             recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
             recipient_classical_public_key: recipient_public,
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
@@ -969,6 +1030,7 @@ mod tests {
         let mut envelope = create_envelope(CreateEnvelopeParams {
             sender_device_id: [0x11; 16],
             recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
             recipient_classical_public_key: recipient_public.clone(),
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
@@ -1068,6 +1130,66 @@ mod tests {
     }
 
     #[test]
+    fn envelope_from_bytes_table_driven_parser_rejects_malformed_inputs_before_crypto() {
+        let envelope = envelope_fixture();
+        let bytes = envelope_to_bytes(&envelope);
+        let payload_len_offset = bytes.len() - envelope.encrypted_payload.len() - 4;
+        let version_offset = TRANSFER_ENVELOPE_MAGIC.len();
+        let recipient_flag_offset = 6 + 2 + 2 + 16 + 16;
+        let pqc_len_offset = 6 + 2 + 2 + 16 + 16 + 1 + 16 + 32;
+
+        let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
+        for index in 0..TRANSFER_ENVELOPE_MAGIC.len() {
+            let mut mutated = bytes.clone();
+            *mutated.get_mut(index).expect("magic byte offset in bounds") ^= 0xFF;
+            cases.push(("wrong_magic", mutated));
+        }
+        let mut invalid_recipient_flag = bytes.clone();
+        *invalid_recipient_flag
+            .get_mut(recipient_flag_offset)
+            .expect("recipient flag offset in bounds") = 0x02;
+        cases.push(("invalid_recipient_flag", invalid_recipient_flag));
+
+        let mut invalid_version = bytes.clone();
+        invalid_version
+            .get_mut(version_offset..version_offset + 2)
+            .expect("version field in bounds")
+            .copy_from_slice(&2u16.to_le_bytes());
+        cases.push(("unsupported_version", invalid_version));
+
+        let mut zero_payload_len = bytes.clone();
+        zero_payload_len
+            .get_mut(payload_len_offset..payload_len_offset + 4)
+            .expect("payload_len field in bounds")
+            .copy_from_slice(&0u32.to_le_bytes());
+        cases.push(("payload_len_zero", zero_payload_len));
+
+        let mut payload_len_too_large = bytes.clone();
+        payload_len_too_large
+            .get_mut(payload_len_offset..payload_len_offset + 4)
+            .expect("payload_len field in bounds")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+        cases.push(("payload_len_overrun", payload_len_too_large));
+
+        let mut wrong_pqc_len = bytes.clone();
+        wrong_pqc_len
+            .get_mut(pqc_len_offset..pqc_len_offset + 4)
+            .expect("pqc_ct_len field in bounds")
+            .copy_from_slice(&1087u32.to_le_bytes());
+        cases.push(("pqc_ct_len_not_1088", wrong_pqc_len));
+
+        for (id, bytes) in cases {
+            assert!(
+                matches!(
+                    envelope_from_bytes(&bytes),
+                    Err(TransferError::UnknownProfile)
+                ),
+                "case {id}: parser must fail closed"
+            );
+        }
+    }
+
+    #[test]
     fn open_envelope_rejects_tampered_nonce_with_auth_error() {
         let (recipient_private, recipient_public) = hybrid::x25519_keypair();
         let (recipient_pqc_public, recipient_pqc_private) =
@@ -1076,6 +1198,7 @@ mod tests {
         let mut envelope = create_envelope(CreateEnvelopeParams {
             sender_device_id: [0x11; 16],
             recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
             recipient_classical_public_key: recipient_public.clone(),
             recipient_pqc_public_key: recipient_pqc_public,
             sender_signing_private_key,
@@ -1100,6 +1223,61 @@ mod tests {
     }
 
     #[test]
+    fn anonymous_create_then_open_roundtrips_plaintext() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: None,
+            anonymous_recipient_public_key: Some(recipient_public.clone()),
+            recipient_classical_public_key: recipient_public.clone(),
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create anonymous envelope");
+
+        let payload = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut SeenEnvelopeIds::new(),
+        )
+        .expect("open anonymous envelope");
+
+        payload.with_secret(|bytes| assert_eq!(bytes, PAYLOAD));
+    }
+
+    #[test]
+    fn create_envelope_rejects_anonymous_mode_without_public_key_binding() {
+        let params = CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: None,
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: Key::from_bytes([0x44; 32]),
+            recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
+            sender_signing_private_key: SigningPrivateKey::new(
+                SigningAlgorithmId::Ed25519V1,
+                vec![0x42; 32],
+            ),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        };
+
+        assert!(matches!(
+            create_envelope(params),
+            Err(TransferError::MissingAnonymousRecipientPublicKey)
+        ));
+    }
+
+    #[test]
     fn validate_envelope_named_recipient_succeeds() {
         let envelope = envelope_fixture();
 
@@ -1107,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_envelope_rejects_mutated_recipient_public_key() {
+    fn validate_envelope_rejects_mutated_anonymous_recipient_public_key() {
         let mut envelope = envelope_fixture();
         envelope.recipient_device_id = None;
         let anonymous_recipient_public_key = Key::from_bytes([0x44; 32]);
@@ -1130,6 +1308,38 @@ mod tests {
             validate_envelope(&envelope, Some(&mutated)),
             Err(TransferError::TranscriptMismatch)
         );
+    }
+
+    #[test]
+    fn anonymous_open_rejects_different_recipient_public_key_with_transcript_mismatch() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: None,
+            anonymous_recipient_public_key: Some(recipient_public.clone()),
+            recipient_classical_public_key: recipient_public,
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create anonymous envelope");
+
+        let result = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes([0x99; 32]),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+
+        assert!(matches!(result, Err(TransferError::TranscriptMismatch)));
     }
 
     #[test]
@@ -1156,9 +1366,8 @@ mod tests {
     #[test]
     fn envelope_from_bytes_rejects_trailing_garbage() {
         let mut envelope = envelope_fixture();
-        // envelope_from_bytes does not validate timestamps or transcript hashes,
-        // so override expires_at with a fixed value to make the serialized bytes
-        // fully deterministic and independent of wall-clock time.
+        // Make the serialized bytes deterministic by replacing the time-based
+        // expiry field with a fixed value before appending trailing garbage.
         envelope.expires_at = Some(u64::MAX / 2);
         let mut bytes = envelope_to_bytes(&envelope);
         bytes.push(0xAA);
@@ -1170,12 +1379,227 @@ mod tests {
     }
 
     #[test]
-    fn untrusted_transfer_envelope_validate_for_open_accepts_valid_bytes() {
+    fn envelope_from_bytes_accepts_valid_bytes() {
         let envelope = envelope_fixture();
 
-        assert!(
-            UntrustedTransferEnvelope::validate_for_open(&envelope_to_bytes(&envelope)).is_ok()
+        assert!(envelope_from_bytes(&envelope_to_bytes(&envelope)).is_ok());
+    }
+
+    #[test]
+    fn untrusted_transfer_envelope_validate_for_open_checks_expiry_and_flags() {
+        let mut envelope = envelope_fixture();
+        envelope.expires_at = Some(past_timestamp());
+        assert!(matches!(
+            UntrustedTransferEnvelope::validate_for_open(&envelope_to_bytes(&envelope)),
+            Err(TransferError::ExpiredEnvelope)
+        ));
+
+        let mut bytes = envelope_to_bytes(&envelope_fixture());
+        let recipient_flag_offset = 6 + 2 + 2 + 16 + 16;
+        *bytes
+            .get_mut(recipient_flag_offset)
+            .expect("recipient flag offset in bounds") = 0x02;
+        assert!(matches!(
+            UntrustedTransferEnvelope::validate_for_open(&bytes),
+            Err(TransferError::UnknownProfile)
+        ));
+    }
+
+    #[test]
+    fn anonymous_untrusted_transfer_envelope_validate_for_open_rejects_expiry() {
+        let mut envelope = envelope_fixture();
+        envelope.recipient_device_id = None;
+        envelope.expires_at = Some(past_timestamp());
+
+        assert!(matches!(
+            UntrustedTransferEnvelope::validate_for_open(&envelope_to_bytes(&envelope)),
+            Err(TransferError::ExpiredEnvelope)
+        ));
+    }
+
+    #[test]
+    fn create_envelope_success_invariants_roundtrip_and_distinct_ids() {
+        let first = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: Key::from_bytes([0x44; 32]),
+            recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
+            sender_signing_private_key: SigningPrivateKey::new(
+                SigningAlgorithmId::Ed25519V1,
+                vec![0x42; 32],
+            ),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create first envelope");
+        let second = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: Key::from_bytes([0x44; 32]),
+            recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
+            sender_signing_private_key: SigningPrivateKey::new(
+                SigningAlgorithmId::Ed25519V1,
+                vec![0x43; 32],
+            ),
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create second envelope");
+
+        let parsed = envelope_from_bytes(&envelope_to_bytes(&first)).expect("parse first envelope");
+        assert_eq!(
+            parsed.envelope_id, first.envelope_id,
+            "envelope_id round-trips"
         );
+        assert_ne!(
+            first.envelope_id, second.envelope_id,
+            "envelope ids must be unique"
+        );
+        assert_eq!(parsed.recipient_device_id, Some([0x22; 16]));
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.transfer_profile, TransferProfileId::v1());
+        assert_eq!(parsed.expires_at, first.expires_at);
+        assert!(
+            !parsed.encrypted_payload.is_empty(),
+            "ciphertext must not be empty"
+        );
+    }
+
+    #[test]
+    fn open_envelope_wrong_sender_key_returns_verification_failed_and_does_not_mutate_replay_store()
+    {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (_sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let (wrong_signing_public_key, _) = mldsa::ed25519_keypair();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: recipient_public.clone(),
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+        let mut seen = SeenEnvelopeIds::new();
+
+        let first = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(wrong_signing_public_key.clone()),
+            },
+            &mut seen,
+        );
+        let second = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(wrong_signing_public_key),
+            },
+            &mut seen,
+        );
+
+        assert!(matches!(first, Err(TransferError::VerificationFailed)));
+        assert!(matches!(second, Err(TransferError::VerificationFailed)));
+    }
+
+    #[test]
+    fn open_envelope_wrong_recipient_x25519_private_key_rejects_with_positive_control() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (wrong_private, _wrong_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: recipient_public.clone(),
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+
+        let ok = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key.clone()),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+        assert!(ok.is_ok(), "positive control must succeed");
+
+        let wrong = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*wrong_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+        assert!(matches!(wrong, Err(TransferError::DecryptionFailed)));
+    }
+
+    #[test]
+    fn open_envelope_wrong_mlkem_private_key_rejects_with_positive_control() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (_wrong_pqc_public, wrong_pqc_private) =
+            mlkem::keypair().expect("wrong recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: recipient_public.clone(),
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+
+        let ok = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*recipient_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key.clone()),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+        assert!(ok.is_ok(), "positive control must succeed");
+
+        let wrong = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(*recipient_private.as_bytes()),
+                recipient_classical_public_key: Key::from_bytes(*recipient_public.as_bytes()),
+                recipient_pqc_private_key: Key::from_bytes(*wrong_pqc_private.as_bytes()),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut SeenEnvelopeIds::new(),
+        );
+        assert!(matches!(wrong, Err(TransferError::DecryptionFailed)));
     }
 
     fn envelope_fixture() -> TransferEnvelope {
@@ -1190,7 +1614,7 @@ mod tests {
             transfer_profile: TransferProfileId::v1(),
             envelope_id: fixture.envelope_id,
             sender_device_id: fixture.sender_device_id,
-            recipient_device_id: Some(fixture.recipient_device_id),
+            recipient_device_id: fixture.recipient_device_id,
             classical_ephemeral_public_key: Key::from_bytes([0x44; 32]),
             pqc_ciphertext: Key::from_bytes([0x55; 1088]),
             transcript_hash,
@@ -1204,6 +1628,7 @@ mod tests {
         CreateEnvelopeParams {
             sender_device_id: [0x11; 16],
             recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
             sender_signing_private_key: SigningPrivateKey::new(
@@ -1240,6 +1665,57 @@ mod tests {
         .expect("trusted sender fixture")
     }
 
+    #[test]
+    fn trusted_sender_rejects_non_eligible_trust_states() {
+        let (pk, _) = mldsa::ed25519_keypair();
+        for state in [
+            DeviceTrustState::Untrusted,
+            DeviceTrustState::PendingInbound,
+            DeviceTrustState::PendingOutbound,
+            DeviceTrustState::Revoked,
+            DeviceTrustState::Expired,
+        ] {
+            let identity = DeviceIdentity {
+                device_id: [0x10; 16],
+                display_name: "test".to_owned(),
+                classical_public_key: Key::from_bytes([0x20; 32]),
+                pqc_public_key: Key::from_bytes([0x30; 1184]),
+                signing_public_key: Some(pk.clone()),
+                created_at: future_timestamp(),
+                trust_state: state,
+            };
+            assert!(
+                matches!(
+                    TrustedSender::from_verified(&identity),
+                    Err(TransferError::UntrustedSender)
+                ),
+                "expected UntrustedSender for {state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_sender_rejects_missing_signing_key() {
+        for state in [DeviceTrustState::Verified, DeviceTrustState::Approved] {
+            let identity = DeviceIdentity {
+                device_id: [0x10; 16],
+                display_name: "test".to_owned(),
+                classical_public_key: Key::from_bytes([0x20; 32]),
+                pqc_public_key: Key::from_bytes([0x30; 1184]),
+                signing_public_key: None,
+                created_at: future_timestamp(),
+                trust_state: state,
+            };
+            assert!(
+                matches!(
+                    TrustedSender::from_verified(&identity),
+                    Err(TransferError::UntrustedSender)
+                ),
+                "expected UntrustedSender when signing_public_key is None for {state:?}"
+            );
+        }
+    }
+
     fn now_millis() -> Timestamp {
         Timestamp::try_from(
             std::time::SystemTime::now()
@@ -1258,24 +1734,96 @@ mod tests {
         now_millis().checked_add(60_000).expect("timestamp")
     }
 
+    #[derive(Clone)]
     struct TranscriptFixture {
         sender_device_id: DeviceId,
-        recipient_device_id: DeviceId,
+        recipient_device_id: Option<DeviceId>,
+        anonymous_recipient_public_key: Option<X25519PublicKey>,
         sender_classical_ephemeral_public_key: X25519PublicKey,
         pqc_ciphertext: MlKemCiphertext,
         envelope_id: EnvelopeId,
         expires_at: Option<Timestamp>,
+        classical_algorithm_id: u16,
+        pqc_algorithm_id: u16,
     }
 
     impl TranscriptFixture {
         fn new() -> Self {
             Self {
                 sender_device_id: [0x11; 16],
-                recipient_device_id: [0x22; 16],
+                recipient_device_id: Some([0x22; 16]),
+                anonymous_recipient_public_key: None,
                 sender_classical_ephemeral_public_key: Key::from_bytes([0x44; 32]),
                 pqc_ciphertext: Key::from_bytes([0x55; 1088]),
                 envelope_id: [0x33; 16],
                 expires_at: Some(future_timestamp()),
+                classical_algorithm_id: CLASSICAL_ALG_ID_X25519,
+                pqc_algorithm_id: PQC_ALG_ID_MLKEM768,
+            }
+        }
+
+        fn anonymous() -> Self {
+            Self {
+                recipient_device_id: None,
+                anonymous_recipient_public_key: Some(Key::from_bytes([0x24; 32])),
+                ..Self::new()
+            }
+        }
+
+        fn with_sender_device_id(&self, sender_device_id: DeviceId) -> Self {
+            Self {
+                sender_device_id,
+                ..self.clone()
+            }
+        }
+
+        fn with_sender_classical_ephemeral_public_key(
+            &self,
+            sender_classical_ephemeral_public_key: X25519PublicKey,
+        ) -> Self {
+            Self {
+                sender_classical_ephemeral_public_key,
+                ..self.clone()
+            }
+        }
+
+        fn with_recipient_device_id(&self, recipient_device_id: DeviceId) -> Self {
+            Self {
+                recipient_device_id: Some(recipient_device_id),
+                anonymous_recipient_public_key: None,
+                ..self.clone()
+            }
+        }
+
+        fn with_anonymous_recipient_public_key(
+            &self,
+            anonymous_recipient_public_key: X25519PublicKey,
+        ) -> Self {
+            Self {
+                recipient_device_id: None,
+                anonymous_recipient_public_key: Some(anonymous_recipient_public_key),
+                ..self.clone()
+            }
+        }
+
+        fn with_pqc_ciphertext(&self, pqc_ciphertext: MlKemCiphertext) -> Self {
+            Self {
+                pqc_ciphertext,
+                ..self.clone()
+            }
+        }
+
+        fn with_classical_algorithm_id(&self, classical_algorithm_id: u16) -> Self {
+            Self {
+                classical_algorithm_id,
+                ..self.clone()
+            }
+        }
+
+        fn with_pqc_algorithm_id(&self, pqc_algorithm_id: u16) -> Self {
+            Self {
+                pqc_algorithm_id,
+                ..self.clone()
             }
         }
 
@@ -1284,11 +1832,11 @@ mod tests {
                 transfer_profile: TransferProfileId::v1(),
                 sender_device_id: &self.sender_device_id,
                 sender_classical_ephemeral_public_key: &self.sender_classical_ephemeral_public_key,
-                recipient_device_id: Some(&self.recipient_device_id),
-                anonymous_recipient_public_key: None,
+                recipient_device_id: self.recipient_device_id.as_ref(),
+                anonymous_recipient_public_key: self.anonymous_recipient_public_key.as_ref(),
                 pqc_ciphertext: &self.pqc_ciphertext,
-                classical_algorithm_id: CLASSICAL_ALG_ID_X25519,
-                pqc_algorithm_id: PQC_ALG_ID_MLKEM768,
+                classical_algorithm_id: self.classical_algorithm_id,
+                pqc_algorithm_id: self.pqc_algorithm_id,
                 envelope_id: &self.envelope_id,
                 expires_at: self.expires_at,
             }
