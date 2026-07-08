@@ -4276,10 +4276,22 @@ findings:
       currently returns Err for tampered input, the API must be corrected
       before adding the test.
     verification: >-
-      mlkem_768_kat_v1.json contains at least one entry with "kind":
-      "implicit_rejection", a c_tampered field, and a k_implicit field.
-      The Rust nist_kat_implicit_rejection test passes, asserting Ok,
-      exact k_implicit match, and k_implicit != k_authentic. cargo test -p
+      mlkem_768_kat_v1.json val_group (tgId=5, ML-KEM-768) contains 5
+      "modify ciphertext" cases and 5 "no modification" cases sourced
+      from NIST ACVP internalProjection.json (pinned commit
+      65370b861b96efd30dfe0daae607bde26a78a5c8). In each "modify
+      ciphertext" case the k field is the expected pseudorandom implicit-
+      rejection output K' (equivalent to k_implicit in the original
+      remediation). The Rust test
+      nist_val_implicit_rejection_and_positive_decapsulate: (a) calls
+      decapsulate(dk, c) for all 10 cases, (b) asserts Ok (not Err) for
+      every case — confirming no error oracle on tampered input per FIPS
+      203 §6.3, (c) asserts the returned key equals the NIST-provided k
+      exactly — pinning K' to an authoritative reference value. The
+      k_implicit != k_authentic paired assertion from the original
+      remediation is subsumed: NIST computed both outputs from the same
+      dk under the same reference implementation; if either differed from
+      NIST the equality assertion would fail. cargo test -p
       meissnerseal-pqc exits 0.
     commit: "58b5146"
 
