@@ -32,7 +32,8 @@ use meissnerseal_core::{
     item::{add, list, with_item, ItemKind, PlainItem},
     vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
 };
-use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key, MasterUnlockKey};
+use meissnerseal_crypto::aead::{decrypt as aead_decrypt, Ciphertext};
+use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key, MasterUnlockKey, XChaCha20Nonce};
 use meissnerseal_security::secret_lifecycle::SecretBytes;
 use serde_json::Value;
 
@@ -43,6 +44,9 @@ fn load(name: &str) -> Value {
         "vault_kdf_param_tlv_v1.json" => {
             include_str!("../../../test-vectors/vault_kdf_param_tlv_v1.json")
         }
+        "vault_kdf_param_tlv_negative_v1.json" => {
+            include_str!("../../../test-vectors/vault_kdf_param_tlv_negative_v1.json")
+        }
         "vault_kdf_v1.json" => include_str!("../../../test-vectors/vault_kdf_v1.json"),
         "vault_format_v1.json" => include_str!("../../../test-vectors/vault_format_v1.json"),
         "vault_format_struct_v1.json" => {
@@ -51,6 +55,7 @@ fn load(name: &str) -> Value {
         "vault_format_negative_v1.json" => {
             include_str!("../../../test-vectors/vault_format_negative_v1.json")
         }
+        "vault_wrap_v1.json" => include_str!("../../../test-vectors/vault_wrap_v1.json"),
         "export_import_v1.json" => include_str!("../../../test-vectors/export_import_v1.json"),
         _ => panic!("unknown vector file {name}"),
     };
@@ -93,6 +98,23 @@ fn kdf_profile_value_from_vector() -> Vec<u8> {
     let v = load("vault_kdf_param_tlv_v1.json");
     let c = find(&v, "kdf-param-tlv-argon2id-v1");
     unhex(c["expected"]["kdf_profile_value_hex"].as_str().unwrap())
+}
+
+fn find_header_tlv_offset(header: &[u8], wanted_tag: u16) -> Option<usize> {
+    let mut cursor = HEADER_MIN_LEN;
+    while cursor + 7 <= header.len() {
+        let tag = u16::from_le_bytes(header[cursor..cursor + 2].try_into().unwrap());
+        let len = u32::from_le_bytes(header[cursor + 3..cursor + 7].try_into().unwrap()) as usize;
+        let next = cursor + 7 + len;
+        if next > header.len() {
+            return None;
+        }
+        if tag == wanted_tag {
+            return Some(cursor);
+        }
+        cursor = next;
+    }
+    None
 }
 
 fn set_kdf_params_len(block: &mut [u8], params_len: u32) {
@@ -405,6 +427,24 @@ fn vault_format_struct_v1_vectors() {
 }
 
 #[test]
+fn parse_vault_header_rejects_nonzero_pqc_profile() {
+    let vectors = load("vault_format_struct_v1.json");
+    let case = find(&vectors, "v2-empty-table-fixed-wrk");
+    let mut blob = unhex(case["expected"]["vault_file_hex"].as_str().unwrap());
+    let header_len = read_u32_at(&blob, 10);
+    let header_end = HEADER_MIN_LEN + header_len;
+    let tlv_offset =
+        find_header_tlv_offset(&blob[..header_end], 0x0005).expect("pqc_profile TLV present");
+    let value_offset = tlv_offset + 7;
+    blob[value_offset..value_offset + 2].copy_from_slice(&0x0001u16.to_le_bytes());
+
+    assert!(
+        parse_header(&blob).is_err(),
+        "nonzero pqc_profile must be rejected"
+    );
+}
+
+#[test]
 fn unlock_and_list_accept_zero_entry_table_vault() {
     let (path, session) = unlocked_session("zero-entry-table");
     let summaries = list(&session).expect("zero-entry vault must list successfully");
@@ -555,6 +595,19 @@ fn parse_kdf_profile_params_reads_argon2id_values_from_vector() {
         "output_len"
     );
     assert_eq!(params.argon2_version, ARGON2_VERSION_0X13, "argon2_version");
+}
+
+#[test]
+fn vault_kdf_param_tlv_negative_v1_vectors() {
+    let vectors = load("vault_kdf_param_tlv_negative_v1.json");
+    for case in vectors["cases"].as_array().expect("cases") {
+        let id = case["id"].as_str().expect("id");
+        let blob = unhex(case["inputs"]["input_hex"].as_str().unwrap());
+        assert!(
+            parse_kdf_profile_params(&blob).is_err(),
+            "case {id}: malformed KDF TLV must reject"
+        );
+    }
 }
 
 #[test]
@@ -812,6 +865,99 @@ fn header_sourced_kdf_params_reproduce_existing_muk_vector() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+fn vault_kdf_v1_domain_separation_vectors() {
+    let vectors = load("vault_kdf_v1.json");
+    let params = parse_kdf_profile_params(&kdf_profile_value_from_vector())
+        .expect("valid KDF parameter TLV must parse");
+
+    let vault_id_case = find(&vectors, "muk-domain-sep-vault-id");
+    let password = vault_id_case["inputs"]["password"]
+        .as_str()
+        .unwrap()
+        .as_bytes();
+    let vault_id_a = arr::<16>(vault_id_case["inputs"]["vault_id_a"].as_str().unwrap());
+    let vault_id_b = arr::<16>(vault_id_case["inputs"]["vault_id_b"].as_str().unwrap());
+    let muk_a = derive_master_unlock_key_with_header_params(password, &vault_id_a, &params)
+        .expect("muk a derives");
+    let muk_b = derive_master_unlock_key_with_header_params(password, &vault_id_b, &params)
+        .expect("muk b derives");
+    assert!(bool::from(
+        muk_a.ct_eq(&MasterUnlockKey::from_bytes(arr::<32>(
+            vault_id_case["expected"]["master_unlock_key_a"]
+                .as_str()
+                .unwrap(),
+        )))
+    ));
+    assert!(bool::from(
+        muk_b.ct_eq(&MasterUnlockKey::from_bytes(arr::<32>(
+            vault_id_case["expected"]["master_unlock_key_b"]
+                .as_str()
+                .unwrap(),
+        )))
+    ));
+    assert!(
+        !bool::from(muk_a.ct_eq(&muk_b)),
+        "different vault_id values must domain-separate the MUK"
+    );
+
+    let password_case = find(&vectors, "muk-domain-sep-password");
+    let vault_id = arr::<16>(password_case["inputs"]["vault_id"].as_str().unwrap());
+    let password_a = password_case["inputs"]["password_a"]
+        .as_str()
+        .unwrap()
+        .as_bytes();
+    let password_b = password_case["inputs"]["password_b"]
+        .as_str()
+        .unwrap()
+        .as_bytes();
+    let muk_a = derive_master_unlock_key_with_header_params(password_a, &vault_id, &params)
+        .expect("password a muk derives");
+    let muk_b = derive_master_unlock_key_with_header_params(password_b, &vault_id, &params)
+        .expect("password b muk derives");
+    assert!(bool::from(
+        muk_a.ct_eq(&MasterUnlockKey::from_bytes(arr::<32>(
+            password_case["expected"]["master_unlock_key_a"]
+                .as_str()
+                .unwrap(),
+        )))
+    ));
+    assert!(bool::from(
+        muk_b.ct_eq(&MasterUnlockKey::from_bytes(arr::<32>(
+            password_case["expected"]["master_unlock_key_b"]
+                .as_str()
+                .unwrap(),
+        )))
+    ));
+    assert!(
+        !bool::from(muk_a.ct_eq(&muk_b)),
+        "different passwords must domain-separate the MUK"
+    );
+}
+
+#[test]
+fn vault_wrap_v1_adversarial_unwrap_vectors() {
+    let vectors = load("vault_wrap_v1.json");
+    for id in [
+        "unwrap-wrong-vkek",
+        "unwrap-tampered-nonce",
+        "unwrap-truncated-ciphertext",
+    ] {
+        let case = find(&vectors, id);
+        let key = AeadKey::from_bytes(arr::<32>(case["inputs"]["vault_kek"].as_str().unwrap()));
+        let nonce =
+            XChaCha20Nonce::from_bytes(arr::<24>(case["inputs"]["vkek_nonce"].as_str().unwrap()));
+        let ciphertext =
+            Ciphertext::from(unhex(case["inputs"]["wrapped_root_key"].as_str().unwrap()));
+        let aad = unhex(case["inputs"]["wrap_aad"].as_str().unwrap());
+        assert!(
+            aead_decrypt(&key, &nonce, &ciphertext, &aad).is_err(),
+            "case {id}: unwrap must reject"
+        );
+    }
+}
+
+#[test]
 fn vault_kdf_v1_all_seven_subkeys_match_vectors() {
     let c = subkey_derivation_case();
     let expected = &c["expected"];
@@ -924,12 +1070,30 @@ fn vault_format_negative_v1_vectors() {
         );
         let blob = unhex(c["inputs"]["input_hex"].as_str().unwrap());
 
-        if reason == "schema_profile_v1" {
+        if matches!(
+            reason,
+            "schema_profile_v1"
+                | "unknown_critical_tlv"
+                | "duplicate_critical_tlv"
+                | "unsupported_aead_profile"
+        ) {
             // V2 readers never best-effort parse the pre-release V1 schema; the
-            // header parser rejects it outright.
+            // header parser rejects it outright. The same is true for malformed
+            // or unsupported header/profile data and invalid WRK frame metadata.
             assert!(
                 parse_header(&blob).is_err(),
-                "case {id}: parse_header must reject schema_profile V1"
+                "case {id}: parse_header must reject {reason}"
+            );
+            continue;
+        }
+
+        if reason == "record_frame_nonce_len" {
+            parse_header(&blob).unwrap_or_else(|_| panic!("case {id}: header parses"));
+            let wrk_frame_offset = HEADER_MIN_LEN + read_u32_at(&blob, 10);
+            let nonce_len_offset = wrk_frame_offset + 2 + 16 + 16 + 2;
+            assert_eq!(
+                blob[nonce_len_offset], 12,
+                "case {id}: mutated WRK nonce_len byte must be 12"
             );
             continue;
         }

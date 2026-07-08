@@ -17,7 +17,7 @@ from pathlib import Path
 
 try:
     from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 except ImportError as exc:  # pragma: no cover - environment guard
     print(
         "missing dependency: cryptography is required for real X25519 verification",
@@ -56,17 +56,14 @@ def require_len(case_id: str, name: str, value: bytes, expected_len: int) -> Non
 
 def verify_case(case: dict[str, str]) -> None:
     case_id = case["case_id"]
-    sender_private_bytes = bytes.fromhex(case["sender_ephemeral_private_key"])
-    sender_public_bytes = bytes.fromhex(case["sender_ephemeral_public_key"])
     recipient_private_bytes = bytes.fromhex(case["recipient_classical_private_key"])
     recipient_public_bytes = bytes.fromhex(case["recipient_classical_public_key"])
     pqc_shared_secret = bytes.fromhex(case["pqc_shared_secret"])
     pqc_ciphertext = bytes.fromhex(case["pqc_ciphertext"])
     transcript_hash = bytes.fromhex(case["transcript_hash"])
     expected_transfer_key = bytes.fromhex(case["expected_transfer_key"])
+    path = case.get("path", "sender")
 
-    require_len(case_id, "sender_ephemeral_private_key", sender_private_bytes, 32)
-    require_len(case_id, "sender_ephemeral_public_key", sender_public_bytes, 32)
     require_len(case_id, "recipient_classical_private_key", recipient_private_bytes, 32)
     require_len(case_id, "recipient_classical_public_key", recipient_public_bytes, 32)
     require_len(case_id, "pqc_shared_secret", pqc_shared_secret, 32)
@@ -74,17 +71,26 @@ def verify_case(case: dict[str, str]) -> None:
     require_len(case_id, "transcript_hash", transcript_hash, 32)
     require_len(case_id, "expected_transfer_key", expected_transfer_key, 32)
 
-    sender_private = X25519PrivateKey.from_private_bytes(sender_private_bytes)
     recipient_private = X25519PrivateKey.from_private_bytes(recipient_private_bytes)
-
-    computed_sender_public = raw_public_key(sender_private)
     computed_recipient_public = raw_public_key(recipient_private)
-    if computed_sender_public != sender_public_bytes:
-        raise ValueError(f"{case_id}: sender public key mismatch")
     if computed_recipient_public != recipient_public_bytes:
         raise ValueError(f"{case_id}: recipient public key mismatch")
 
-    ss_x25519 = sender_private.exchange(recipient_private.public_key())
+    if path == "receiver":
+        sender_public_bytes = bytes.fromhex(case["sender_ephemeral_public_key"])
+        require_len(case_id, "sender_ephemeral_public_key", sender_public_bytes, 32)
+        ss_x25519 = recipient_private.exchange(X25519PublicKey.from_public_bytes(sender_public_bytes))
+    else:
+        sender_private_bytes = bytes.fromhex(case["sender_ephemeral_private_key"])
+        sender_public_bytes = bytes.fromhex(case["sender_ephemeral_public_key"])
+        require_len(case_id, "sender_ephemeral_private_key", sender_private_bytes, 32)
+        require_len(case_id, "sender_ephemeral_public_key", sender_public_bytes, 32)
+        sender_private = X25519PrivateKey.from_private_bytes(sender_private_bytes)
+        computed_sender_public = raw_public_key(sender_private)
+        if computed_sender_public != sender_public_bytes:
+            raise ValueError(f"{case_id}: sender public key mismatch")
+        ss_x25519 = sender_private.exchange(recipient_private.public_key())
+
     ikm = (
         pqc_shared_secret
         + ss_x25519

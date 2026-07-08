@@ -61,6 +61,44 @@
         "recovery_wrapping_key": "d5df32fd2ae8184b03ab4d12fe90f1e5a7e6387fa1c89a87d9002ec27b32d1f1",
         "export_bundle_key": "394d87986c76dbeae56d6ff8f4c23e7b83b7d26ec805a6810275413755f0d968"
       }
+    },
+    {
+      "id": "muk-domain-sep-vault-id",
+      "description": "Same password, different vault_id values must produce different MUKs",
+      "inputs": {
+        "password": "test-password-never-real",
+        "vault_id_a": "0102030405060708090a0b0c0d0e0f10",
+        "vault_id_b": "0102030405060708090a0b0c0d0e0f11",
+        "m_cost_kib": 65536,
+        "t_cost": 3,
+        "p_lanes": 4,
+        "output_len": 32,
+        "argon2_version": "0x13"
+      },
+      "expected": {
+        "master_unlock_key_a": "f31c08b32bfd5223e284395ddcd6b3377837bf0f2f051073d692dabc44370bff",
+        "master_unlock_key_b": "1d2f3e8660aa7f8cf9d1414ea07cb298ed3b0cc70d4b9811679937858ce506cc",
+        "must_differ": true
+      }
+    },
+    {
+      "id": "muk-domain-sep-password",
+      "description": "Same vault_id, different passwords must produce different MUKs",
+      "inputs": {
+        "password_a": "test-password-never-real",
+        "password_b": "tv-domain-sep-password-b",
+        "vault_id": "0102030405060708090a0b0c0d0e0f10",
+        "m_cost_kib": 65536,
+        "t_cost": 3,
+        "p_lanes": 4,
+        "output_len": 32,
+        "argon2_version": "0x13"
+      },
+      "expected": {
+        "master_unlock_key_a": "f31c08b32bfd5223e284395ddcd6b3377837bf0f2f051073d692dabc44370bff",
+        "master_unlock_key_b": "d4658c30ce1e9c22bec39da43aad720c77bcb7df43b7bbf96f516715fa879ed6",
+        "must_differ": true
+      }
     }
   ]
 }

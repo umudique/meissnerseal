@@ -129,6 +129,14 @@ jobs:
       - name: Kani — meissnerseal-crypto type proofs
         run: cargo kani --package meissnerseal-crypto
 
+  vectors:
+    name: Test Vector Schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Validate JSON vector schema
+        run: python3 test-vectors/validate_schema.py
+
   # ─── SLSA Provenance Attestation ──────────────────────────────────────────
   # Generates signed build provenance for SLSA Level 2.
   # Records: source commit, builder identity, artifact digest.

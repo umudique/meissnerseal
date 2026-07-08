@@ -1,7 +1,7 @@
 {
   "profile": "SCHEMA_MEISSNER_RECORDS_V2_AAD",
   "version": 1,
-  "description": "Canonical AAD v1 construction (74 bytes, all fixed-width)",
+  "description": "Canonical AAD v1 construction (79 bytes, all fixed-width)",
   "generated_by": "cross_verify.py",
   "cases": [
     {
@@ -39,7 +39,7 @@
       },
       "expected": {
         "aad_hex": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0200",
-        "aad_length": 74
+        "aad_length": 79
       }
     },
     {
@@ -58,7 +58,7 @@
       },
       "expected": {
         "aad_hex": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0500",
-        "aad_length": 74
+        "aad_length": 79
       }
     }
   ]

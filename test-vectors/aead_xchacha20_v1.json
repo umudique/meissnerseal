@@ -1,21 +1,21 @@
 {
   "profile": "AEAD_XCHACHA20_POLY1305_V1",
-  "version": 2,
-  "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical 79-byte AAD (meissnerseal-aad-v1)",
-  "generated_by": "cross_verify.py (pynacl/libsodium), updated for F-56/F-57 AAD enforcement",
+  "version": 1,
+  "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with production 79-byte canonical AAD (libsodium)",
+  "generated_by": "cross_verify.py (pynacl/libsodium)",
   "cases": [
     {
       "id": "xchacha20-basic-encrypt",
-      "description": "Encrypt with canonical 79-byte AAD, verify ciphertext and tag",
+      "description": "Encrypt with production 79-byte canonical AAD, verify ciphertext and tag",
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
         "plaintext": "7365637265742d7061796c6f61642d666f722d6d656973736e65727365616c2d74657374",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
         "ciphertext": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f",
-        "tag": "a46bab7def47f64ed1b1393dd224f383"
+        "tag": "451d6b8379ee73c3da6bad4cfed4ade2"
       }
     },
     {
@@ -24,8 +24,8 @@
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
-        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266fa46bab7def47f64ed1b1393dd224f383",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f451d6b8379ee73c3da6bad4cfed4ade2",
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
         "plaintext": "7365637265742d7061796c6f61642d666f722d6d656973736e65727365616c2d74657374"
@@ -37,8 +37,8 @@
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
-        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266fa46bab7def47f64ed1b1393dd224f383",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf01ff"
+        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f451d6b8379ee73c3da6bad4cfed4ade2",
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf01ff"
       },
       "expected": {
         "result": "Err"
@@ -50,8 +50,8 @@
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
-        "ciphertext_tag": "ccce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266fa46bab7def47f64ed1b1393dd224f383",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "ciphertext_tag": "ccce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f451d6b8379ee73c3da6bad4cfed4ade2",
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
         "result": "Err"
@@ -63,8 +63,8 @@
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
-        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266fa46bab7def47f64ed1b1393dd224f37c",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f451d6b8379ee73c3da6bad4cfed4ad1d",
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
         "result": "Err"
@@ -76,8 +76,8 @@
       "inputs": {
         "key": "fe02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
-        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266fa46bab7def47f64ed1b1393dd224f383",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "ciphertext_tag": "33ce44a71db8131da912d30f5e8b578c4826e9b05392f23981342ac46e9e6131a773266f451d6b8379ee73c3da6bad4cfed4ade2",
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
         "result": "Err"
@@ -85,16 +85,16 @@
     },
     {
       "id": "c4-empty-plaintext-encrypt",
-      "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates 79-byte AAD (crypto_design.md §6)",
+      "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates AAD (crypto_design.md §6)",
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
         "plaintext": "",
-        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000100010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
+        "aad": "6d656973736e65727365616c2d6161642d76310102030405060708090a0b0c0d0e0f1001000200010001000100a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf0100"
       },
       "expected": {
-        "ciphertext_tag": "fc45f3bb48c1ad21c82b8b859887c6be",
-        "tag": "fc45f3bb48c1ad21c82b8b859887c6be",
+        "ciphertext_tag": "b7fd4daf622932b57e92345d6da54435",
+        "tag": "b7fd4daf622932b57e92345d6da54435",
         "result": "Ok"
       }
     }
