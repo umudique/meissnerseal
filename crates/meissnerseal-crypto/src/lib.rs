@@ -20,6 +20,7 @@ pub use kdf::argon2;
 pub use kdf::hkdf;
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -40,5 +41,16 @@ mod tests {
             purpose,
             kdf::hkdf::SubkeyPurpose::LocalAuditEventKey
         ));
+    }
+
+    #[test]
+    fn top_level_aead_module_encrypt_decrypt_roundtrip() {
+        let key = AeadKey::from_bytes([0x11; 32]);
+        let plaintext = b"lib.rs re-export roundtrip";
+        let aad = [0x22u8; aead::RECORD_AAD_LEN];
+        let (ciphertext, nonce) = aead::encrypt(&key, plaintext, &aad).expect("encrypt");
+        let recovered = aead::decrypt(&key, &nonce, &ciphertext, &aad).expect("decrypt");
+
+        assert_eq!(recovered.as_ref(), plaintext);
     }
 }

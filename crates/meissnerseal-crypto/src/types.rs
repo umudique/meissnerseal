@@ -13,13 +13,20 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// - PartialEq is intentionally not implemented.
 ///   Use `subtle::ConstantTimeEq` for constant-time comparison.
 ///
-/// # Examples
+/// # Compile-time enforcement (F-244)
 ///
-/// ```ignore
-/// let key = AeadKey::from_bytes([0u8; 32]);
-/// let nonce = XChaCha20Nonce::from_bytes([0u8; 24]);
-/// // key == nonce  <-- compile error: different types
-/// // key == key    <-- compile error: PartialEq not implemented
+/// `PartialEq`, `Eq`, and `Display` are absent. The following would not compile.
+/// The guarantee applies to all `Key<N>` — no blanket impl adds these traits.
+///
+/// ```compile_fail
+/// let a = meissnerseal_crypto::AeadKey::from_bytes([0u8; 32]);
+/// let b = meissnerseal_crypto::AeadKey::from_bytes([0u8; 32]);
+/// let _ = a == b; // PartialEq not implemented — use ct_eq
+/// ```
+///
+/// ```compile_fail
+/// let key = meissnerseal_crypto::AeadKey::from_bytes([0u8; 32]);
+/// let _ = format!("{key}"); // Display not implemented — use Debug (redacted)
 /// ```
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Key<const N: usize>([u8; N]);
@@ -262,10 +269,18 @@ mod tests {
     #[test]
     fn debug_output_is_redacted() {
         let k = AeadKey::from_bytes([0xABu8; 32]);
-        let rendered = format!("{k:?}");
-        assert!(rendered.contains("REDACTED"));
-        // No raw secret byte appears in the debug output
-        assert!(!rendered.contains("ab"));
-        assert!(!rendered.contains("171"));
+        assert_eq!(format!("{k:?}"), "Key<32>([REDACTED])");
+    }
+
+    #[test]
+    fn header_nonce_alias_preserves_len_and_ct_eq() {
+        let first = HeaderNonce::from_bytes([0x11; 24]);
+        let second = HeaderNonce::from_bytes([0x11; 24]);
+        let third = HeaderNonce::from_bytes([0x22; 24]);
+
+        assert_eq!(HeaderNonce::LEN, 24);
+        assert_eq!(first.as_slice().len(), HeaderNonce::LEN);
+        assert!(bool::from(first.ct_eq(&second)));
+        assert!(!bool::from(first.ct_eq(&third)));
     }
 }

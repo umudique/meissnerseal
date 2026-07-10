@@ -141,7 +141,8 @@ const EXPORT_BUNDLE_INFO: &[u8] = b"meissnerseal:export-bundle:v1";
 /// # Contract
 ///
 /// ## Preconditions
-/// - `passphrase` is the user-supplied export passphrase (non-empty).
+/// - `passphrase` is the user-supplied export passphrase and may be empty; the
+///   caller's policy layer decides whether empty passphrases are allowed.
 /// - `source_vault_id` is the canonical 128-bit vault UUID of the source vault.
 /// - `params` is the KDF_ARGON2ID_V1 parameter set serialized into the bundle.
 ///
@@ -279,14 +280,40 @@ mod tests {
         0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
     ];
     const EXPECTED_MUK: [u8; 32] = [
+        // Independently generated with Python argon2-cffi:
+        // `argon2.low_level.hash_secret_raw(..., salt=b"meissnerseal-argon2id-salt-v1"||vault_id)`
         0xf3, 0x1c, 0x08, 0xb3, 0x2b, 0xfd, 0x52, 0x23, 0xe2, 0x84, 0x39, 0x5d, 0xdc, 0xd6, 0xb3,
         0x37, 0x78, 0x37, 0xbf, 0x0f, 0x2f, 0x05, 0x10, 0x73, 0xd6, 0x92, 0xda, 0xbc, 0x44, 0x37,
         0x0b, 0xff,
     ];
     const EXPECTED_VKEK: [u8; 32] = [
+        // Independently generated with Python stdlib HMAC-SHA256 implementing
+        // RFC 5869 Extract+Expand over the EXPECTED_MUK test vector.
         0x59, 0xa4, 0xe5, 0xd0, 0x35, 0xd7, 0x8c, 0x5b, 0x94, 0x1d, 0xb4, 0x14, 0x5c, 0xf5, 0xfe,
         0x26, 0xdc, 0x1f, 0x08, 0x10, 0x1d, 0x87, 0x25, 0xea, 0x4f, 0x52, 0xde, 0x84, 0x3c, 0x00,
         0x6e, 0x66,
+    ];
+    const DEVICE_KEYPAIR_SALT: [u8; 32] = [
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e,
+        0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d,
+        0x3e, 0x3f,
+    ];
+    const EXPECTED_DEVICE_KEYPAIR_KEY: [u8; 32] = [
+        // Independently generated with Python argon2-cffi over
+        // b"meissnerseal-device-keypair-v1\\0" || random_salt.
+        0x11, 0xa4, 0x03, 0x7d, 0xe5, 0x2f, 0xf6, 0xb5, 0x7b, 0x13, 0x96, 0x74, 0x57, 0xb5, 0xed,
+        0x26, 0x03, 0xaf, 0x1e, 0x32, 0xe0, 0x70, 0x5d, 0x24, 0x58, 0x89, 0x4c, 0x71, 0x98, 0xeb,
+        0x95, 0xaa,
+    ];
+    const EXPORT_KEY_VAULT_ID: [u8; 16] = [
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff,
+    ];
+    const EXPECTED_EXPORT_BUNDLE_KEY: [u8; 32] = [
+        // Independently generated with Python argon2-cffi + stdlib HMAC-SHA256.
+        0x73, 0x82, 0x40, 0xdb, 0xe1, 0x02, 0xb8, 0xcd, 0xce, 0x2b, 0xda, 0xbf, 0x60, 0x8d, 0xc1,
+        0x65, 0xde, 0xe5, 0x97, 0xf7, 0xbf, 0xe2, 0xa1, 0x5d, 0x84, 0x97, 0x56, 0x00, 0x73, 0x81,
+        0xbd, 0xb0,
     ];
 
     #[test]
@@ -314,6 +341,36 @@ mod tests {
         let expected = VaultKeyEncKey::from_bytes(EXPECTED_VKEK);
 
         assert!(bool::from(vault_key_encryption_key.ct_eq(&expected)));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_device_keypair_key_matches_independent_kat() {
+        let actual = derive_device_keypair_key(
+            b"tv-device-keypair-passphrase",
+            &DEVICE_KEYPAIR_SALT,
+            &PARAMS,
+        )
+        .expect("device keypair key derivation");
+        let expected = AeadKey::from_bytes(EXPECTED_DEVICE_KEYPAIR_KEY);
+
+        assert!(bool::from(actual.ct_eq(&expected)));
+    }
+
+    #[test]
+    fn derive_device_keypair_key_rejects_invalid_params() {
+        let params = Argon2Params {
+            output_len: 31,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive_device_keypair_key(
+                b"tv-device-keypair-passphrase",
+                &DEVICE_KEYPAIR_SALT,
+                &params
+            ),
+            Err(KdfError::InvalidInput)
+        ));
     }
 
     /// KAT: export bundle key is domain-separated from vault MUK (F-73).
@@ -349,6 +406,61 @@ mod tests {
             bool::from(key1.ct_eq(&key2)),
             "export bundle key must be deterministic"
         );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_export_bundle_key_matches_independent_kat() {
+        let actual = derive_export_bundle_key(
+            b"tv-export-bundle-passphrase",
+            &EXPORT_KEY_VAULT_ID,
+            &PARAMS,
+        )
+        .expect("export bundle key derivation");
+        let expected = AeadKey::from_bytes(EXPECTED_EXPORT_BUNDLE_KEY);
+
+        assert!(bool::from(actual.ct_eq(&expected)));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_export_bundle_key_accepts_empty_passphrase_per_contract() {
+        assert!(derive_export_bundle_key(b"", &VAULT_ID, &PARAMS).is_ok());
+    }
+
+    #[test]
+    fn derive_export_bundle_key_rejects_out_of_range_params() {
+        let params = Argon2Params {
+            m_cost_kib: ARGON2_MAX_M_COST_KIB + 1,
+            ..valid_params()
+        };
+        assert!(matches!(
+            derive_export_bundle_key(b"tv-export-bundle-passphrase", &VAULT_ID, &params),
+            Err(KdfError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_vkek_changes_when_vault_id_changes() {
+        let muk = MasterUnlockKey::from_bytes(EXPECTED_MUK);
+        let mut other_vault_id = VAULT_ID;
+        other_vault_id[0] ^= 0xff;
+        let first = derive_vkek(&muk, &VAULT_ID).expect("first vkek derivation");
+        let second = derive_vkek(&muk, &other_vault_id).expect("second vkek derivation");
+
+        assert!(!bool::from(first.ct_eq(&second)));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_changes_when_vault_id_changes() {
+        let mut other_vault_id = VAULT_ID;
+        other_vault_id[0] ^= 0xff;
+        let first = derive(PASSWORD, &VAULT_ID, &PARAMS).expect("first muk derivation");
+        let second = derive(PASSWORD, &other_vault_id, &PARAMS).expect("second muk derivation");
+
+        assert!(!bool::from(first.ct_eq(&second)));
     }
 
     // Each guard condition is tested in isolation (exactly one invalid field,
@@ -440,14 +552,16 @@ mod tests {
 
     #[test]
     fn derive_rejects_wrong_output_len() {
-        let params = Argon2Params {
-            output_len: MasterUnlockKey::LEN + 1,
-            ..valid_params()
-        };
-        assert!(matches!(
-            derive(PASSWORD, &VAULT_ID, &params),
-            Err(KdfError::InvalidInput)
-        ));
+        for output_len in [MasterUnlockKey::LEN + 1, usize::MAX] {
+            let params = Argon2Params {
+                output_len,
+                ..valid_params()
+            };
+            assert!(matches!(
+                derive(PASSWORD, &VAULT_ID, &params),
+                Err(KdfError::InvalidInput)
+            ));
+        }
     }
 
     // F-61: below-minimum profile params must be REJECTED.
@@ -489,6 +603,12 @@ mod tests {
         ));
     }
 
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_accepts_minimum_profile_values() {
+        assert!(derive(PASSWORD, &VAULT_ID, &valid_params()).is_ok());
+    }
+
     // Positive boundary tests: params at *exactly* the max must be ACCEPTED.
     // These kill the `>`->`>=` mutants on the max checks, which the `MAX + 1`
     // rejection tests cannot — both real and mutant reject `MAX + 1`, so only a
@@ -513,7 +633,10 @@ mod tests {
         assert!(derive(PASSWORD, &VAULT_ID, &params).is_ok());
     }
 
+    /// Heavy boundary check: 256 MiB allocation is intentionally skipped in the
+    /// default CI test shard and run only in the full verification pass.
     #[test]
+    #[ignore = "heavy Argon2 allocation boundary case"]
     #[cfg_attr(miri, ignore = "Argon2id 256 MiB KDF is too slow under Miri")]
     fn derive_accepts_m_cost_at_max() {
         let params = Argon2Params {
