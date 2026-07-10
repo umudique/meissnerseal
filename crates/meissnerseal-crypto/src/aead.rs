@@ -298,13 +298,15 @@ mod prop_tests {
             let nonce = XChaCha20Nonce::from_bytes(nonce_bytes);
             let ciphertext = encrypt_with_nonce(&key, &nonce, &plaintext, &aad)
                 .expect("encrypt must not fail");
-            let mut tampered = ciphertext.as_ref().to_vec();
-            // Flip the last byte of the authentication tag
-            if let Some(last) = tampered.last_mut() {
-                *last ^= 0xff;
+            let len = ciphertext.as_ref().len();
+            for index in [0, len / 2, len.checked_sub(1).expect("ciphertext non-empty")] {
+                let mut tampered = ciphertext.as_ref().to_vec();
+                *tampered
+                    .get_mut(index)
+                    .expect("tamper index within ciphertext bounds") ^= 0xff;
+                let tampered_ct = Ciphertext::from(tampered);
+                prop_assert!(decrypt(&key, &nonce, &tampered_ct, &aad).is_err());
             }
-            let tampered_ct = Ciphertext::from(tampered);
-            prop_assert!(decrypt(&key, &nonce, &tampered_ct, &aad).is_err());
         }
     }
 }
@@ -338,6 +340,7 @@ mod proofs {
 mod tests {
     use super::*;
     use subtle::ConstantTimeEq;
+    use zeroize::Zeroize;
 
     const KEY_BYTES: [u8; 32] = [
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -357,19 +360,12 @@ mod tests {
         0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd,
         0xbe, 0xbf, 0x01, 0x00,
     ];
-    const WRONG_AAD: [u8; 79] = [
-        0x6d, 0x65, 0x69, 0x73, 0x73, 0x6e, 0x65, 0x72, 0x73, 0x65, 0x61, 0x6c, 0x2d, 0x61, 0x61,
-        0x64, 0x2d, 0x76, 0x31, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
-        0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-        0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae,
-        0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd,
-        0xbe, 0xbf, 0x01, 0xff,
-    ];
     const PLAINTEXT: [u8; 36] = [
         0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x2d, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x2d,
         0x66, 0x6f, 0x72, 0x2d, 0x6d, 0x65, 0x69, 0x73, 0x73, 0x6e, 0x65, 0x72, 0x73, 0x65, 0x61,
         0x6c, 0x2d, 0x74, 0x65, 0x73, 0x74,
     ]; // "secret-payload-for-meissnerseal-test"
+    const MAX_TEST_PLAINTEXT_LEN: usize = 4096;
     const EXPECTED_CIPHERTEXT_WITHOUT_TAG: [u8; 36] = [
         0x33, 0xce, 0x44, 0xa7, 0x1d, 0xb8, 0x13, 0x1d, 0xa9, 0x12, 0xd3, 0x0f, 0x5e, 0x8b, 0x57,
         0x8c, 0x48, 0x26, 0xe9, 0xb0, 0x53, 0x92, 0xf2, 0x39, 0x81, 0x34, 0x2a, 0xc4, 0x6e, 0x9e,
@@ -387,7 +383,18 @@ mod tests {
     ];
 
     #[test]
+    fn encrypt_then_decrypt_smoke_test() {
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let (ciphertext, nonce) = encrypt(&key, &PLAINTEXT, &AAD).expect("encrypt");
+        let plaintext = decrypt(&key, &nonce, &ciphertext, &AAD).expect("decrypt");
+
+        assert!(bool::from(plaintext.as_ref().ct_eq(&PLAINTEXT)));
+    }
+
+    #[test]
     fn test_encrypt_produces_expected_ciphertext_and_tag() {
+        // Generated independently with:
+        // `python3 test-vectors/cross_verify.py aead`
         let key = AeadKey::from_bytes(KEY_BYTES);
         let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
         let ciphertext =
@@ -412,12 +419,13 @@ mod tests {
     }
 
     #[test]
-    fn test_decrypt_round_trip() {
+    fn decrypts_fixed_kat_ciphertext() {
         let key = AeadKey::from_bytes(KEY_BYTES);
         let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
         let ciphertext = Ciphertext(EXPECTED_CIPHERTEXT_TAG.to_vec());
         let plaintext = decrypt(&key, &nonce, &ciphertext, &AAD).expect("decrypt vector");
 
+        assert_eq!(plaintext.as_ref(), PLAINTEXT);
         assert!(bool::from(plaintext.as_ref().ct_eq(&PLAINTEXT)));
     }
 
@@ -426,8 +434,26 @@ mod tests {
         let key = AeadKey::from_bytes(KEY_BYTES);
         let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
         let ciphertext = Ciphertext(EXPECTED_CIPHERTEXT_TAG.to_vec());
+        let mut wrong_aad = AAD;
+        wrong_aad[0] ^= 0xff;
 
-        assert!(decrypt(&key, &nonce, &ciphertext, &WRONG_AAD).is_err());
+        assert!(decrypt(&key, &nonce, &ciphertext, &wrong_aad).is_err());
+    }
+
+    #[test]
+    fn wrong_nonce_rejected() {
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
+        let mut wrong_nonce_bytes = NONCE_BYTES;
+        wrong_nonce_bytes[0] ^= 0xff;
+        let wrong_nonce = XChaCha20Nonce::from_bytes(wrong_nonce_bytes);
+        let ciphertext =
+            encrypt_with_nonce(&key, &nonce, &PLAINTEXT, &AAD).expect("encrypt fixed nonce");
+
+        assert!(matches!(
+            decrypt(&key, &wrong_nonce, &ciphertext, &AAD),
+            Err(AeadError::Decrypt)
+        ));
     }
 
     #[test]
@@ -445,8 +471,24 @@ mod tests {
         let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
         let ciphertext =
             encrypt_with_nonce(&key, &nonce, &[], &AAD).expect("encrypt empty plaintext");
+        let plaintext = decrypt(&key, &nonce, &ciphertext, &AAD).expect("decrypt empty plaintext");
 
         assert_eq!(ciphertext.as_ref().len(), TAG_LEN);
+        assert!(plaintext.as_ref().is_empty());
+    }
+
+    #[test]
+    fn max_plaintext_length_roundtrip_ok() {
+        let key = AeadKey::from_bytes(KEY_BYTES);
+        let nonce = XChaCha20Nonce::from_bytes(NONCE_BYTES);
+        let plaintext = vec![0x5au8; MAX_TEST_PLAINTEXT_LEN];
+        let ciphertext =
+            encrypt_with_nonce(&key, &nonce, &plaintext, &AAD).expect("encrypt max test plaintext");
+        let recovered =
+            decrypt(&key, &nonce, &ciphertext, &AAD).expect("decrypt max test plaintext");
+
+        assert_eq!(ciphertext.as_ref().len(), MAX_TEST_PLAINTEXT_LEN + TAG_LEN);
+        assert_eq!(recovered.as_ref(), plaintext.as_slice());
     }
 
     #[test]
@@ -486,5 +528,42 @@ mod tests {
         let plaintext =
             decrypt(&key, &nonce, &ciphertext, &AAD).expect("valid exact-tag-len ciphertext");
         assert!(plaintext.as_ref().is_empty());
+    }
+
+    #[test]
+    fn ciphertext_and_plaintext_debug_output_is_redacted() {
+        let ciphertext = Ciphertext::from(EXPECTED_CIPHERTEXT_TAG.to_vec());
+        let plaintext = Plaintext(PLAINTEXT.to_vec());
+
+        assert_eq!(format!("{ciphertext:?}"), "Ciphertext([REDACTED])");
+        assert_eq!(format!("{plaintext:?}"), "Plaintext([REDACTED])");
+    }
+
+    #[test]
+    fn ciphertext_zeroize_clears_bytes_before_drop() {
+        let mut ciphertext = Ciphertext::from(vec![0xabu8; 32]);
+        ciphertext.zeroize();
+
+        assert!(ciphertext.0.iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn record_aad_len_constant_matches_labeled_layout() {
+        let prefix_len = 19;
+        let vault_id_len = 16;
+        let five_u16_fields_len = 5 * 2;
+        let record_id_len = 16;
+        let revision_id_len = 16;
+        let kind_len = 2;
+
+        assert_eq!(
+            RECORD_AAD_LEN,
+            prefix_len
+                + vault_id_len
+                + five_u16_fields_len
+                + record_id_len
+                + revision_id_len
+                + kind_len
+        );
     }
 }

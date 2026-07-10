@@ -58,8 +58,12 @@ mod tests {
         s.as_bytes()
             .chunks_exact(2)
             .map(|pair| {
-                let hi = (pair[0] as char).to_digit(16).expect("hex digit");
-                let lo = (pair[1] as char).to_digit(16).expect("hex digit");
+                let hi = pair[0] as char;
+                let lo = pair[1] as char;
+                assert!(hi.is_ascii_hexdigit(), "hex digit");
+                assert!(lo.is_ascii_hexdigit(), "hex digit");
+                let hi = hi.to_digit(16).expect("hex digit");
+                let lo = lo.to_digit(16).expect("hex digit");
                 ((hi << 4) | lo) as u8
             })
             .collect()
@@ -257,6 +261,12 @@ mod tests {
             expected.as_slice(),
             "case c4-empty-plaintext-encrypt"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "hex string must have even length")]
+    fn unhex_rejects_odd_length_input() {
+        let _ = unhex("abc");
     }
 
     // ── vault_wrap_v1.json — WrappedRootKey wrap/unwrap + domain separation ──

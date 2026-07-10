@@ -303,6 +303,8 @@ mod prop_tests {
             let k1: Result<Key<32>> = expand(&prk, &info1);
             let k2: Result<Key<32>> = expand(&prk, &info2);
             if let (Ok(k1), Ok(k2)) = (k1, k2) {
+                prop_assert_eq!(k1.as_slice().len(), 32);
+                prop_assert_eq!(k2.as_slice().len(), 32);
                 prop_assert_ne!(k1.as_slice(), k2.as_slice());
             }
         }
@@ -328,11 +330,14 @@ mod tests {
         0x16, 0x17, 0x18, 0x19, 0x20, 0x21, 0x22, 0x23, 0x24,
     ];
     const EXPECTED_ROOT_PRK: [u8; 32] = [
+        // Independently generated with Python stdlib hashlib+hmac:
+        // SHA256("meissnerseal-root-salt-v1"||vault_id||header_nonce) then HKDF-Extract.
         0x7a, 0xbb, 0x74, 0x6c, 0x40, 0x40, 0x0d, 0xe8, 0x53, 0xbe, 0x63, 0x9b, 0x16, 0xfa, 0x26,
         0xfb, 0xbf, 0x5d, 0x1e, 0xba, 0xfc, 0x86, 0x88, 0x14, 0x38, 0x49, 0xea, 0xa4, 0x97, 0x0f,
         0xa2, 0x42,
     ];
     const EXPECTED_ITEM_KEY_WRAPPING_KEY: [u8; 32] = [
+        // Independently generated with Python stdlib HMAC-SHA256 HKDF-Expand.
         0x93, 0x07, 0xe5, 0x04, 0x25, 0xf2, 0xad, 0xb5, 0x02, 0xc6, 0x9f, 0xc5, 0x5d, 0x57, 0x89,
         0x40, 0xfb, 0x41, 0x60, 0xe1, 0xfe, 0x2d, 0x23, 0x66, 0x2c, 0x7c, 0xe4, 0x82, 0x66, 0xcc,
         0x5b, 0x53,
@@ -367,6 +372,11 @@ mod tests {
         0x7b, 0x83, 0xb7, 0xd2, 0x6e, 0xc8, 0x05, 0xa6, 0x81, 0x02, 0x75, 0x41, 0x37, 0x55, 0xf0,
         0xd9, 0x68,
     ];
+    const EXPECTED_ITEM_KEY_WRAPPING_KEY_UPPER_HEX_ID: [u8; 32] = [
+        0xf7, 0xec, 0xe5, 0x96, 0x53, 0x30, 0xe0, 0x3f, 0x10, 0x0e, 0xa5, 0xee, 0xbd, 0x1e, 0xf8,
+        0xda, 0xe5, 0xe2, 0x43, 0xe9, 0x7f, 0x17, 0x1b, 0x4a, 0x08, 0x61, 0xfd, 0x7d, 0x4b, 0x40,
+        0xd5, 0x23,
+    ];
 
     #[test]
     fn test_root_prk_derivation() {
@@ -381,49 +391,56 @@ mod tests {
     #[test]
     fn test_subkey_derivation_all() {
         let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        let mut derived = Vec::new();
 
-        assert_subkey(
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::ItemKeyWrappingKey,
             Some(1),
             EXPECTED_ITEM_KEY_WRAPPING_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::MetadataEncryptionKey,
             Some(1),
             EXPECTED_METADATA_ENCRYPTION_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::LocalAuditEventKey,
             None,
             EXPECTED_LOCAL_AUDIT_EVENT_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::SyncEnvelopeKey,
             None,
             EXPECTED_SYNC_ENVELOPE_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::DeviceEnrollmentKey,
             None,
             EXPECTED_DEVICE_ENROLLMENT_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::RecoveryWrappingKey,
             None,
             EXPECTED_RECOVERY_WRAPPING_KEY,
-        );
-        assert_subkey(
+        ));
+        derived.push(assert_subkey(
             &root_prk,
             SubkeyPurpose::ExportBundleKey,
             None,
             EXPECTED_EXPORT_BUNDLE_KEY,
-        );
+        ));
+
+        for (left_index, left) in derived.iter().enumerate() {
+            for right in derived.iter().skip(left_index + 1) {
+                assert!(!bool::from(left.ct_eq(right)));
+            }
+        }
     }
 
     fn assert_subkey(
@@ -431,11 +448,93 @@ mod tests {
         purpose: SubkeyPurpose,
         aead_id: Option<u16>,
         expected_bytes: [u8; 32],
-    ) {
+    ) -> SubKey {
         let subkey = derive_subkey(root_prk, purpose, &VAULT_ID, aead_id).expect("subkey");
         let expected = SubKey::from_bytes(expected_bytes);
 
         assert!(bool::from(subkey.ct_eq(&expected)));
+        subkey
+    }
+
+    #[test]
+    fn build_subkey_info_matches_registry_string_for_aead_scoped_purpose() {
+        let info = build_subkey_info(SubkeyPurpose::ItemKeyWrappingKey, &VAULT_ID, Some(1))
+            .expect("item-wrap info");
+
+        assert_eq!(
+            info,
+            "meissnerseal:item-wrap:v1:vault:0102030405060708090a0b0c0d0e0f10:aead:1"
+        );
+    }
+
+    #[test]
+    fn derive_subkey_changes_when_aead_id_changes() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        let first = derive_subkey(
+            &root_prk,
+            SubkeyPurpose::MetadataEncryptionKey,
+            &VAULT_ID,
+            Some(1),
+        )
+        .expect("metadata key for AEAD 1");
+        let second = derive_subkey(
+            &root_prk,
+            SubkeyPurpose::MetadataEncryptionKey,
+            &VAULT_ID,
+            Some(2),
+        )
+        .expect("metadata key for AEAD 2");
+
+        assert!(!bool::from(first.ct_eq(&second)));
+    }
+
+    #[test]
+    fn derive_subkey_uses_lowercase_hex_vault_id_encoding() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        let uppercase_vault_id = [
+            0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ];
+        let info = build_subkey_info(
+            SubkeyPurpose::ItemKeyWrappingKey,
+            &uppercase_vault_id,
+            Some(1),
+        )
+        .expect("item-wrap info");
+        let subkey = derive_subkey(
+            &root_prk,
+            SubkeyPurpose::ItemKeyWrappingKey,
+            &uppercase_vault_id,
+            Some(1),
+        )
+        .expect("item-wrap subkey");
+        let expected = SubKey::from_bytes(EXPECTED_ITEM_KEY_WRAPPING_KEY_UPPER_HEX_ID);
+
+        assert!(info.contains("vault:abcdef0123456789fedcba9876543210"));
+        assert_eq!(info.len(), 71);
+        assert_eq!(subkey.as_slice().len(), SubKey::LEN);
+        assert!(bool::from(subkey.ct_eq(&expected)));
+    }
+
+    #[test]
+    fn derive_root_prk_changes_when_vault_id_changes() {
+        let vault_root_key = VaultRootKey::from_bytes(VAULT_ROOT_KEY);
+        let header_nonce = HeaderNonce::from_bytes(HEADER_NONCE);
+        let mut other_vault_id = VAULT_ID;
+        other_vault_id[0] ^= 0xff;
+        let first = derive_root_prk(&vault_root_key, &VAULT_ID, &header_nonce);
+        let second = derive_root_prk(&vault_root_key, &other_vault_id, &header_nonce);
+
+        assert!(!bool::from(first.ct_eq(&second)));
+    }
+
+    #[test]
+    fn expand_rejects_excessive_output_length() {
+        let prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        assert!(matches!(
+            expand::<8161>(&prk, b"tv-expand-too-long"),
+            Err(KdfError::InvalidInput)
+        ));
     }
 
     #[test]
@@ -478,5 +577,21 @@ mod tests {
             ),
             Err(KdfError::InvalidInput)
         ));
+    }
+
+    #[test]
+    fn derive_subkey_rejects_unexpected_aead_for_every_non_aead_scoped_purpose() {
+        let root_prk = Prk::from_bytes(EXPECTED_ROOT_PRK);
+        for purpose in [
+            SubkeyPurpose::SyncEnvelopeKey,
+            SubkeyPurpose::DeviceEnrollmentKey,
+            SubkeyPurpose::RecoveryWrappingKey,
+            SubkeyPurpose::ExportBundleKey,
+        ] {
+            assert!(matches!(
+                derive_subkey(&root_prk, purpose, &VAULT_ID, Some(1)),
+                Err(KdfError::InvalidInput)
+            ));
+        }
     }
 }

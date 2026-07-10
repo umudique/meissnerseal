@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn random_bytes_length() {
-        for n in [0usize, 1, 16, 32, 64] {
+        for n in [0usize, 1, 16, 32, 64, RANDOM_BYTES_MAX_LEN] {
             assert_eq!(random_bytes(n).len(), n);
         }
     }
