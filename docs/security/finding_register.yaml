@@ -7489,7 +7489,7 @@ findings:
     cwe: "CWE-330"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a smoke test that calls encrypt() (not encrypt_with_nonce()),
       decrypts the result with the returned nonce, and asserts the recovered
@@ -7498,7 +7498,7 @@ findings:
     verification: >-
       encrypt() production path is exercised. Two calls produce distinct
       nonces and ciphertexts. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-213
     kind: coverage_gap
@@ -7518,7 +7518,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a unit test or proptest: encrypt with nonce1, then decrypt with
       nonce2 where nonce1 != nonce2, and assert Err(AeadError::Decrypt).
@@ -7526,7 +7526,7 @@ findings:
     verification: >-
       Wrong nonce is explicitly rejected by decrypt(). cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-214
     kind: coverage_gap
@@ -7545,7 +7545,7 @@ findings:
     cwe: "CWE-345"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a separate test or extend bit_flip_rejected to also flip a byte
       in the ciphertext body (e.g., tampered[0] ^= 0xff where plaintext is
@@ -7555,7 +7555,7 @@ findings:
     verification: >-
       Both tag-byte and body-byte tampering are asserted to return Err.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-215
     kind: coverage_gap
@@ -7573,7 +7573,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two tests: (1) assert that format!("{:?}", ciphertext) equals
       "Ciphertext([REDACTED])" exactly (or at minimum does not contain any
@@ -7585,7 +7585,7 @@ findings:
       Debug output for both types is pinned to the redacted string. A
       derive(Debug) on either type causes the test to fail.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-216
     kind: coverage_gap
@@ -7603,7 +7603,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a unit test: assert_eq!(RECORD_AAD_LEN, 19 + 16 + 5*2 + 16 + 16 + 2)
       with each addend labeled by field name. This makes any change to the
@@ -7612,7 +7612,7 @@ findings:
     verification: >-
       RECORD_AAD_LEN is pinned to the sum of its component fields.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-217
     kind: consistency
@@ -7630,7 +7630,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a comment above the KAT constant block stating the tool or command
       used to generate the expected ciphertext (e.g., a reference to the
@@ -7640,7 +7640,7 @@ findings:
     verification: >-
       KAT source is documented in the test file. A future reviewer can
       regenerate the expected bytes using the stated tool.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-218
     kind: consistency
@@ -7659,7 +7659,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Remove the WRONG_AAD constant and replace its use in test_wrong_aad_rejected
       with a locally derived value: let mut wrong_aad = AAD; wrong_aad[78]
@@ -7668,7 +7668,7 @@ findings:
     verification: >-
       WRONG_AAD static constant is removed. Test still rejects modified AAD.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-219
     kind: coverage_gap
@@ -7686,7 +7686,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Rename test_decrypt_round_trip to decrypts_fixed_kat_ciphertext (or
       similar) to accurately reflect that it asserts decryption of a
@@ -7694,7 +7694,7 @@ findings:
     verification: >-
       Test name accurately describes its behavior. cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-220
     kind: coverage_gap
@@ -7718,7 +7718,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Extend test_empty_plaintext_ok to also decrypt the produced
       ciphertext and assert the recovered plaintext is empty, or remove it
@@ -7730,7 +7730,7 @@ findings:
     verification: >-
       Empty plaintext test is non-redundant and complete. Boundary sizes
       are explicitly covered. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-221
     kind: coverage_gap
@@ -7752,7 +7752,7 @@ findings:
     cwe: "CWE-330"
     severity: high
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests for derive_device_keypair_key(): (1) KAT — same passphrase
       and random_salt produce the same AeadKey (determinism); (2) different
@@ -7764,7 +7764,7 @@ findings:
       derive_device_keypair_key() is exercised for KAT, salt sensitivity,
       invalid param rejection, and cross-domain separation. cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-222
     kind: coverage_gap
@@ -7787,7 +7787,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Decide whether the empty passphrase guard belongs at the KDF layer or
       exclusively at upper layers (export.rs). If KDF layer: add a check in
@@ -7800,7 +7800,7 @@ findings:
       Empty passphrase handling is consistent between contract and
       implementation. Invalid params are tested. cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-223
     kind: coverage_gap
@@ -7822,7 +7822,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Decide the empty-password policy for derive() and document it
       explicitly in the contract comment. If the policy is reject: add a
@@ -7833,7 +7833,7 @@ findings:
     verification: >-
       Empty-password policy is documented in the contract and pinned by a
       test. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-224
     kind: coverage_gap
@@ -7852,7 +7852,7 @@ findings:
     cwe: "CWE-330"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that calls derive_vkek() twice with the same MUK but two
       different vault_ids and asserts the two returned VKEKs are not equal.
@@ -7860,7 +7860,7 @@ findings:
     verification: >-
       vault_id sensitivity of derive_vkek() is explicitly tested. cargo
       test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-225
     kind: coverage_gap
@@ -7881,7 +7881,7 @@ findings:
     cwe: "CWE-330"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a test that calls derive() with the same password and two
       distinct vault_ids (e.g., all-zeros vs. all-ones) and asserts the
@@ -7893,7 +7893,7 @@ findings:
     verification: >-
       vault_id sensitivity is pinned for both derive() and
       derive_export_bundle_key(). cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-226
     kind: consistency
@@ -7911,7 +7911,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a comment above the EXPECTED_MUK and EXPECTED_VKEK constants
       identifying the generation method (e.g., a standalone Rust snippet
@@ -7920,7 +7920,7 @@ findings:
     verification: >-
       KAT source is documented. A future reviewer can regenerate the
       expected bytes from the stated inputs and tool.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-227
     kind: coverage_gap
@@ -7938,7 +7938,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two tests: (1) output_len == 0 → Err(KdfError::InvalidInput);
       (2) output_len == MasterUnlockKey::LEN - 1 →
@@ -7947,7 +7947,7 @@ findings:
     verification: >-
       All three output_len rejection cases are covered. cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-228
     kind: coverage_gap
@@ -7968,7 +7968,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add three tests mirroring the max-accept pattern:
       derive_accepts_m_cost_at_min (m=ARGON2_MIN_M_COST_KIB, others valid),
@@ -7978,7 +7978,7 @@ findings:
     verification: >-
       Min boundary acceptance is explicitly pinned for all three params.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-229
     kind: coverage_gap
@@ -7998,7 +7998,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Consider gating heavy Argon2 tests behind a Cargo feature flag (e.g.,
       slow-tests) or marking them #[ignore] with a documented reason so
@@ -8010,7 +8010,7 @@ findings:
       Standard cargo test completes without large memory allocation.
       Security suite still exercises the KATs. CI is not flaky on
       memory-constrained runners.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-230
     kind: consistency
@@ -8071,7 +8071,7 @@ findings:
     cwe: "CWE-1068"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add unit tests that call build_subkey_info() directly and assert the
       exact returned string for at least one AEAD-scoped purpose (e.g.,
@@ -8086,7 +8086,7 @@ findings:
       build_subkey_info() output is pinned byte-for-byte for AEAD and
       non-AEAD purposes. Lowercase hex encoding of alphabetic digits is
       explicitly asserted. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-232
     kind: coverage_gap
@@ -8106,7 +8106,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add four tests mirroring derive_subkey_rejects_unexpected_aead_for_local_audit_event_key,
       one for each of SyncEnvelopeKey, DeviceEnrollmentKey,
@@ -8115,7 +8115,7 @@ findings:
     verification: >-
       All five non-AEAD SubkeyPurpose variants reject aead_id Some(_).
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-233
     kind: coverage_gap
@@ -8135,7 +8135,7 @@ findings:
     cwe: "CWE-330"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests that call derive_subkey() twice for ItemKeyWrappingKey and
       MetadataEncryptionKey — once with Some(1) and once with Some(2) —
@@ -8144,7 +8144,7 @@ findings:
     verification: >-
       aead_id sensitivity is explicitly tested for both AEAD-scoped
       purposes. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-234
     kind: coverage_gap
@@ -8163,7 +8163,7 @@ findings:
     cwe: "CWE-330"
     severity: high
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that calls derive_subkey() with the same root_prk, purpose
       (e.g., LocalAuditEventKey), and aead_id (None), but two distinct
@@ -8172,7 +8172,7 @@ findings:
     verification: >-
       vault_id sensitivity is explicitly tested for derive_subkey().
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-235
     kind: coverage_gap
@@ -8192,7 +8192,7 @@ findings:
     cwe: "CWE-330"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two differential tests: (1) same VaultRootKey and header_nonce,
       two distinct vault_ids — assert the PRKs differ; (2) same
@@ -8202,7 +8202,7 @@ findings:
     verification: >-
       vault_id and header_nonce sensitivity are each explicitly tested for
       derive_root_prk(). cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-236
     kind: coverage_gap
@@ -8220,7 +8220,7 @@ findings:
     cwe: "CWE-330"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that collects all seven derived subkeys into a slice and
       asserts that no two elements are equal (e.g., by iterating all pairs
@@ -8230,7 +8230,7 @@ findings:
       All seven subkeys are confirmed pairwise distinct. A registry collision
       (duplicate info_label) causes a test failure. cargo test -p
       meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-237
     kind: consistency
@@ -8248,7 +8248,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Rename distinct_info_distinct_key to a name that reflects the
       probabilistic nature of the property, such as
@@ -8258,7 +8258,7 @@ findings:
     verification: >-
       Proptest name and comment accurately characterize the guarantee.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-238
     kind: coverage_gap
@@ -8276,7 +8276,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test (or compile-time-conditional test) that calls
       expand::<8161>() with an arbitrary PRK and asserts the result is
@@ -8285,7 +8285,7 @@ findings:
     verification: >-
       expand with N > 8160 returns Err(KdfError::InvalidInput).
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-239
     kind: consistency
@@ -8303,7 +8303,7 @@ findings:
     cwe: "CWE-1068"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a comment above the KAT constant block identifying the generation
       method (e.g., a standalone Rust snippet using RustCrypto hkdf + sha2
@@ -8313,7 +8313,7 @@ findings:
     verification: >-
       KAT source is documented. A future reviewer can regenerate all eight
       expected values from the stated inputs and tool.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-240
     kind: coverage_gap
@@ -8331,7 +8331,7 @@ findings:
     cwe: "CWE-392"
     severity: high
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add at least one KAT for blake2b_256_bytes with a known-output input
       (e.g. the BLAKE2b-256 digest of b"abc" from RFC 7693 Appendix A or
@@ -8341,7 +8341,7 @@ findings:
     verification: >-
       blake2b_256_bytes("abc") matches the RFC 7693 reference value.
       Output length asserted == 32. cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-241
     kind: coverage_gap
@@ -8359,7 +8359,7 @@ findings:
     cwe: "CWE-392"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a KAT test for sha256_bytes(b"abc") asserting the output equals
       the FIPS 180-4 reference digest ba7816bf8f01cfea414140de5dae2ec73b00361b
@@ -8367,7 +8367,7 @@ findings:
     verification: >-
       sha256_bytes("abc") matches FIPS 180-4 reference. Output length asserted.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-242
     kind: coverage_gap
@@ -8385,7 +8385,7 @@ findings:
     cwe: "CWE-193"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test calling random_bytes(RANDOM_BYTES_MAX_LEN) and asserting
       the returned Vec has length RANDOM_BYTES_MAX_LEN (4096) and does not
@@ -8393,7 +8393,7 @@ findings:
     verification: >-
       random_bytes(4096) returns a 4096-byte Vec without panic.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-243
     kind: coverage_gap
@@ -8413,7 +8413,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the negative-containment assertions with
       assert_eq!(format!("{:?}", key), "Key<32>([REDACTED])") or whatever
@@ -8423,7 +8423,7 @@ findings:
     verification: >-
       Debug output asserted to exact expected string. No key bytes appear.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-244
     kind: coverage_gap
@@ -8442,7 +8442,7 @@ findings:
     cwe: "CWE-697"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add assert_not_impl_any!(Key<32>: PartialEq, Eq, core::fmt::Display)
       to the test module in types.rs. Because Key<N> is generic, the check
@@ -8452,7 +8452,7 @@ findings:
     verification: >-
       assert_not_impl_any!(Key<32>: PartialEq, Eq, Display) compiles.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-245
     kind: coverage_gap
@@ -8470,7 +8470,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add at least one test exercising a Key<24> alias (e.g. HeaderNonce or
       XChaCha20Nonce) to confirm the const LEN, slice length, ct_eq, and
@@ -8478,7 +8478,7 @@ findings:
     verification: >-
       At least one Key<24> alias is tested for LEN, ct_eq, and debug.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-246
     kind: coverage_gap
@@ -8495,7 +8495,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Either remove the tests as redundant (the crate-level integration tests
       and unit tests in submodules provide the actual coverage) or promote
@@ -8504,7 +8504,7 @@ findings:
     verification: >-
       lib.rs tests either removed as redundant or promoted to behavioral tests.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-247
     kind: coverage_gap
@@ -8996,7 +8996,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a character validity assertion in unhex() before calling to_digit,
       e.g. assert!(c.is_ascii_hexdigit(), "invalid hex char {c}"). This
@@ -9004,7 +9004,7 @@ findings:
     verification: >-
       unhex() panics with a clear message on invalid hex characters.
       cargo test -p meissnerseal-crypto passes.
-    commit: ""
+    commit: "436d4bc"
 
   - id: F-266
     kind: coverage_gap
