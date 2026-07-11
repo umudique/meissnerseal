@@ -5851,7 +5851,7 @@ findings:
     cwe: "CWE-354"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two tests:
 
@@ -5881,7 +5881,7 @@ findings:
     verification: >-
       Both tests return Err. No key material is returned on ciphertext
       or tag corruption. cargo test -p meissnerseal-core exits 0.
-    commit: ""
+    commit: "d81a18f"
 
   - id: F-163
     kind: coverage_gap
@@ -6050,14 +6050,14 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Update the open_envelope contract comment to state that the replay
       check-and-insert occurs after full authentication (after AEAD decryption
       and sender signature verification), not before key derivation.
     verification: >-
       Code review confirms the docstring matches the implementation ordering.
-    commit: ""
+    commit: "d81a18f"
 
   - id: F-168
     kind: coverage_gap
@@ -6648,7 +6648,7 @@ findings:
     cwe: "CWE-312"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       After a successful export() call, assert that the bundle bytes do not
       contain a sliding-window match for the known secret value. This
@@ -6658,7 +6658,7 @@ findings:
     verification: >-
       The smoke assertion catches a bundle that embeds the plaintext secret.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "d81a18f"
 
   - id: F-187
     kind: coverage_gap
@@ -7277,7 +7277,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       In from_bytes(), after parsing each entry, check whether its ID is
       already in the partially built entries Vec and return
@@ -7287,7 +7287,7 @@ findings:
     verification: >-
       A blob with duplicate IDs is rejected by from_bytes(). cargo test -p
       meissnerseal-core passes.
-    commit: ""
+    commit: "d81a18f"
 
   - id: F-206
     kind: coverage_gap
@@ -7339,7 +7339,7 @@ findings:
     cwe: "CWE-362"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add an integration test (or extend open_envelope tests) that uses a
       spy or instrumented SeenEnvelopeIds to record when check_and_insert is
@@ -7351,7 +7351,7 @@ findings:
       The ordering of check_and_insert relative to key derivation and
       decryption in open_envelope is pinned by a test. cargo test -p
       meissnerseal-core passes.
-    commit: ""
+    commit: "d81a18f"
 
   - id: F-208
     kind: coverage_gap
