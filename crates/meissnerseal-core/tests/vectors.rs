@@ -30,7 +30,9 @@ use meissnerseal_core::{
     error::CoreError,
     export::{export, import},
     item::{add, list, with_item, ItemKind, PlainItem},
-    vault::engine::{CreateVaultParams, Locked, UnlockParams, Unlocked, Vault},
+    vault::engine::{
+        record_frame_end_offset, CreateVaultParams, Locked, UnlockParams, Unlocked, Vault,
+    },
 };
 use meissnerseal_crypto::aead::{decrypt as aead_decrypt, Ciphertext};
 use meissnerseal_crypto::types::{AeadKey, HkdfPrk, Key, MasterUnlockKey, XChaCha20Nonce};
@@ -323,23 +325,6 @@ fn read_u32_at(bytes: &[u8], offset: usize) -> usize {
     u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize
 }
 
-/// Total byte length of the self-describing record frame starting at `offset`
-/// (§6: version || record_id || revision_id || aead_profile || nonce_len ||
-/// nonce || aad_len || aad || ciphertext_len || ciphertext). Used to skip the
-/// fixed-position WrappedRootKey frame and locate the sealed table section.
-// SHADOW PARSER: this helper duplicates production frame-layout knowledge in
-// test code. It must stay in sync with the real record-frame boundary or the
-// section_offset fed into open_sealed_record_table_v2 can become misleading and
-// make coverage look stronger than it is.
-fn record_frame_len_at(bytes: &[u8], offset: usize) -> usize {
-    let nonce_len = bytes[offset + 2 + 16 + 16 + 2] as usize;
-    let aad_len_offset = offset + 2 + 16 + 16 + 2 + 1 + nonce_len;
-    let aad_len = read_u32_at(bytes, aad_len_offset);
-    let ciphertext_len_offset = aad_len_offset + 4 + aad_len;
-    let ciphertext_len = read_u32_at(bytes, ciphertext_len_offset);
-    ciphertext_len_offset + 4 + ciphertext_len - offset
-}
-
 #[test]
 #[allow(clippy::cognitive_complexity)]
 fn vault_format_struct_v1_vectors() {
@@ -372,7 +357,8 @@ fn vault_format_struct_v1_vectors() {
             c["expected"]["wrk_frame_offset"].as_u64().unwrap() as usize,
             "{id}: fixed WRK frame offset"
         );
-        let section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
+        let section_offset =
+            record_frame_end_offset(&blob, wrk_frame_offset).expect("record frame end");
         let section_len = read_u32_at(&blob, 14);
 
         // Open + authenticate the MEK-sealed table under the case's MEK.
@@ -1029,20 +1015,21 @@ fn vault_kdf_v1_all_seven_subkeys_are_pairwise_distinct() {
 
 #[test]
 fn unlocked_keys_exposes_all_seven_registry_subkeys() {
-    fn require_all_fields(keys: &UnlockedKeys) -> [&[u8]; 7] {
-        [
-            keys.item_wrap_key.as_slice(),
-            keys.metadata_key.as_slice(),
-            keys.audit_key.as_slice(),
-            keys.sync_envelope_key.as_slice(),
-            keys.device_enrollment_key.as_slice(),
-            keys.recovery_wrapping_key.as_slice(),
-            keys.export_key.as_slice(),
-        ]
-    }
-
     let keys = derive_vector_unlocked_keys();
-    assert_eq!(require_all_fields(&keys).len(), 7);
+    for (label, key) in [
+        ("item_wrap_key", &keys.item_wrap_key),
+        ("metadata_key", &keys.metadata_key),
+        ("audit_key", &keys.audit_key),
+        ("sync_envelope_key", &keys.sync_envelope_key),
+        ("device_enrollment_key", &keys.device_enrollment_key),
+        ("recovery_wrapping_key", &keys.recovery_wrapping_key),
+        ("export_key", &keys.export_key),
+    ] {
+        assert!(
+            key.as_slice().iter().any(|byte| *byte != 0),
+            "{label} must be non-zero"
+        );
+    }
 }
 
 // ── vault_format_negative_v1.json — V2 §10 reject rules (fail closed) ─────────
@@ -1105,7 +1092,8 @@ fn vault_format_negative_v1_vectors() {
         let header = parse_header(&blob).unwrap_or_else(|_| panic!("case {id}: header parses"));
         let header_len = read_u32_at(&blob, 10);
         let wrk_frame_offset = HEADER_MIN_LEN + header_len;
-        let section_offset = wrk_frame_offset + record_frame_len_at(&blob, wrk_frame_offset);
+        let section_offset =
+            record_frame_end_offset(&blob, wrk_frame_offset).expect("record frame end");
         let section_len = read_u32_at(&blob, 14);
         let opened = open_sealed_record_table_v2(
             &blob,

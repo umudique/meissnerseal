@@ -68,6 +68,9 @@ impl ZeroizeOnDrop for SecretPayload {}
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use core::mem::ManuallyDrop;
+    use core::ops::DerefMut;
+    use core::slice;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     assert_impl_all!(SecretPayload: Zeroize, ZeroizeOnDrop);
@@ -91,6 +94,17 @@ mod tests {
     }
 
     #[test]
+    fn len_and_is_empty_match_payload_state() {
+        let non_empty = SecretPayload::new(vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        let empty = SecretPayload::new(Vec::new());
+
+        assert_eq!(non_empty.len(), 4);
+        assert!(!non_empty.is_empty());
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
     fn zeroize_clears_backing_buffer_contents() {
         let mut payload = SecretPayload::new(vec![0xAB; 16]);
         payload.zeroize();
@@ -99,8 +113,26 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code)] // REASON: raw-pointer inspection validates zeroizing drop behavior.
     fn drop_path_uses_zeroizing_backing_storage() {
-        let payload = SecretPayload::new(vec![0xCD; 16]);
-        drop(payload);
+        let mut payload = ManuallyDrop::new(SecretPayload::new(vec![0xCD; 16]));
+        let ptr = payload.0.as_ptr();
+        let len = payload.0.len();
+
+        ManuallyDrop::deref_mut(&mut payload).zeroize();
+
+        unsafe {
+            // SAFETY: `ptr` points into the still-live allocation owned by
+            // `payload`. `zeroize()` clears bytes in place before the final
+            // destructor frees the allocation. Reading the allocation after
+            // `ManuallyDrop::drop` would observe freed memory, so the check is
+            // performed before the final manual drop.
+            let bytes = slice::from_raw_parts(ptr, len);
+            assert!(bytes.iter().all(|byte| *byte == 0));
+
+            // SAFETY: free the backing allocation after the zeroization check
+            // to avoid leaking the test fixture.
+            ManuallyDrop::drop(&mut payload);
+        }
     }
 }

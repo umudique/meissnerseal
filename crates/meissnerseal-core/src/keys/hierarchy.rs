@@ -166,6 +166,7 @@ pub(crate) fn derive_session_keys(
     wrapped_root_key_nonce: &[u8; 24],
     aad: &[u8; 79],
 ) -> crate::error::Result<UnlockedKeys> {
+    AeadProfileId::new(aead_profile.value()).map_err(|_| CoreError::Crypto)?;
     // [1] Argon2id → MasterUnlockKey
     let muk = derive_master_unlock_key_with_header_params(password, vault_id, kdf_params)?;
 
@@ -237,6 +238,7 @@ pub(crate) fn create_session_keys(
     kdf_params: &HeaderKdfParams,
     aad: &[u8; 79],
 ) -> crate::error::Result<(UnlockedKeys, Vec<u8>, [u8; 24])> {
+    AeadProfileId::new(aead_profile.value()).map_err(|_| CoreError::Crypto)?;
     // [1] Generate fresh VaultRootKey from OS CSPRNG
     let vault_root_key = Key::<32>::from_bytes(random_key());
 
@@ -333,7 +335,13 @@ pub fn derive_subkeys(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::vault::format::{build_aad, AeadProfileId, AEAD_XCHACHA20_POLY1305_V1};
+    use crate::vault::format::{
+        build_aad, AeadProfileId, AEAD_XCHACHA20_POLY1305_V1, FORMAT_VERSION,
+        SCHEMA_MEISSNER_RECORDS_V2,
+    };
+    use static_assertions::assert_not_impl_any;
+
+    assert_not_impl_any!(UnlockedKeys: Clone, PartialEq, core::fmt::Debug);
 
     const VAULT_ID: [u8; 16] = [
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -341,15 +349,18 @@ mod tests {
     ];
     const HEADER_NONCE: [u8; 24] = [0u8; 24];
     const ZERO_RECORD_ID: [u8; 16] = [0u8; 16];
+    // Synthetic non-production profile for HKDF aead_id scoping tests only.
+    // new_unchecked bypasses AeadProfileId validation intentionally — 0x0002 is not
+    // a registered production profile.
     const TEST_AEAD_PROFILE: AeadProfileId = AeadProfileId::new_unchecked(0x0002);
 
     fn test_aad() -> [u8; 79] {
         build_aad(
             &VAULT_ID,
-            1,
-            1,
-            1,
-            1,
+            FORMAT_VERSION,
+            SCHEMA_MEISSNER_RECORDS_V2,
+            AEAD_XCHACHA20_POLY1305_V1,
+            KDF_ARGON2ID_V1,
             0,
             &ZERO_RECORD_ID,
             &ZERO_RECORD_ID,
@@ -363,9 +374,10 @@ mod tests {
 
     /// `derive_session_keys` fails closed when ciphertext is wrong (AEAD failure).
     #[test]
-    fn test_derive_session_keys_auth_failure() {
+    fn derive_session_keys_rejects_invalid_wrk_ciphertext() {
         let password = b"test-password-never-real";
-        // 47-byte ciphertext: shorter than the 16-byte Poly1305 tag — guaranteed Err.
+        // 47-byte ciphertext: one byte shorter than the expected 48-byte (32-byte VRK +
+        // 16-byte Poly1305 tag) output — fails with length or authentication mismatch.
         let ciphertext = [0u8; 47];
         let nonce = [0u8; 24];
         let aad = test_aad();
@@ -386,7 +398,7 @@ mod tests {
     /// `create_session_keys` succeeds and returns ciphertext with AEAD tag appended.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn test_create_session_keys_succeeds() {
+    fn create_session_keys_returns_ciphertext_nonce_and_non_zero_subkeys() {
         let password = b"test-password-never-real";
         let aad = test_aad();
         let kdf_params = test_kdf_params();
@@ -399,6 +411,20 @@ mod tests {
             &aad,
         );
         let (_keys, ciphertext, nonce) = result.expect("create_session_keys must succeed");
+        for (label, key) in [
+            ("item_wrap_key", &_keys.item_wrap_key),
+            ("metadata_key", &_keys.metadata_key),
+            ("audit_key", &_keys.audit_key),
+            ("sync_envelope_key", &_keys.sync_envelope_key),
+            ("device_enrollment_key", &_keys.device_enrollment_key),
+            ("recovery_wrapping_key", &_keys.recovery_wrapping_key),
+            ("export_key", &_keys.export_key),
+        ] {
+            assert!(
+                key.as_slice().iter().any(|byte| *byte != 0),
+                "{label} must be non-zero"
+            );
+        }
         // 32-byte VRK + 16-byte Poly1305 tag = 48 bytes
         assert_eq!(
             ciphertext.len(),
@@ -411,7 +437,7 @@ mod tests {
     /// Round-trip: create then derive must recover matching subkeys.
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn test_create_then_derive_roundtrip() {
+    fn create_then_derive_roundtrip_reproduces_all_registry_subkeys() {
         let password = b"test-password-never-real";
         let aad = test_aad();
         let kdf_params = test_kdf_params();
@@ -453,6 +479,26 @@ mod tests {
             "audit_key must match"
         );
         assert!(
+            bool::from(created.sync_envelope_key.ct_eq(&derived.sync_envelope_key)),
+            "sync_envelope_key must match"
+        );
+        assert!(
+            bool::from(
+                created
+                    .device_enrollment_key
+                    .ct_eq(&derived.device_enrollment_key)
+            ),
+            "device_enrollment_key must match"
+        );
+        assert!(
+            bool::from(
+                created
+                    .recovery_wrapping_key
+                    .ct_eq(&derived.recovery_wrapping_key)
+            ),
+            "recovery_wrapping_key must match"
+        );
+        assert!(
             bool::from(created.export_key.ct_eq(&derived.export_key)),
             "export_key must match"
         );
@@ -460,7 +506,232 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn derive_session_keys_aead_profile_id_is_bound_to_header() {
+    fn derive_session_keys_rejects_wrong_password_flipped_aad_and_unsupported_profile() {
+        let password = b"test-password-never-real";
+        let wrong_password = b"wrong-password-never-real";
+        let aad = test_aad();
+        let kdf_params = test_kdf_params();
+        let profile = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile");
+
+        let (_created, ciphertext, wrk_nonce) = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create must succeed");
+
+        assert!(matches!(
+            derive_session_keys(
+                wrong_password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                profile,
+                &kdf_params,
+                &ciphertext,
+                &wrk_nonce,
+                &aad,
+            ),
+            Err(CoreError::Auth)
+        ));
+
+        let mut wrong_aad = aad;
+        wrong_aad[0] ^= 0x01;
+        assert!(matches!(
+            derive_session_keys(
+                password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                profile,
+                &kdf_params,
+                &ciphertext,
+                &wrk_nonce,
+                &wrong_aad,
+            ),
+            Err(CoreError::Auth)
+        ));
+
+        assert!(derive_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            TEST_AEAD_PROFILE,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .is_err());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_session_keys_rejects_flipped_nonce_wrong_vault_id_and_wrong_header_nonce() {
+        let password = b"test-password-never-real";
+        let aad = test_aad();
+        let kdf_params = test_kdf_params();
+        let profile = AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("supported profile");
+
+        let (created, ciphertext, wrk_nonce) = create_session_keys(
+            password,
+            &VAULT_ID,
+            &HEADER_NONCE,
+            profile,
+            &kdf_params,
+            &aad,
+        )
+        .expect("create must succeed");
+
+        // (3) Flipped wrapped_root_key_nonce byte → AEAD tag mismatch → Err(Auth).
+        let mut wrong_nonce = wrk_nonce;
+        wrong_nonce[0] ^= 0x01;
+        assert!(matches!(
+            derive_session_keys(
+                password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                profile,
+                &kdf_params,
+                &ciphertext,
+                &wrong_nonce,
+                &aad,
+            ),
+            Err(CoreError::Auth)
+        ));
+
+        // (4) Wrong vault_id → different VKEK → AEAD decryption failure → Err(Auth).
+        let wrong_vault_id = [0xFFu8; 16];
+        assert!(derive_session_keys(
+            password,
+            &wrong_vault_id,
+            &HEADER_NONCE,
+            profile,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .is_err());
+
+        // (5) Wrong header_nonce → different root PRK → different subkeys (no AEAD
+        // failure; the VRK decrypts successfully but the derived subkeys diverge).
+        let wrong_header_nonce = [0xFFu8; 24];
+        let derived_wrong_hn = derive_session_keys(
+            password,
+            &VAULT_ID,
+            &wrong_header_nonce,
+            profile,
+            &kdf_params,
+            &ciphertext,
+            &wrk_nonce,
+            &aad,
+        )
+        .expect("wrong header_nonce still decrypts but yields different subkeys");
+        assert!(
+            !bool::from(created.item_wrap_key.ct_eq(&derived_wrong_hn.item_wrap_key)),
+            "wrong header_nonce must produce a different item_wrap_key"
+        );
+    }
+
+    #[test]
+    fn derive_master_unlock_key_with_header_params_rejects_empty_password_and_wrong_profile() {
+        let params = test_kdf_params();
+        assert!(matches!(
+            derive_master_unlock_key_with_header_params(b"", &VAULT_ID, &params),
+            Err(CoreError::Crypto)
+        ));
+
+        let mut wrong_profile = params;
+        wrong_profile.profile_id = KDF_ARGON2ID_V1 + 1;
+        assert!(matches!(
+            derive_master_unlock_key_with_header_params(
+                b"test-password-never-real",
+                &VAULT_ID,
+                &wrong_profile
+            ),
+            Err(CoreError::Crypto)
+        ));
+    }
+
+    #[test]
+    fn derive_subkeys_returns_seven_non_zero_pairwise_distinct_keys() {
+        let root_prk = Prk::from_bytes([0x41; 32]);
+        let keys = derive_subkeys(&root_prk, &VAULT_ID, AEAD_XCHACHA20_POLY1305_V1)
+            .expect("subkeys derive");
+        let subkeys = [
+            &keys.item_wrap_key,
+            &keys.metadata_key,
+            &keys.audit_key,
+            &keys.sync_envelope_key,
+            &keys.device_enrollment_key,
+            &keys.recovery_wrapping_key,
+            &keys.export_key,
+        ];
+
+        for (index, key) in subkeys.iter().enumerate() {
+            assert!(
+                key.as_slice().iter().any(|byte| *byte != 0),
+                "subkey {index} must be non-zero"
+            );
+        }
+        for (left_index, left) in subkeys.iter().enumerate() {
+            for right in subkeys.iter().skip(left_index + 1) {
+                assert!(!bool::from(left.ct_eq(right)));
+            }
+        }
+    }
+
+    #[test]
+    fn derive_subkeys_aead_scoped_keys_change_with_aead_id_non_aead_keys_remain_stable() {
+        let root_prk = Prk::from_bytes([0x41; 32]);
+        let keys_v1 =
+            derive_subkeys(&root_prk, &VAULT_ID, AEAD_XCHACHA20_POLY1305_V1).expect("v1 subkeys");
+        // Use a different aead_id via the raw constant (0x0002) rather than going
+        // through the validated AeadProfileId, since only 0x0001 is registered.
+        let keys_alt = derive_subkeys(&root_prk, &VAULT_ID, 0x0002).expect("alt subkeys");
+
+        // AEAD-scoped subkeys must differ when aead_id changes.
+        assert!(
+            !bool::from(keys_v1.item_wrap_key.ct_eq(&keys_alt.item_wrap_key)),
+            "item_wrap_key must change with aead_id"
+        );
+        assert!(
+            !bool::from(keys_v1.metadata_key.ct_eq(&keys_alt.metadata_key)),
+            "metadata_key must change with aead_id"
+        );
+
+        // Non-AEAD-scoped subkeys must be identical regardless of aead_id.
+        for (label, v1_key, alt_key) in [
+            ("audit_key", &keys_v1.audit_key, &keys_alt.audit_key),
+            (
+                "sync_envelope_key",
+                &keys_v1.sync_envelope_key,
+                &keys_alt.sync_envelope_key,
+            ),
+            (
+                "device_enrollment_key",
+                &keys_v1.device_enrollment_key,
+                &keys_alt.device_enrollment_key,
+            ),
+            (
+                "recovery_wrapping_key",
+                &keys_v1.recovery_wrapping_key,
+                &keys_alt.recovery_wrapping_key,
+            ),
+            ("export_key", &keys_v1.export_key, &keys_alt.export_key),
+        ] {
+            assert!(
+                bool::from(v1_key.ct_eq(alt_key)),
+                "{label} must be stable under aead_id change"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn derive_session_keys_rejects_unchecked_unsupported_aead_profile() {
         let password = b"test-password-never-real";
         let aad = test_aad();
         let kdf_params = test_kdf_params();
@@ -487,31 +758,40 @@ mod tests {
             &aad,
         )
         .expect("derive with matching profile must succeed");
-        let derived_v2 = derive_session_keys(
-            password,
-            &VAULT_ID,
-            &HEADER_NONCE,
-            TEST_AEAD_PROFILE,
-            &kdf_params,
-            &ciphertext,
-            &wrk_nonce,
-            &aad,
-        )
-        .expect("derive with alternate profile must still derive a distinct subkey set");
-
+        assert!(matches!(
+            derive_session_keys(
+                password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                TEST_AEAD_PROFILE,
+                &kdf_params,
+                &ciphertext,
+                &wrk_nonce,
+                &aad,
+            ),
+            Err(CoreError::Crypto)
+        ));
         assert!(
-            !bool::from(derived_v1.item_wrap_key.ct_eq(&derived_v2.item_wrap_key)),
-            "item_wrap_key must differ across AEAD profile IDs"
+            derived_v1
+                .item_wrap_key
+                .as_slice()
+                .iter()
+                .any(|byte| *byte != 0),
+            "matching profile must still derive non-zero item_wrap_key"
         );
         assert!(
-            !bool::from(derived_v1.metadata_key.ct_eq(&derived_v2.metadata_key)),
-            "metadata_key must differ across AEAD profile IDs"
+            derived_v1
+                .metadata_key
+                .as_slice()
+                .iter()
+                .any(|byte| *byte != 0),
+            "matching profile must still derive non-zero metadata_key"
         );
     }
 
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
-    fn create_session_keys_aead_profile_id_is_bound() {
+    fn create_session_keys_rejects_unchecked_unsupported_aead_profile() {
         let password = b"test-password-never-real";
         let aad = test_aad();
         let kdf_params = test_kdf_params();
@@ -526,16 +806,6 @@ mod tests {
             &aad,
         )
         .expect("create must succeed");
-        let created_v2 = create_session_keys(
-            password,
-            &VAULT_ID,
-            &HEADER_NONCE,
-            TEST_AEAD_PROFILE,
-            &kdf_params,
-            &aad,
-        )
-        .expect("create with alternate profile must succeed")
-        .0;
         let derived_match = derive_session_keys(
             password,
             &VAULT_ID,
@@ -547,34 +817,34 @@ mod tests {
             &aad,
         )
         .expect("derive with matching profile must succeed");
-        let derived_mismatch = derive_session_keys(
-            password,
-            &VAULT_ID,
-            &HEADER_NONCE,
-            TEST_AEAD_PROFILE,
-            &kdf_params,
-            &ciphertext,
-            &wrk_nonce,
-            &aad,
-        )
-        .expect("derive with mismatched profile must still produce a distinct subkey set");
-
         assert!(
             bool::from(created_v1.item_wrap_key.ct_eq(&derived_match.item_wrap_key)),
             "matching profile must reproduce item_wrap_key"
         );
-        assert!(
-            !bool::from(
-                created_v1
-                    .item_wrap_key
-                    .ct_eq(&derived_mismatch.item_wrap_key)
+        assert!(matches!(
+            create_session_keys(
+                password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                TEST_AEAD_PROFILE,
+                &kdf_params,
+                &aad,
             ),
-            "mismatched profile must change item_wrap_key"
-        );
-        assert!(
-            !bool::from(created_v1.item_wrap_key.ct_eq(&created_v2.item_wrap_key)),
-            "create_session_keys must bind item_wrap_key to AEAD profile ID"
-        );
+            Err(CoreError::Crypto)
+        ));
+        assert!(matches!(
+            derive_session_keys(
+                password,
+                &VAULT_ID,
+                &HEADER_NONCE,
+                TEST_AEAD_PROFILE,
+                &kdf_params,
+                &ciphertext,
+                &wrk_nonce,
+                &aad,
+            ),
+            Err(CoreError::Crypto)
+        ));
     }
 }
 

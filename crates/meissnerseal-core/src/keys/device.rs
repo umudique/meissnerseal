@@ -1127,6 +1127,60 @@ mod tests {
     }
 
     #[test]
+    fn serialize_identity_text_roundtrip_preserves_identity_fields() {
+        let (identity, _keypair) =
+            generate("identity-text-roundtrip".to_owned()).expect("generate");
+
+        let serialized = serialize_identity_text(&identity);
+        let parsed = deserialize_identity_text(&serialized).expect("identity text roundtrip");
+
+        assert_eq!(parsed.device_id, identity.device_id);
+        assert_eq!(parsed.display_name, identity.display_name);
+        assert!(bool::from(
+            parsed
+                .classical_public_key
+                .ct_eq(&identity.classical_public_key)
+        ));
+        assert!(bool::from(
+            parsed.pqc_public_key.ct_eq(&identity.pqc_public_key)
+        ));
+        assert_eq!(parsed.created_at, identity.created_at);
+        assert_eq!(parsed.trust_state, DeviceTrustState::Untrusted);
+        assert_eq!(
+            parsed
+                .signing_public_key
+                .as_ref()
+                .expect("parsed signing key")
+                .algorithm(),
+            identity
+                .signing_public_key
+                .as_ref()
+                .expect("source signing key")
+                .algorithm()
+        );
+        assert_eq!(
+            parsed
+                .signing_public_key
+                .as_ref()
+                .expect("parsed signing key")
+                .as_bytes(),
+            identity
+                .signing_public_key
+                .as_ref()
+                .expect("source signing key")
+                .as_bytes()
+        );
+    }
+
+    #[test]
+    fn device_trust_state_from_u8_rejects_unknown_value() {
+        assert!(matches!(
+            device_trust_state_from_u8(7),
+            Err(DeviceIdentityError::InvalidFileFormat)
+        ));
+    }
+
+    #[test]
     fn sealed_device_key_file_roundtrip_preserves_identity_and_keypair() {
         let (mut identity, keypair) = generate("sealed-device".to_owned()).expect("generate");
         identity.trust_state = DeviceTrustState::Approved;

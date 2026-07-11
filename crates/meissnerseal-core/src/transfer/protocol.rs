@@ -118,10 +118,12 @@ mod tests {
 
     #[test]
     fn transfer_profile_id_from_le_bytes_rejects_unknown_values() {
-        assert_eq!(
-            TransferProfileId::from_le_bytes([0xff, 0x7f]),
-            Err(TransferError::UnknownProfile)
-        );
+        for bytes in [[0xff, 0x7f], [0x00, 0x00], [0x02, 0x00]] {
+            assert_eq!(
+                TransferProfileId::from_le_bytes(bytes),
+                Err(TransferError::UnknownProfile)
+            );
+        }
     }
 
     #[test]

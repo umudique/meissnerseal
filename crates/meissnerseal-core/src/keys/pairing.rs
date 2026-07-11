@@ -448,6 +448,20 @@ mod tests {
     }
 
     #[test]
+    fn compute_pairing_transcript_matches_fixed_kat() {
+        let transcript = compute_pairing_transcript(&payload_fixture()).expect("transcript");
+
+        assert_eq!(
+            transcript.transcript_hash,
+            [
+                0x88, 0xb8, 0x48, 0xe6, 0x85, 0xc9, 0x0e, 0xd5, 0xd7, 0x6b, 0xce, 0x97, 0x71, 0x31,
+                0x9d, 0xa7, 0xb9, 0x5e, 0x9a, 0x3d, 0xfe, 0xdc, 0x01, 0x61, 0xff, 0x6a, 0xeb, 0x50,
+                0x76, 0x34, 0x92, 0x51
+            ]
+        );
+    }
+
+    #[test]
     fn sas_differs_for_two_different_pairing_nonces() {
         let transcript_hash = [0x44; 32];
         let first = [0x01; PAIRING_NONCE_LEN];
@@ -502,6 +516,18 @@ mod tests {
                 Ok(())
             );
         }
+    }
+
+    #[test]
+    fn pending_states_to_revoked_are_valid() {
+        assert_eq!(
+            validate_trust_transition(DeviceTrustState::PendingInbound, DeviceTrustState::Revoked),
+            Ok(())
+        );
+        assert_eq!(
+            validate_trust_transition(DeviceTrustState::PendingOutbound, DeviceTrustState::Revoked),
+            Ok(())
+        );
     }
 
     #[test]

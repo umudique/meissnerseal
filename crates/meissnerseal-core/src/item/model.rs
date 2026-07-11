@@ -188,6 +188,10 @@ mod prop_tests {
 mod tests {
     use super::*;
     use crate::error::CoreError;
+    use static_assertions::assert_not_impl_any;
+
+    assert_not_impl_any!(PlainItem: Clone, core::fmt::Display);
+    assert_not_impl_any!(PlainItemView<'_>: Clone, core::fmt::Display);
 
     #[test]
     fn test_item_kind_roundtrip() {
@@ -212,5 +216,22 @@ mod tests {
             ItemKind::from_u16(0xFFFF),
             Err(CoreError::Format(_))
         ));
+    }
+
+    #[test]
+    fn test_item_kind_zero_and_gap_values_rejected() {
+        for wire in [0x0000u16, 0x0006, 0x0007, 0x0100] {
+            assert!(
+                matches!(ItemKind::from_u16(wire), Err(CoreError::Format(_))),
+                "wire value {wire:#06x} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_item_kind_registered_values_parse() {
+        for wire in 0x0001u16..=0x0005 {
+            assert_eq!(ItemKind::from_u16(wire).unwrap().as_u16(), wire);
+        }
     }
 }
