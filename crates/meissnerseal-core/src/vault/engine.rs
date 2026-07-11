@@ -528,6 +528,7 @@ fn persist_vault_inner(
         record_id: *record_id,
         revision_id: *revision_id,
         nonce: *wrk_nonce,
+        stored_aad: *aad,
         ciphertext_len: u32::try_from(wrk_ciphertext.len())
             .map_err(|_| CoreError::Format("ciphertext length overflow".into()))?,
         ciphertext: wrk_ciphertext.to_vec(),
@@ -672,6 +673,7 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         &frame.revision_id,
         RECORD_KIND_WRAPPED_ROOT_KEY,
     );
+    crate::vault::format::validate_stored_record_aad(&frame.stored_aad, &aad)?;
 
     // Derive key hierarchy.
     let keys = params.password.with_secret(|pw| {
@@ -790,8 +792,16 @@ mod tests {
         path
     }
 
+    /// # Contract
+    /// - `path` is the target vault path used by the test fixture.
+    /// - `seed` is the same deterministic seed passed to the production temp-path builder.
+    /// - Returns the exact sibling temp path production code will use for that `(path, seed)` pair.
+    fn unique_tmp_path_for_test(path: &std::path::Path, seed: &[u8; 16]) -> std::path::PathBuf {
+        unique_tmp_path(path, seed)
+    }
+
     fn tmp_path_for(path: &std::path::Path) -> std::path::PathBuf {
-        path.with_extension("arcv.tmp")
+        unique_tmp_path_for_test(path, &[0u8; 16])
     }
 
     fn read_u32_for_test(bytes: &[u8], offset: usize) -> u32 {
@@ -881,7 +891,7 @@ mod tests {
     }
 
     fn create_test_vault(path: &std::path::Path, password: &[u8]) {
-        let tmp_path = tmp_path_for(path);
+        let tmp_path = unique_tmp_path_for_test(path, &[0u8; 16]);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&tmp_path);
         let locked = create(CreateVaultParams {
@@ -940,7 +950,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn test_create_and_lock() {
         let path = unique_temp_vault_path("create-lock");
-        let tmp_path = tmp_path_for(&path);
+        let tmp_path = unique_tmp_path_for_test(&path, &[0u8; 16]);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
 
@@ -968,7 +978,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn create_then_unlock_roundtrip_returns_working_session() {
         let path = unique_temp_vault_path("roundtrip");
-        let tmp_path = tmp_path_for(&path);
+        let tmp_path = unique_tmp_path_for_test(&path, &[0u8; 16]);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
 
@@ -1385,6 +1395,18 @@ mod tests {
     }
 
     #[test]
+    fn unique_tmp_path_is_deterministic_for_path_and_seed() {
+        let path = std::path::Path::new("/tmp/example.msv");
+        let seed = [0xAB; 16];
+
+        assert_eq!(unique_tmp_path(path, &seed), unique_tmp_path(path, &seed));
+        assert_ne!(
+            unique_tmp_path(path, &seed),
+            unique_tmp_path(path, &[0xAC; 16])
+        );
+    }
+
+    #[test]
     fn unlock_rejects_vault_file_exceeding_max_size_before_read() {
         let path = unique_temp_vault_path("oversize-file");
         let tmp_path = tmp_path_for(&path);
@@ -1403,6 +1425,73 @@ mod tests {
             result,
             Err(CoreError::Format(message)) if message == "vault file exceeds maximum length"
         ));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    fn record_frame_len_at_rejects_underflow_overflow_and_boundary_mismatch() {
+        assert!(record_frame_len_at(&[], 0).is_err());
+        assert!(record_frame_len_at(&[0u8; 3], usize::MAX - 1).is_err());
+
+        let mut bytes = vec![0u8; 64];
+        let aad_len_offset = 2 + 16 + 16 + 2 + 1;
+        bytes
+            .get_mut(aad_len_offset..aad_len_offset + 4)
+            .expect("aad_len fixture slice")
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(record_frame_len_at(&bytes, 0).is_err());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_zero_length_body_after_valid_prefix() {
+        let path = unique_temp_vault_path("zero-body");
+        let tmp_path = tmp_path_for(&path);
+        let header = serialize_header(&VaultHeader {
+            profile_set: VaultProfileSet {
+                aead_profile: AeadProfileId::new(AEAD_XCHACHA20_POLY1305_V1).expect("aead fixture"),
+                pqc_profile: PqcProfileId::new(PQC_NONE).expect("pqc fixture"),
+                kdf_profile: KdfProfileId::new(KDF_ARGON2ID_V1).expect("kdf fixture"),
+                schema: SchemaProfileId::new(SCHEMA_MEISSNER_RECORDS_V2).expect("schema fixture"),
+            },
+            vault_id: [0x11; 16],
+            created_at: 1,
+            format_version: FORMAT_VERSION,
+            schema_profile: SCHEMA_MEISSNER_RECORDS_V2,
+            aead_profile: AEAD_XCHACHA20_POLY1305_V1,
+            kdf_profile: KDF_ARGON2ID_V1,
+            kdf_params: HeaderKdfParams::canonical_argon2id_v1(),
+            pqc_profile: PQC_NONE,
+            header_nonce: [0x22; 24],
+        })
+        .expect("header fixture");
+        let bytes = serialize_vault_file(&header, &[], &[]).expect("vault bytes fixture");
+        std::fs::write(&path, bytes).expect("write zero-body vault");
+
+        assert!(unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"zero-body-password-never-real".to_vec()),
+        })
+        .is_err());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_wrong_passphrase_returns_err() {
+        let path = unique_temp_vault_path("wrong-passphrase");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"correct-password-never-real");
+
+        assert!(unlock(UnlockParams {
+            path: path.clone(),
+            password: SecretBytes::new(b"wrong-password-never-real".to_vec()),
+        })
+        .is_err());
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);
@@ -1523,18 +1612,80 @@ mod tests {
         let tmp_path = tmp_path_for(&path);
         create_test_vault(&path, b"patched-revision-password-never-real");
 
-        let (mut bytes, revision_offset) = frame_revision_id_offset(&path);
-        let value = bytes
-            .get_mut(revision_offset)
-            .expect("revision patch fixture");
-        *value ^= 0x01;
-        std::fs::write(&path, bytes).expect("patch revision fixture");
+        let (original_bytes, revision_offset) = frame_revision_id_offset(&path);
 
-        let unlock_result = unlock(UnlockParams {
-            path: path.clone(),
-            password: SecretBytes::new(b"patched-revision-password-never-real".to_vec()),
-        });
-        assert!(unlock_result.is_err());
+        for pos in [0usize, 8, 15] {
+            let mut bytes = original_bytes.clone();
+            let value = bytes
+                .get_mut(revision_offset + pos)
+                .expect("revision patch fixture");
+            *value ^= 0x01;
+            std::fs::write(&path, &bytes).expect("patch revision fixture");
+
+            let unlock_result = unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(b"patched-revision-password-never-real".to_vec()),
+            });
+            assert!(
+                unlock_result.is_err(),
+                "byte flip at pos {pos} must make unlock fail"
+            );
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Flipping a byte in the WRK ciphertext body must cause AEAD authentication
+    /// to fail and make unlock return Err with no key material exposed.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_flipped_wrk_ciphertext_byte() {
+        let path = unique_temp_vault_path("flip-ciphertext");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"flip-ct-password-never-real");
+
+        let (mut bytes, frame, frame_offset, _) = wrapped_root_frame_for_test(&path);
+        let ct_start = frame_offset + 2 + 16 + 16 + 2 + 1 + frame.nonce.len() + 4 + 79 + 4;
+        *bytes.get_mut(ct_start).expect("ciphertext byte fixture") ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write tampered ciphertext");
+
+        assert!(
+            unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(b"flip-ct-password-never-real".to_vec()),
+            })
+            .is_err(),
+            "ciphertext byte flip must make unlock fail"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Flipping the last byte of the WRK ciphertext (Poly1305 tag region) must
+    /// cause AEAD authentication to fail and make unlock return Err.
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn unlock_rejects_flipped_wrk_tag_byte() {
+        let path = unique_temp_vault_path("flip-tag");
+        let tmp_path = tmp_path_for(&path);
+        create_test_vault(&path, b"flip-tag-password-never-real");
+
+        let (mut bytes, frame, frame_offset, _) = wrapped_root_frame_for_test(&path);
+        let ct_start = frame_offset + 2 + 16 + 16 + 2 + 1 + frame.nonce.len() + 4 + 79 + 4;
+        let ct_end = ct_start + frame.ciphertext.len();
+        *bytes.get_mut(ct_end - 1).expect("tag byte fixture") ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write tampered tag");
+
+        assert!(
+            unlock(UnlockParams {
+                path: path.clone(),
+                password: SecretBytes::new(b"flip-tag-password-never-real".to_vec()),
+            })
+            .is_err(),
+            "tag byte flip must make unlock fail"
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp_path);

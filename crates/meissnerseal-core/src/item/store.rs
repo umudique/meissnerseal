@@ -271,6 +271,7 @@ fn build_record_frame(
         revision_id: *revision_id,
         // The §6 nonce field is structural; item AEAD nonces live in the envelope.
         nonce: meissnerseal_crypto::rng::random_nonce_xchacha20(),
+        stored_aad: *aad,
         ciphertext_len,
         ciphertext,
     };

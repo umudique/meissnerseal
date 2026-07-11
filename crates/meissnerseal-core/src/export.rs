@@ -671,6 +671,18 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn export_empty_passphrase_rejects() {
+        let (path, session) = unlocked_session("empty-export-passphrase");
+
+        assert!(matches!(
+            export(&session, b""),
+            Err(CoreError::InvalidState(message)) if message == "empty export passphrase"
+        ));
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn import_rejects_wrong_magic() {
         let (path, session) = unlocked_session("wrong-magic");
         let mut bundle = framed_bundle(MSEXP_VERSION_V1, &[0x7b; 16]);
@@ -718,6 +730,52 @@ mod tests {
         *last ^= 0xFF;
 
         assert!(import(&session, &bundle, EXPORT_PASSPHRASE).is_err());
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn import_rejects_tampered_ciphertext_at_first_mid_and_last_byte() {
+        let (path, session) = unlocked_session("tamper-multi");
+
+        add(
+            &session,
+            plain_item("tamper multi export", b"tamper multi secret"),
+        )
+        .expect("export fixture item add");
+        let bundle = export(&session, EXPORT_PASSPHRASE).expect("export bundle");
+
+        let kdf_len = u32::from_le_bytes(
+            bundle
+                .get(
+                    MAGIC_LEN + VERSION_LEN + VAULT_ID_LEN
+                        ..MAGIC_LEN + VERSION_LEN + VAULT_ID_LEN + KDF_PARAMS_LEN_FIELD,
+                )
+                .expect("kdf_len fixture")
+                .try_into()
+                .expect("kdf_len fixture"),
+        ) as usize;
+        let ciphertext_len_offset =
+            MAGIC_LEN + VERSION_LEN + VAULT_ID_LEN + KDF_PARAMS_LEN_FIELD + kdf_len + NONCE_LEN;
+        let ciphertext_len = u32::from_le_bytes(
+            bundle
+                .get(ciphertext_len_offset..ciphertext_len_offset + 4)
+                .expect("ciphertext_len fixture")
+                .try_into()
+                .expect("ciphertext_len fixture"),
+        ) as usize;
+        let ciphertext_start = bundle.len() - ciphertext_len;
+        for offset in [0usize, ciphertext_len / 2, ciphertext_len - 1] {
+            let mut tampered = bundle.clone();
+            *tampered
+                .get_mut(ciphertext_start + offset)
+                .expect("ciphertext byte fixture") ^= 0x01;
+            assert!(
+                import(&session, &tampered, EXPORT_PASSPHRASE).is_err(),
+                "tamper at ciphertext offset {offset} must reject"
+            );
+        }
+
         cleanup(&path, session);
     }
 
@@ -776,6 +834,70 @@ mod tests {
             deserialize_item_set(&bytes),
             Err(CoreError::Format(message)) if message == "export tag count exceeds maximum"
         ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_invalid_utf8_label() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xFF, 0xFE]);
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "invalid field encoding"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_accepts_max_export_item_count() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(
+            &u32::try_from(MAX_EXPORT_ITEM_COUNT)
+                .expect("MAX_EXPORT_ITEM_COUNT fixture fits u32")
+                .to_le_bytes(),
+        );
+        for _ in 0..MAX_EXPORT_ITEM_COUNT {
+            bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+
+        let parsed = deserialize_item_set(&bytes).expect("max item count must parse");
+        assert_eq!(parsed.len(), MAX_EXPORT_ITEM_COUNT);
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_max_export_item_count_plus_one() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(
+            &(u32::try_from(MAX_EXPORT_ITEM_COUNT).expect("MAX_EXPORT_ITEM_COUNT fits u32") + 1)
+                .to_le_bytes(),
+        );
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "export item count exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn serialize_bundle_rejects_non_xchacha_nonce_length() {
+        assert!(matches!(
+            serialize_bundle(&[0x11; 16], &[], &[0x22; 12], &[0x33; 16]),
+            Err(CoreError::Format(message)) if message == "invalid export nonce length"
+        ));
+    }
+
+    #[test]
+    fn export_aad_places_msexp_magic_at_expected_offset() {
+        let aad = export_aad(&[0x11; 16], MSEXP_VERSION_V1);
+        assert_eq!(&aad[16..24], &MSEXP_MAGIC);
+        assert_eq!(&aad[24..26], &MSEXP_VERSION_V1.to_le_bytes());
     }
 
     #[test]
@@ -865,6 +987,23 @@ mod tests {
             deserialize_item_set(&bytes),
             Err(CoreError::Format(message)) if message == "truncated field"
         ));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn export_bundle_does_not_contain_plaintext_secret() {
+        let (path, session) = unlocked_session("leakage-scan");
+        const SECRET: &[u8] = b"leakage-scan-secret-never-real-plaintext";
+
+        add(&session, plain_item("leakage item", SECRET))
+            .expect("item add must succeed before export");
+        let bundle = export(&session, EXPORT_PASSPHRASE).expect("export bundle");
+
+        assert!(
+            !bundle.windows(SECRET.len()).any(|w| w == SECRET),
+            "export bundle must not contain plaintext secret bytes"
+        );
+        cleanup(&path, session);
     }
 
     #[test]
