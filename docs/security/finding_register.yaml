@@ -6939,7 +6939,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the literal integer arguments in test_aad() with the named
       constants: FORMAT_VERSION for format_version,
@@ -6950,7 +6950,7 @@ findings:
       test_aad() no longer embeds SCHEMA_MEISSNER_RECORDS_V1. All hierarchy
       tests that use the fixture continue to pass.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-196
     kind: coverage_gap
@@ -6968,7 +6968,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add constant-time assertions for sync_envelope_key, device_enrollment_key,
       and recovery_wrapping_key to test_create_then_derive_roundtrip, matching
@@ -6977,7 +6977,7 @@ findings:
       All seven subkeys are asserted via ct_eq in the roundtrip test.
       A regression zeroing any single subkey causes the test to fail.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-197
     kind: coverage_gap
@@ -7004,7 +7004,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add negative tests: (1) wrong password → Err(CoreError::Auth); (2) one
       byte of aad flipped → Err(CoreError::Auth); (3) one byte of
@@ -7015,7 +7015,7 @@ findings:
     verification: >-
       All five negative cases return the expected error or subkey mismatch.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-198
     kind: coverage_gap
@@ -7034,7 +7034,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add unit tests for derive_master_unlock_key_with_header_params:
       empty password → Err; profile_id != KDF_ARGON2ID_V1 → Err;
@@ -7046,7 +7046,7 @@ findings:
       Each guard case returns Err. Removing any guard causes its test to fail.
       The Miri-compatible tests (non-KDF rejections) run without the ignore
       annotation. cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-199
     kind: coverage_gap
@@ -7071,7 +7071,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a direct derive_subkeys unit test that: (1) calls derive_subkeys
       with a fixed root_prk/vault_id/aead_id and asserts all seven keys are
@@ -7083,7 +7083,7 @@ findings:
       All seven subkeys are pairwise distinct. AEAD-scoped keys change with
       aead_id. Non-AEAD-scoped keys are stable under aead_id changes.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-200
     kind: consistency
@@ -7115,7 +7115,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a comment on TEST_AEAD_PROFILE explaining it is a synthetic
       non-production value used only to exercise HKDF aead_id scoping and
@@ -7132,7 +7132,7 @@ findings:
       Test names accurately describe what each test exercises. The comment
       describes the actual failure reason. cargo test -p meissnerseal-core
       passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-201
     kind: coverage_gap
@@ -7154,7 +7154,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Extend test_create_session_keys_succeeds to assert that the returned
       UnlockedKeys fields are non-zero (or add a sibling smoke test asserting
@@ -7166,7 +7166,7 @@ findings:
       A regression producing all-zero or identical subkeys is caught.
       Two successive create calls produce distinct ciphertext and nonce.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-202
     kind: coverage_gap
@@ -7183,7 +7183,7 @@ findings:
     cwe: "CWE-312"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a compile-time assertion in the test module:
       static_assertions::assert_not_impl_any!(UnlockedKeys: Clone, PartialEq,
@@ -7193,7 +7193,7 @@ findings:
     verification: >-
       Adding #[derive(Debug)] to UnlockedKeys causes a compile error.
       cargo test -p meissnerseal-core passes without the derive.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-203
     kind: coverage_gap
@@ -8706,7 +8706,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test asserting that ItemKind::try_from(0x0000u16) returns Err.
       Also verify that the gap values 0x0001–0x0005 are the only accepted
@@ -8714,7 +8714,7 @@ findings:
     verification: >-
       ItemKind::try_from(0x0000u16) returns Err.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-255
     kind: coverage_gap
@@ -8731,7 +8731,7 @@ findings:
     cwe: "CWE-1270"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add assert_not_impl_any!(PlainItem: Clone, core::fmt::Display) and
       assert_not_impl_any!(PlainItemView<'_>: Clone, core::fmt::Display)
@@ -8739,7 +8739,7 @@ findings:
     verification: >-
       assert_not_impl_any! guards compile for both types.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-256
     kind: coverage_gap
@@ -8757,7 +8757,7 @@ findings:
     cwe: "CWE-392"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a roundtrip test: generate() a DeviceIdentity, call
       serialize_identity_text, then deserialize_identity_text, and assert
@@ -8766,7 +8766,7 @@ findings:
     verification: >-
       serialize_identity_text / deserialize_identity_text roundtrip tested.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-257
     kind: coverage_gap
@@ -8784,7 +8784,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a unit test calling device_trust_state_from_u8(7) and asserting
       Err(DeviceIdentityError::InvalidFileFormat). Optionally test 255 as
@@ -8792,7 +8792,7 @@ findings:
     verification: >-
       device_trust_state_from_u8(7) returns Err(InvalidFileFormat).
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-258
     kind: coverage_gap
@@ -8811,7 +8811,7 @@ findings:
     cwe: "CWE-392"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a KAT for compute_pairing_transcript using a fixed PairingPayload
       and asserting the transcript_hash equals an independently computed
@@ -8820,7 +8820,7 @@ findings:
     verification: >-
       compute_pairing_transcript KAT passes against reference value.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-259
     kind: coverage_gap
@@ -8837,7 +8837,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Extend the any_state_to_revoked_is_valid test (or add a new test) to
       assert that PendingInbound → Revoked and PendingOutbound → Revoked
@@ -8845,7 +8845,7 @@ findings:
     verification: >-
       PendingInbound → Revoked and PendingOutbound → Revoked both return Ok.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-260
     kind: coverage_gap
@@ -8864,7 +8864,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests asserting that from_u16(0x0000) and from_u16(0x0002) both
       return Err(TransferError::UnknownProfile). Optionally use a proptest
@@ -8872,7 +8872,7 @@ findings:
     verification: >-
       from_u16(0) and from_u16(2) return Err(UnknownProfile).
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-261
     kind: coverage_gap
@@ -8889,7 +8889,7 @@ findings:
     cwe: "CWE-226"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Rewrite the drop path test using ManuallyDrop and a raw pointer to
       assert the backing buffer bytes are zero after drop, mirroring the
@@ -8897,7 +8897,7 @@ findings:
     verification: >-
       Drop path verified via raw pointer read. Bytes are zero after drop.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-262
     kind: coverage_gap
@@ -8913,14 +8913,14 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests asserting SecretPayload::new(vec![0u8; 4]).len() == 4 and
       SecretPayload::new(vec![]).is_empty() == true.
     verification: >-
       len() and is_empty() tested for SecretPayload.
       cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-263
     kind: coverage_gap
@@ -8941,7 +8941,7 @@ findings:
     cwe: "CWE-1076"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Expose a production function (e.g. record_frame_len or frame_end_offset)
       from vault/format.rs under #[cfg(test)] and use it in vectors.rs
@@ -8951,7 +8951,7 @@ findings:
     verification: >-
       Shadow parser removed. section_offset derived from production code or
       pinned in test vectors. cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-264
     kind: coverage_gap
@@ -8969,7 +8969,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Strengthen the test to assert that each slice is exactly 32 bytes
       and non-zero, or merge it with vault_kdf_v1_all_seven_subkeys_match_vectors
@@ -8977,7 +8977,7 @@ findings:
     verification: >-
       unlocked_keys_exposes_all_seven_registry_subkeys asserts key content,
       not just array length. cargo test -p meissnerseal-core passes.
-    commit: ""
+    commit: "f46611b"
 
   - id: F-265
     kind: coverage_gap
