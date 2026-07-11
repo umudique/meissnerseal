@@ -571,7 +571,8 @@ fn fsync_parent(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
+#[doc(hidden)]
+pub fn record_frame_end_offset(bytes: &[u8], offset: usize) -> Result<usize> {
     const FRAME_FIXED_PREFIX: usize = 2 + 16 + 16 + 2 + 1;
     let fixed_end = offset
         .checked_add(FRAME_FIXED_PREFIX)
@@ -598,10 +599,15 @@ pub(crate) fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
         .and_then(|value| value.checked_add(usize::try_from(aad_len).ok()?))
         .ok_or_else(|| CoreError::Format("ciphertext length offset overflow".into()))?;
     let ciphertext_len = read_u32_at(bytes, ciphertext_len_offset)?;
-    let frame_len = ciphertext_len_offset
+    ciphertext_len_offset
         .checked_add(4)
         .and_then(|value| value.checked_add(usize::try_from(ciphertext_len).ok()?))
-        .and_then(|end| end.checked_sub(offset))
+        .ok_or_else(|| CoreError::Format("record frame length overflow".into()))
+}
+
+pub(crate) fn record_frame_len_at(bytes: &[u8], offset: usize) -> Result<u32> {
+    let frame_len = record_frame_end_offset(bytes, offset)?
+        .checked_sub(offset)
         .ok_or_else(|| CoreError::Format("record frame length overflow".into()))?;
     u32::try_from(frame_len).map_err(|_| CoreError::Format("record frame length overflow".into()))
 }

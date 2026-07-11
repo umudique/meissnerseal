@@ -14,6 +14,9 @@
 vault::
   UntrustedVaultFile
   UntrustedVaultFile::parse_and_validate(bytes: &[u8]) -> Result<UntrustedVaultFile>
+  record_frame_end_offset(bytes: &[u8], offset: usize) -> Result<usize>
+    // hidden parser-layout helper exposed for integration tests; not a
+    // stable application-facing API
   Vault<Locked>::create(params: CreateVaultParams) -> Result<Vault<Locked>>
   Vault<Locked>::open(path) -> Result<Vault<Locked>>
   Vault<Locked>::unlock(self, params: UnlockParams) -> Result<Vault<Unlocked>>
