@@ -478,8 +478,8 @@ pub fn create_envelope(params: CreateEnvelopeParams) -> Result<TransferEnvelope,
 /// ## Postconditions
 /// - Returns plaintext only after validation and AEAD authentication.
 /// - Expired envelopes return `Err(ExpiredEnvelope)` before key derivation.
-/// - Replayed envelope IDs return `Err(ReplayedEnvelopeId)` before key
-///   derivation or decryption.
+/// - Replayed envelope IDs return `Err(ReplayedEnvelopeId)` after AEAD
+///   decryption and sender signature verification.
 ///
 /// ## Invariants
 /// - Fail closed; never returns partial plaintext on any error.
@@ -1016,6 +1016,53 @@ mod tests {
         );
 
         assert!(matches!(second, Err(TransferError::ReplayedEnvelopeId)));
+    }
+
+    #[test]
+    fn open_envelope_evicts_expired_replay_entry_before_checking_replay() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let recipient_private_bytes = *recipient_private.as_bytes();
+        let recipient_public_bytes = *recipient_public.as_bytes();
+        let recipient_pqc_private_bytes = *recipient_pqc_private.as_bytes();
+        let envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: recipient_public,
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+
+        // Pre-populate a replay store with this envelope's ID but marked as expired.
+        // from_bytes is used to bypass check_and_insert's own expiry guard.
+        let mut store_bytes = Vec::new();
+        store_bytes.extend_from_slice(&1u32.to_le_bytes());
+        store_bytes.extend_from_slice(&envelope.envelope_id);
+        store_bytes.extend_from_slice(&past_timestamp().to_le_bytes());
+        let mut seen = SeenEnvelopeIds::from_bytes(&store_bytes).expect("expired-entry fixture");
+
+        // open_envelope calls check_and_insert, which calls evict_expired first.
+        // The expired entry is removed before the replay check, so the call must succeed.
+        let result = open_envelope(
+            &envelope,
+            OpenEnvelopeParams {
+                recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
+                recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
+                recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
+                sender_signing_public_key: trusted_sender(sender_signing_public_key),
+            },
+            &mut seen,
+        );
+        assert!(
+            result.is_ok(),
+            "open_envelope must succeed: evict_expired must remove expired entry before replay check"
+        );
     }
 
     #[test]
@@ -1600,6 +1647,53 @@ mod tests {
             &mut SeenEnvelopeIds::new(),
         );
         assert!(matches!(wrong, Err(TransferError::DecryptionFailed)));
+    }
+
+    #[test]
+    fn open_envelope_check_and_insert_runs_after_decryption() {
+        let (recipient_private, recipient_public) = hybrid::x25519_keypair();
+        let (recipient_pqc_public, recipient_pqc_private) =
+            mlkem::keypair().expect("recipient ML-KEM keypair");
+        let (sender_signing_public_key, sender_signing_private_key) = mldsa::ed25519_keypair();
+        let recipient_private_bytes = *recipient_private.as_bytes();
+        let recipient_public_bytes = *recipient_public.as_bytes();
+        let recipient_pqc_private_bytes = *recipient_pqc_private.as_bytes();
+        let mut envelope = create_envelope(CreateEnvelopeParams {
+            sender_device_id: [0x11; 16],
+            recipient_device_id: Some([0x22; 16]),
+            anonymous_recipient_public_key: None,
+            recipient_classical_public_key: recipient_public,
+            recipient_pqc_public_key: recipient_pqc_public,
+            sender_signing_private_key,
+            plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
+            expires_at: Some(future_timestamp()),
+        })
+        .expect("create envelope");
+
+        let make_params = || OpenEnvelopeParams {
+            recipient_classical_private_key: Key::from_bytes(recipient_private_bytes),
+            recipient_classical_public_key: Key::from_bytes(recipient_public_bytes),
+            recipient_pqc_private_key: Key::from_bytes(recipient_pqc_private_bytes),
+            sender_signing_public_key: trusted_sender(sender_signing_public_key.clone()),
+        };
+
+        let mut seen = SeenEnvelopeIds::new();
+        open_envelope(&envelope, make_params(), &mut seen).expect("first open must succeed");
+
+        // Tamper the ciphertext so decryption fails on the second call.
+        // envelope_id is already in `seen`. If check_and_insert ran BEFORE decrypt,
+        // the error would be ReplayedEnvelopeId. The error must be DecryptionFailed,
+        // pinning that AEAD decrypt runs before the replay check.
+        *envelope
+            .encrypted_payload
+            .last_mut()
+            .expect("payload fixture") ^= 0xFF;
+        let err = open_envelope(&envelope, make_params(), &mut seen)
+            .expect_err("tampered ciphertext must fail");
+        assert!(
+            matches!(err, TransferError::DecryptionFailed),
+            "expected DecryptionFailed — decrypt must run before replay check; got {err:?}"
+        );
     }
 
     fn envelope_fixture() -> TransferEnvelope {

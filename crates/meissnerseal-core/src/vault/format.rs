@@ -2,6 +2,7 @@
 //! Vault binary format contracts.
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
+use meissnerseal_crypto::subtle::ConstantTimeEq;
 use meissnerseal_crypto::{
     aead::{decrypt, encrypt, Ciphertext, RECORD_AAD_LEN, TAG_LEN},
     kdf::argon2::{
@@ -283,6 +284,9 @@ pub struct RecordFrame {
 
     /// AEAD nonce bytes.
     pub nonce: [u8; 24],
+
+    /// Stored canonical record AAD bytes.
+    pub stored_aad: [u8; RECORD_AAD_LEN],
 
     /// Declared ciphertext length.
     pub ciphertext_len: u32,
@@ -1557,13 +1561,13 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
     let aad_len = usize::try_from(read_u32_le(frame, cursor)?)
         .map_err(|_| format_error("AAD length overflow"))?;
     cursor += 4;
+    let aad_start = cursor;
     let aad_end = cursor
         .checked_add(aad_len)
         .ok_or_else(|| format_error("AAD length overflow"))?;
     if aad_end > frame_len {
         return Err(format_error("truncated record frame AAD"));
     }
-    validate_stored_record_aad(&frame[cursor..aad_end], &record_id, &revision_id)?;
     cursor = aad_end;
 
     let ciphertext_len = read_u32_le(frame, cursor)?;
@@ -1586,49 +1590,23 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
         record_id,
         revision_id,
         nonce,
+        stored_aad: read_array::<RECORD_AAD_LEN>(
+            &frame[aad_start..aad_end],
+            "invalid record AAD bytes",
+        )?,
         ciphertext_len,
         ciphertext: frame[cursor..ciphertext_end].to_vec(),
     })
 }
 
-fn validate_stored_record_aad(
+pub(crate) fn validate_stored_record_aad(
     aad: &[u8],
-    record_id: &[u8; 16],
-    revision_id: &[u8; 16],
+    expected: &[u8; RECORD_AAD_LEN],
 ) -> Result<()> {
     if aad.len() != RECORD_AAD_LEN {
         return Err(format_error("invalid record AAD length"));
     }
-    let mut cursor = 0usize;
-    if &aad[cursor..cursor + AAD_DOMAIN.len()] != AAD_DOMAIN {
-        return Err(format_error("invalid record AAD bytes"));
-    }
-    cursor += AAD_DOMAIN.len();
-    cursor += 16;
-    if u16::from_le_bytes(read_array(
-        &aad[cursor..cursor + 2],
-        "invalid record AAD bytes",
-    )?) != FORMAT_VERSION
-    {
-        return Err(format_error("invalid record AAD bytes"));
-    }
-    cursor += 2;
-    cursor += 2;
-    if u16::from_le_bytes(read_array(
-        &aad[cursor..cursor + 2],
-        "invalid record AAD bytes",
-    )?) != AEAD_XCHACHA20_POLY1305_V1
-    {
-        return Err(format_error("invalid record AAD bytes"));
-    }
-    cursor += 2;
-    cursor += 2;
-    cursor += 2;
-    if &aad[cursor..cursor + 16] != record_id {
-        return Err(format_error("invalid record AAD bytes"));
-    }
-    cursor += 16;
-    if &aad[cursor..cursor + 16] != revision_id {
+    if aad.ct_eq(expected).unwrap_u8() != 1 {
         return Err(format_error("invalid record AAD bytes"));
     }
     Ok(())
@@ -2079,6 +2057,73 @@ mod tests {
     }
 
     #[test]
+    fn test_build_aad_field_offsets_match_layout() {
+        let aad = build_aad(
+            &VAULT_ID,
+            FORMAT_VERSION,
+            SCHEMA_MEISSNER_RECORDS_V2,
+            AEAD_XCHACHA20_POLY1305_V1,
+            KDF_ARGON2ID_V1,
+            PQC_NONE,
+            &RECORD_ID,
+            &REVISION_ID,
+            RECORD_KIND_ITEM,
+        );
+
+        let mut cursor = 0usize;
+        assert_eq!(&aad[cursor..cursor + AAD_DOMAIN.len()], AAD_DOMAIN);
+        cursor += AAD_DOMAIN.len();
+        assert_eq!(&aad[cursor..cursor + 16], &VAULT_ID);
+        cursor += 16;
+        assert_eq!(&aad[cursor..cursor + 2], &FORMAT_VERSION.to_le_bytes());
+        cursor += 2;
+        assert_eq!(
+            &aad[cursor..cursor + 2],
+            &SCHEMA_MEISSNER_RECORDS_V2.to_le_bytes()
+        );
+        cursor += 2;
+        assert_eq!(
+            &aad[cursor..cursor + 2],
+            &AEAD_XCHACHA20_POLY1305_V1.to_le_bytes()
+        );
+        cursor += 2;
+        assert_eq!(&aad[cursor..cursor + 2], &KDF_ARGON2ID_V1.to_le_bytes());
+        cursor += 2;
+        assert_eq!(&aad[cursor..cursor + 2], &PQC_NONE.to_le_bytes());
+        cursor += 2;
+        assert_eq!(&aad[cursor..cursor + 16], &RECORD_ID);
+        cursor += 16;
+        assert_eq!(&aad[cursor..cursor + 16], &REVISION_ID);
+        cursor += 16;
+        assert_eq!(&aad[cursor..cursor + 2], &RECORD_KIND_ITEM.to_le_bytes());
+        assert_eq!(cursor + 2, RECORD_AAD_LEN);
+    }
+
+    #[test]
+    fn validate_stored_record_aad_rejects_single_byte_flip_at_every_position() {
+        let baseline = build_aad(
+            &VAULT_ID,
+            FORMAT_VERSION,
+            SCHEMA_MEISSNER_RECORDS_V2,
+            AEAD_XCHACHA20_POLY1305_V1,
+            KDF_ARGON2ID_V1,
+            PQC_NONE,
+            &RECORD_ID,
+            &REVISION_ID,
+            RECORD_KIND_ITEM,
+        );
+
+        for offset in 0..baseline.len() {
+            let mut corrupted = baseline;
+            corrupted[offset] ^= 0x01;
+            assert!(
+                validate_stored_record_aad(&corrupted, &baseline).is_err(),
+                "corruption at offset {offset} must be rejected"
+            );
+        }
+    }
+
+    #[test]
     fn test_parse_header_rejects_wrong_magic() {
         assert!(parse_header(&[0u8; 64]).is_err());
     }
@@ -2427,6 +2472,7 @@ mod tests {
             record_id: RECORD_ID,
             revision_id: REVISION_ID,
             nonce: [0x33; 24],
+            stored_aad: aad,
             ciphertext_len: usize_to_u32_for_test(ciphertext.len()),
             ciphertext,
         };
@@ -2441,6 +2487,7 @@ mod tests {
                 assert_eq!(parsed.record_id, frame.record_id);
                 assert_eq!(parsed.revision_id, frame.revision_id);
                 assert_eq!(parsed.nonce, frame.nonce);
+                assert_eq!(parsed.stored_aad, frame.stored_aad);
                 assert_eq!(parsed.ciphertext_len, frame.ciphertext_len);
                 assert_eq!(parsed.ciphertext, frame.ciphertext);
             }
@@ -2564,6 +2611,7 @@ mod tests {
             record_id: RECORD_ID,
             revision_id: REVISION_ID,
             nonce: [0x33; 24],
+            stored_aad: aad,
             ciphertext_len: usize_to_u32_for_test(32),
             ciphertext: vec![0x55; 32],
         };
@@ -2583,6 +2631,7 @@ mod tests {
             record_id: RECORD_ID,
             revision_id: REVISION_ID,
             nonce: [0x33; 24],
+            stored_aad: aad,
             ciphertext_len: usize_to_u32_for_test(32),
             ciphertext: vec![0x55; 32],
         };
@@ -2602,6 +2651,7 @@ mod tests {
             record_id: RECORD_ID,
             revision_id: REVISION_ID,
             nonce: [0x33; 24],
+            stored_aad: aad,
             ciphertext_len: usize_to_u32_for_test(32),
             ciphertext: vec![0x55; 32],
         };
@@ -2621,15 +2671,15 @@ mod tests {
             record_id: RECORD_ID,
             revision_id: REVISION_ID,
             nonce: [0x33; 24],
+            stored_aad: aad,
             ciphertext_len: usize_to_u32_for_test(32),
             ciphertext: vec![0x55; 32],
         };
         let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
         bytes[65] ^= 0x01;
-        assert!(matches!(
-            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
-            Err(CoreError::Format(_))
-        ));
+        let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()))
+            .expect("record frame parser must preserve stored aad bytes");
+        assert!(validate_stored_record_aad(&parsed.stored_aad, &aad).is_err());
     }
 
     #[test]
