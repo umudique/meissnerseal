@@ -518,9 +518,31 @@ fn restrict_owner_only(_path: &PathBuf) -> Result<()> {
 }
 
 fn init_vault(path: PathBuf, stdin: bool, stdout: &mut dyn Write) -> Result<()> {
-    let mut password = prompt_password("Master password: ", stdin)?;
-    let mut confirm = prompt_password("Confirm: ", stdin)?;
+    let password = prompt_password("Master password: ", stdin)?;
+    let confirm = prompt_password("Confirm: ", stdin)?;
+    init_vault_with_passwords(path, password, confirm, stdout)
+}
 
+/// # Contract
+///
+/// ## Preconditions
+/// - `password` and `confirm` are caller-owned secret inputs collected through a
+///   hidden prompt or the explicit `--stdin` path, never argv.
+/// - `path` is the destination `.msv` vault path requested by the operator.
+///
+/// ## Postconditions
+/// - On success, creates the vault and writes only the created path to stdout.
+/// - On password mismatch, returns `Err` without attempting vault creation.
+///
+/// ## Invariants
+/// - Never prints or logs password material.
+/// - Zeroizes prompt-owned string buffers before returning.
+fn init_vault_with_passwords(
+    path: PathBuf,
+    mut password: String,
+    mut confirm: String,
+    stdout: &mut dyn Write,
+) -> Result<()> {
     if password != confirm {
         password.zeroize();
         confirm.zeroize();
@@ -584,7 +606,7 @@ fn add_item(
 ) -> Result<()> {
     let session = unlock_session(vault_path, password)?;
     let id = item::add(&session, item)?;
-    writeln!(stdout, "{}", hex_id(&id))?;
+    writeln!(stdout, "Item ID: {}", hex_id(&id))?;
     Ok(())
 }
 
@@ -688,6 +710,18 @@ fn export_bundle(
     let bundle = meissnerseal_core::export::export(&session, &passphrase);
     let bundle = bundle?;
     // Write raw bundle bytes to disk only; never log or print the bytes (G-03).
+    // Mode 0600: bundle contains encrypted secrets and must not be world-readable.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&output)?
+            .write_all(&bundle)?;
+    }
+    #[cfg(not(unix))]
     std::fs::write(&output, &bundle)?;
     writeln!(stdout, "Exported encrypted bundle to {}", output.display())?;
     Ok(())
@@ -1235,6 +1269,27 @@ mod tests {
     }
 
     #[test]
+    fn init_vault_with_passwords_writes_created_path_to_stdout() {
+        let path = unique_vault_path("cli-init-handler");
+        let mut sink = Vec::new();
+
+        init_vault_with_passwords(
+            path.clone(),
+            String::from_utf8(PASSWORD.to_vec()).expect("password utf8"),
+            String::from_utf8(PASSWORD.to_vec()).expect("password utf8"),
+            &mut sink,
+        )
+        .expect("init handler succeeds");
+
+        let rendered = String::from_utf8(sink).expect("stdout utf8");
+        assert!(rendered.contains("Created vault:"));
+        assert!(rendered.contains(path.to_str().expect("path utf8")));
+        assert!(path.exists());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn get_prints_note_line_before_secret() {
         let path = unique_vault_path("cli-get-note");
@@ -1331,6 +1386,54 @@ mod tests {
 
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(bundle_path);
+    }
+
+    #[test]
+    fn run_lock_command_writes_expected_stdout() {
+        let mut sink = Vec::new();
+        run(
+            Cli {
+                stdin: false,
+                command: Commands::Lock,
+            },
+            &mut sink,
+        )
+        .expect("lock command succeeds");
+
+        assert_eq!(
+            String::from_utf8(sink).expect("stdout utf8"),
+            "Vault is locked.\n"
+        );
+    }
+
+    #[test]
+    fn device_command_list_returns_unwired_error_without_stdout() {
+        let mut sink = Vec::new();
+        let err = device_command(DeviceCommands::List, false, &mut sink)
+            .expect_err("device list remains unwired in MVP-0");
+
+        assert!(matches!(err, CoreError::InvalidState(_)));
+        assert!(sink.is_empty());
+    }
+
+    #[test]
+    fn transfer_command_create_returns_unwired_error_without_stdout() {
+        let mut sink = Vec::new();
+        let err = transfer_command(
+            TransferCommands::Create {
+                sender_keypair: PathBuf::from("/tmp/sender.ms-kp"),
+                recipient_identity: PathBuf::from("/tmp/recipient.ms-id"),
+                input: PathBuf::from("/tmp/plain.txt"),
+                output: PathBuf::from("/tmp/out.msenv"),
+                expires_in: 60,
+            },
+            true,
+            &mut sink,
+        )
+        .expect_err("transfer create without stdin material must fail closed");
+
+        assert!(matches!(err, CoreError::Io(_)));
+        assert!(sink.is_empty());
     }
 
     #[test]

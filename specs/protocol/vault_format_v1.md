@@ -55,6 +55,26 @@ HeaderTlv := tag:u16le || flags:u8 || len:u32le || value:bytes[len]
 flags bit 0 = critical
 ```
 
+### 3.1 Header TLV Parsing Rules
+
+Header TLVs are parsed under the fail-closed versioning policy in ADR-030 and
+the load-bearing profile-ID policy in ADR-039.
+
+1. Each header TLV tag defined in §3 is singleton. A parser must reject a header
+   that contains the same tag more than once, regardless of whether the
+   duplicated tag is critical or non-critical.
+2. Header TLVs are not semantically ordered. A writer may emit the required tags
+   in any order, and a reader must not assign different meaning to two headers
+   that contain the same TLV set in different orders.
+3. Required tags must each appear exactly once. Absence of a required tag is a
+   parse failure.
+4. Unknown non-critical header TLVs may be ignored only after their full
+   declared length has been bounds-checked and skipped. Unknown critical header
+   TLVs must be rejected per §10 and ADR-030.
+5. A parser must consume exactly `header_len` bytes of TLV payload. If the TLV
+   sequence ends before `header_len` is consumed, or if any TLV would extend
+   beyond `header_len`, the header is malformed and must be rejected.
+
 ### Required MVP-0 Tags
 
 | Tag | Name | Encoding | Critical |
@@ -267,6 +287,12 @@ ciphertext : bytes[ciphertext_len]
 
 No implicit padding. Future padding must be an explicit authenticated field.
 
+For a vault file, the `aead_profile` value stored in every record frame must
+equal the authenticated header `aead_profile` value from §3. A parser must
+reject any frame whose `aead_profile` differs from the header value. This keeps
+the vault on a single authenticated AEAD suite per file and preserves the
+profile-ID migration semantics defined by ADR-039.
+
 ---
 
 ## 7. Associated Data (AAD) v1
@@ -339,19 +365,29 @@ Parsers must reject:
 - Unsupported format_version
 - header_len / record_table_len / body_len exceeding file size
 - Unknown critical TLV tags
+- Duplicate header TLV tags
 - Unsupported `schema_profile`
 - `SCHEMA_MEISSNER_RECORDS_V1 = 0x0001`
 - Unknown or newer `schema_profile` values; never best-effort or partially parse
   them (ADR-030)
+- record-frame `aead_profile` differing from the authenticated header
+  `aead_profile` (ADR-039)
 - nonce_len mismatching AEAD profile
+- record-frame `frame_version` not equal to `FORMAT_VERSION` (1)
+- aad_len less than the fixed 79-byte `RECORD_AAD_LEN` from §7
+- aad_len exceeding the remaining frame boundary
+- ciphertext_len less than the AEAD tag length (16 bytes for Poly1305)
 - ciphertext_len exceeding frame boundary
 - AEAD authentication failure — no partial plaintext output
 - MEK-sealed-table AEAD authentication failure — no partial table output
 - sealed_table_len less than 40 bytes
 - record_table_len not equal to `4 + sealed_table_len`
 - length, offset, count, or padded-length arithmetic overflow
+- frame_len arithmetic overflow when computing `frame_end = frame_offset + frame_len`
 - frame_offset / frame_len outside the file body or overlapping the fixed
   WrappedRootKey frame
+- `frame_offset + frame_len` exceeding the sealed-table end marker or file body
+- inter-frame overlap between any two record frames
 - non-zero sealed-table padding bytes
 - table entry count exceeding its deterministic padding bucket capacity
 - WrappedRootKey `record_kind = 0x0002` inside the V2 sealed table

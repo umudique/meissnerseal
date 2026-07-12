@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Algorithm-tagged device signing keys (ADR-028).
+//!
+//! MVP-2 implements only `Ed25519V1` as the active signing backend. The
+//! `Ed25519MlDsa87HybridV1` identifier is a fail-closed agility slot: it is
+//! carried in types and parsing so protocols can authenticate algorithm
+//! identifiers now, but all sign/verify operations for that slot return
+//! `Unimplemented` until a future ML-DSA backend is approved and audited.
 
 use ed25519_dalek::{Signer, VerifyingKey};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -397,9 +403,9 @@ mod tests {
     }
 
     fn from_hex(s: &str) -> Vec<u8> {
-        assert_eq!(s.len() % 2, 0, "hex string must have even length: {s}");
+        assert_eq!(s.len() % 2, 0, "hex string must have even length");
         s.as_bytes()
-            .chunks(2)
+            .chunks_exact(2)
             .map(|pair| {
                 let hex = std::str::from_utf8(pair).expect("valid utf8");
                 u8::from_str_radix(hex, 16).expect("valid hex")
@@ -478,6 +484,59 @@ mod tests {
     }
 
     #[test]
+    fn verify_with_domain_rejects_wrong_domain_signature() {
+        let private_key = ed25519_private_key();
+        let public_key = ed25519_public_key();
+        let payload = b"same payload";
+        let signature =
+            sign_with_domain(&private_key, b"meissnerseal.domain.a\x00", payload).expect("signs");
+
+        assert!(matches!(
+            verify_with_domain(
+                &public_key,
+                b"meissnerseal.domain.b\x00",
+                payload,
+                &signature
+            ),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    #[test]
+    fn verify_with_domain_rejects_wrong_payload() {
+        let (pub_key, priv_key) = ed25519_keypair();
+        let domain = b"meissnerseal.test.v1\x00";
+        let sig = sign_with_domain(&priv_key, domain, b"original").expect("sign");
+        assert!(matches!(
+            verify_with_domain(&pub_key, domain, b"altered", &sig),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_malformed_signature_bytes() {
+        let public_key = ed25519_public_key();
+        let malformed = Signature::new(SigningAlgorithmId::Ed25519V1, vec![0xff; 64]);
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &malformed),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_cross_algorithm_signature_before_primitive_dispatch() {
+        let public_key =
+            SigningPublicKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 128]);
+        let private_key = ed25519_private_key();
+        let signature = sign(&private_key, MESSAGE).expect("Ed25519 signing succeeds");
+
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
+            Err(SigningError::AlgorithmMismatch)
+        ));
+    }
+
+    #[test]
     fn hybrid_slot_sign_returns_unimplemented() {
         let private_key =
             SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 128]);
@@ -545,20 +604,56 @@ mod tests {
     fn signing_private_key_holds_expected_algorithm_and_length() {
         let private_key = ed25519_private_key();
         assert_eq!(private_key.algorithm().to_u16(), 0x0001);
-        assert_eq!(private_key.bytes.len(), 32);
+        private_key.with_secret_bytes(|bytes| assert_eq!(bytes.len(), 32));
     }
 
     #[test]
     fn ed25519_v1_kat_all_cases_match() {
         let kat = load_kat();
+        assert_eq!(
+            kat.algorithm_id_u16_le, "0100",
+            "algorithm_id_u16_le must be Ed25519V1 little-endian encoding of 0x0001"
+        );
         let expected_alg_id_le = from_hex(&kat.algorithm_id_u16_le);
+        let json_case_count = serde_json::from_str::<serde_json::Value>(SIGNING_ED25519_KAT)
+            .expect("signing_ed25519_v1.json must parse")
+            .get("cases")
+            .and_then(serde_json::Value::as_array)
+            .map(std::vec::Vec::len)
+            .expect("JSON must contain cases array");
+        assert_eq!(
+            kat.cases.len(),
+            json_case_count,
+            "typed KAT loader must consume every JSON case"
+        );
         assert!(!kat.cases.is_empty(), "KAT must contain at least one case");
 
+        let mut seen_ids = std::collections::HashSet::new();
         for case in &kat.cases {
+            assert!(
+                seen_ids.insert(case.case_id.as_str()),
+                "duplicate case_id: {}",
+                case.case_id
+            );
+
             let seed = from_hex(&case.private_key_seed);
             let public_key_bytes = from_hex(&case.public_key);
             let message = from_hex(&case.message);
             let expected_sig = from_hex(&case.expected_signature);
+
+            let seed_arr: [u8; 32] = seed
+                .as_slice()
+                .try_into()
+                .expect("seed must be 32 bytes");
+            let derived_pub = ed25519_dalek::SigningKey::from_bytes(&seed_arr)
+                .verifying_key()
+                .to_bytes()
+                .to_vec();
+            assert_eq!(
+                derived_pub, public_key_bytes,
+                "{}: public_key does not match seed derivation",
+                case.case_id
+            );
 
             let private_key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, seed);
             let public_key = SigningPublicKey::new(SigningAlgorithmId::Ed25519V1, public_key_bytes);
