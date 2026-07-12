@@ -343,7 +343,7 @@ fn read_item(
         .bytes
         .get(start..)
         .ok_or_else(|| CoreError::Format("frame offset out of bounds".into()))?;
-    let frame = parse_record_frame(frame_slice, entry.frame_len)?;
+    let frame = parse_record_frame(frame_slice, entry.frame_len, loaded.header.aead_profile)?;
 
     // Substitution defense: the MEK-sealed table entry and the frame must agree.
     if frame.record_id != entry.record_id || frame.revision_id != entry.revision_id {

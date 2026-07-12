@@ -1527,7 +1527,7 @@ pub fn parse_record_table(
 /// ## Invariants
 /// - Never returns partial output on malformed input.
 /// - Does not perform cryptographic operations directly.
-pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
+pub fn parse_record_frame(bytes: &[u8], frame_len: u32, expected_aead_profile: u16) -> Result<RecordFrame> {
     let frame_len =
         usize::try_from(frame_len).map_err(|_| format_error("record frame length overflow"))?;
     if bytes.len() < frame_len || frame_len < RECORD_FRAME_FIXED_PREFIX_LEN {
@@ -1546,8 +1546,8 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
     cursor += 16;
     let aead_profile = read_u16_le(frame, cursor)?;
     cursor += 2;
-    if aead_profile != AEAD_XCHACHA20_POLY1305_V1 {
-        return Err(format_error("unsupported record frame AEAD profile"));
+    if aead_profile != expected_aead_profile {
+        return Err(format_error("record frame aead_profile does not match header"));
     }
     let nonce_len = usize::from(frame[cursor]);
     cursor += 1;
@@ -1572,11 +1572,14 @@ pub fn parse_record_frame(bytes: &[u8], frame_len: u32) -> Result<RecordFrame> {
 
     let ciphertext_len = read_u32_le(frame, cursor)?;
     cursor += 4;
+    const POLY1305_TAG_LEN: usize = 16;
+    let ciphertext_len_usize = usize::try_from(ciphertext_len)
+        .map_err(|_| format_error("ciphertext length overflow"))?;
+    if ciphertext_len_usize < POLY1305_TAG_LEN {
+        return Err(format_error("ciphertext too short for AEAD tag"));
+    }
     let ciphertext_end = cursor
-        .checked_add(
-            usize::try_from(ciphertext_len)
-                .map_err(|_| format_error("ciphertext length overflow"))?,
-        )
+        .checked_add(ciphertext_len_usize)
         .ok_or_else(|| format_error("ciphertext length overflow"))?;
     if ciphertext_end > frame_len {
         return Err(format_error("ciphertext length exceeds frame boundary"));
@@ -2130,7 +2133,7 @@ mod tests {
 
     #[test]
     fn test_parse_record_frame_rejects_truncated() {
-        assert!(parse_record_frame(&[], 100).is_err());
+        assert!(parse_record_frame(&[], 100, AEAD_XCHACHA20_POLY1305_V1).is_err());
     }
 
     #[test]
@@ -2480,7 +2483,7 @@ mod tests {
 
         assert!(serialized.is_ok());
         if let Ok(bytes) = serialized {
-            let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()));
+            let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1);
             assert!(parsed.is_ok());
             if let Ok(parsed) = parsed {
                 assert_eq!(parsed.frame_version, frame.frame_version);
@@ -2618,7 +2621,7 @@ mod tests {
         let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
         bytes[0..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         assert!(matches!(
-            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1),
             Err(CoreError::Format(_))
         ));
     }
@@ -2638,7 +2641,7 @@ mod tests {
         let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
         bytes[34..36].copy_from_slice(&(AEAD_XCHACHA20_POLY1305_V1 + 1).to_le_bytes());
         assert!(matches!(
-            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1),
             Err(CoreError::Format(_))
         ));
     }
@@ -2658,7 +2661,7 @@ mod tests {
         let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
         bytes[61..65].copy_from_slice(&78u32.to_le_bytes());
         assert!(matches!(
-            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len())),
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1),
             Err(CoreError::Format(_))
         ));
     }
@@ -2677,9 +2680,70 @@ mod tests {
         };
         let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
         bytes[65] ^= 0x01;
-        let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()))
+        let parsed = parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1)
             .expect("record frame parser must preserve stored aad bytes");
         assert!(validate_stored_record_aad(&parsed.stored_aad, &aad).is_err());
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_mismatched_header_aead_profile() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            stored_aad: aad,
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1 + 1),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_zero_ciphertext_len() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            stored_aad: aad,
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        let ct_len_offset = 2 + 16 + 16 + 2 + 1 + 24 + 4 + RECORD_AAD_LEN;
+        bytes[ct_len_offset..ct_len_offset + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1),
+            Err(CoreError::Format(_))
+        ));
+    }
+
+    #[test]
+    fn parse_record_frame_rejects_short_ciphertext_len() {
+        let aad = build_aad(&VAULT_ID, 1, 1, 1, 1, 0, &RECORD_ID, &REVISION_ID, 0x0002);
+        let frame = RecordFrame {
+            frame_version: FORMAT_VERSION,
+            record_id: RECORD_ID,
+            revision_id: REVISION_ID,
+            nonce: [0x33; 24],
+            stored_aad: aad,
+            ciphertext_len: usize_to_u32_for_test(32),
+            ciphertext: vec![0x55; 32],
+        };
+        let mut bytes = serialize_record_frame(&frame, &aad).expect("frame fixture");
+        let ct_len_offset = 2 + 16 + 16 + 2 + 1 + 24 + 4 + RECORD_AAD_LEN;
+        bytes[ct_len_offset..ct_len_offset + 4].copy_from_slice(&15u32.to_le_bytes());
+        assert!(matches!(
+            parse_record_frame(&bytes, usize_to_u32_for_test(bytes.len()), AEAD_XCHACHA20_POLY1305_V1),
+            Err(CoreError::Format(_))
+        ));
     }
 
     #[test]

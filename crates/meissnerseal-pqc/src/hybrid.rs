@@ -224,12 +224,42 @@ fn derive_transfer_key_from_shared_parts(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use serde::{Deserialize, Serialize};
 
     const TRANSFER_HYBRID_KAT: &str = include_str!("../../../test-vectors/transfer_hybrid_v1.json");
 
+    #[derive(Deserialize, Serialize)]
+    struct KatFile {
+        schema: String,
+        profile: String,
+        version: u32,
+        description: String,
+        generated_by: String,
+        cases: Vec<KatCase>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    struct KatCase {
+        case_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_ephemeral_private_key: Option<String>,
+        sender_ephemeral_public_key: String,
+        recipient_classical_private_key: String,
+        recipient_classical_public_key: String,
+        pqc_shared_secret: String,
+        pqc_ciphertext: String,
+        transcript_hash: String,
+        expected_transfer_key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pqc_decap_key: Option<String>,
+    }
+
     fn from_hex(s: &str) -> Vec<u8> {
+        assert_eq!(s.len() % 2, 0, "hex string must have even length");
         s.as_bytes()
-            .chunks(2)
+            .chunks_exact(2)
             .map(|pair| {
                 let hex = std::str::from_utf8(pair).expect("valid utf8");
                 u8::from_str_radix(hex, 16).expect("valid hex")
@@ -237,17 +267,123 @@ mod tests {
             .collect()
     }
 
-    fn parse_kat_field<'a>(json: &'a str, field: &str, case_id: &str) -> &'a str {
-        let marker = format!("\"case_id\": \"{case_id}\"");
-        let after_case = json.split_once(&marker).expect("case id not found").1;
-        let key = format!("\"{field}\": \"");
-        after_case
-            .split_once(&key)
-            .expect("field not found")
-            .1
-            .split_once('"')
-            .expect("closing quote")
-            .0
+    fn to_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    #[test]
+    #[should_panic(expected = "hex string must have even length")]
+    fn from_hex_rejects_odd_length_input() {
+        let _ = from_hex("abc");
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_transfer_hybrid_kat() {
+        let (sender_priv_0, sender_pub_0) = x25519_keypair();
+        let (recip_priv_0, recip_pub_0) = x25519_keypair();
+        let (pqc_pub_0, pqc_priv_0) = mlkem::keypair().expect("ml-kem keypair 0");
+        let (pqc_ct_0, pqc_ss_0) = mlkem::encapsulate(&pqc_pub_0).expect("encapsulate 0");
+
+        let transcript_00 = [0x00u8; 32];
+        let transcript_01 = [0x01u8; 32];
+
+        let key_00 = derive_transfer_key(
+            &sender_priv_0, &sender_pub_0, &recip_pub_0,
+            &pqc_ct_0, &pqc_ss_0, &transcript_00,
+        ).expect("derive 00");
+        let key_01 = derive_transfer_key(
+            &sender_priv_0, &sender_pub_0, &recip_pub_0,
+            &pqc_ct_0, &pqc_ss_0, &transcript_01,
+        ).expect("derive 01");
+
+        let (sender_priv_2, sender_pub_2) = x25519_keypair();
+        let (recip_priv_2, recip_pub_2) = x25519_keypair();
+        let (pqc_pub_2, pqc_priv_2) = mlkem::keypair().expect("ml-kem keypair 2");
+        let (pqc_ct_2, pqc_ss_2) = mlkem::encapsulate(&pqc_pub_2).expect("encapsulate 2");
+        let transcript_02 = [0x22u8; 32];
+
+        let key_distinct = derive_transfer_key(
+            &sender_priv_2, &sender_pub_2, &recip_pub_2,
+            &pqc_ct_2, &pqc_ss_2, &transcript_02,
+        ).expect("derive distinct");
+
+        let receiver_key = receive_transfer_key(
+            &recip_priv_2, &recip_pub_2, &sender_pub_2,
+            &pqc_ct_2, &pqc_priv_2, &transcript_02,
+        ).expect("receiver KAT");
+        assert!(
+            bool::from(key_distinct.ct_eq(&receiver_key)),
+            "sender and receiver must derive the same transfer key"
+        );
+
+        let kat = KatFile {
+            schema: "transfer-hybrid-v1".into(),
+            profile: "TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1".into(),
+            version: 1,
+            description: "ADR-035 UG hash-everything combiner vectors with real ML-KEM-768 keypairs. Receiver case uses actual ML-KEM decapsulation via receive_transfer_key().".into(),
+            generated_by: "generate_transfer_hybrid_kat test in crates/meissnerseal-pqc/src/hybrid.rs".into(),
+            cases: vec![
+                KatCase {
+                    case_id: "ug-combiner-transcript-00".into(),
+                    path: Some("sender".into()),
+                    sender_ephemeral_private_key: Some(to_hex(sender_priv_0.as_bytes())),
+                    sender_ephemeral_public_key: to_hex(sender_pub_0.as_bytes()),
+                    recipient_classical_private_key: to_hex(recip_priv_0.as_bytes()),
+                    recipient_classical_public_key: to_hex(recip_pub_0.as_bytes()),
+                    pqc_shared_secret: to_hex(pqc_ss_0.as_bytes()),
+                    pqc_ciphertext: to_hex(pqc_ct_0.as_bytes()),
+                    transcript_hash: to_hex(&transcript_00),
+                    expected_transfer_key: to_hex(key_00.as_bytes()),
+                    pqc_decap_key: Some(to_hex(pqc_priv_0.as_bytes())),
+                },
+                KatCase {
+                    case_id: "ug-combiner-transcript-01".into(),
+                    path: Some("sender".into()),
+                    sender_ephemeral_private_key: Some(to_hex(sender_priv_0.as_bytes())),
+                    sender_ephemeral_public_key: to_hex(sender_pub_0.as_bytes()),
+                    recipient_classical_private_key: to_hex(recip_priv_0.as_bytes()),
+                    recipient_classical_public_key: to_hex(recip_pub_0.as_bytes()),
+                    pqc_shared_secret: to_hex(pqc_ss_0.as_bytes()),
+                    pqc_ciphertext: to_hex(pqc_ct_0.as_bytes()),
+                    transcript_hash: to_hex(&transcript_01),
+                    expected_transfer_key: to_hex(key_01.as_bytes()),
+                    pqc_decap_key: Some(to_hex(pqc_priv_0.as_bytes())),
+                },
+                KatCase {
+                    case_id: "transfer-distinct-keypairs".into(),
+                    path: Some("sender".into()),
+                    sender_ephemeral_private_key: Some(to_hex(sender_priv_2.as_bytes())),
+                    sender_ephemeral_public_key: to_hex(sender_pub_2.as_bytes()),
+                    recipient_classical_private_key: to_hex(recip_priv_2.as_bytes()),
+                    recipient_classical_public_key: to_hex(recip_pub_2.as_bytes()),
+                    pqc_shared_secret: to_hex(pqc_ss_2.as_bytes()),
+                    pqc_ciphertext: to_hex(pqc_ct_2.as_bytes()),
+                    transcript_hash: to_hex(&transcript_02),
+                    expected_transfer_key: to_hex(key_distinct.as_bytes()),
+                    pqc_decap_key: Some(to_hex(pqc_priv_2.as_bytes())),
+                },
+                KatCase {
+                    case_id: "transfer-receiver-path".into(),
+                    path: Some("receiver".into()),
+                    sender_ephemeral_private_key: None,
+                    sender_ephemeral_public_key: to_hex(sender_pub_2.as_bytes()),
+                    recipient_classical_private_key: to_hex(recip_priv_2.as_bytes()),
+                    recipient_classical_public_key: to_hex(recip_pub_2.as_bytes()),
+                    pqc_shared_secret: to_hex(pqc_ss_2.as_bytes()),
+                    pqc_ciphertext: to_hex(pqc_ct_2.as_bytes()),
+                    transcript_hash: to_hex(&transcript_02),
+                    expected_transfer_key: to_hex(key_distinct.as_bytes()),
+                    pqc_decap_key: Some(to_hex(pqc_priv_2.as_bytes())),
+                },
+            ],
+        };
+
+        println!("{}", serde_json::to_string_pretty(&kat).expect("serialize"));
+    }
+
+    fn load_kat() -> KatFile {
+        serde_json::from_str(TRANSFER_HYBRID_KAT).expect("transfer_hybrid_v1.json must be valid")
     }
 
     fn fixture() -> (
@@ -445,73 +581,153 @@ mod tests {
 
     #[test]
     fn transfer_hybrid_v1_vectors() {
-        for case_id in ["ug-combiner-transcript-00", "ug-combiner-transcript-01"] {
-            let sender_private: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "sender_ephemeral_private_key",
-                case_id,
-            ))
-            .try_into()
-            .expect("sender private key is 32 bytes");
-            let sender_public: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "sender_ephemeral_public_key",
-                case_id,
-            ))
-            .try_into()
-            .expect("sender public key is 32 bytes");
-            let recipient_public: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "recipient_classical_public_key",
-                case_id,
-            ))
-            .try_into()
-            .expect("recipient public key is 32 bytes");
-            let pqc_shared_secret: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "pqc_shared_secret",
-                case_id,
-            ))
-            .try_into()
-            .expect("PQC shared secret is 32 bytes");
-            let pqc_ciphertext: [u8; 1088] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "pqc_ciphertext",
-                case_id,
-            ))
-            .try_into()
-            .expect("PQC ciphertext is 1088 bytes");
-            let transcript_hash: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "transcript_hash",
-                case_id,
-            ))
-            .try_into()
-            .expect("transcript hash is 32 bytes");
-            let expected_transfer_key: [u8; 32] = from_hex(parse_kat_field(
-                TRANSFER_HYBRID_KAT,
-                "expected_transfer_key",
-                case_id,
-            ))
-            .try_into()
-            .expect("expected transfer key is 32 bytes");
+        let kat = load_kat();
+        assert!(
+            kat.cases.len() >= 4,
+            "transfer hybrid vector file must carry the expanded case set"
+        );
 
-            let transfer_key = derive_transfer_key(
-                &X25519PrivateKey::from_bytes(sender_private),
-                &X25519PublicKey::from_bytes(sender_public),
-                &X25519PublicKey::from_bytes(recipient_public),
-                &MlKemCiphertext::from_bytes(pqc_ciphertext),
-                &SharedSecret::from_bytes(pqc_shared_secret),
-                &transcript_hash,
-            )
-            .expect("transfer hybrid vector derives");
+        for case in &kat.cases {
+            let sender_public: [u8; 32] = from_hex(&case.sender_ephemeral_public_key)
+                .try_into()
+                .expect("sender public key is 32 bytes");
+            let recipient_private: [u8; 32] = from_hex(&case.recipient_classical_private_key)
+                .try_into()
+                .expect("recipient private key is 32 bytes");
+            let recipient_public: [u8; 32] = from_hex(&case.recipient_classical_public_key)
+                .try_into()
+                .expect("recipient public key is 32 bytes");
+            let pqc_shared_secret: [u8; 32] = from_hex(&case.pqc_shared_secret)
+                .try_into()
+                .expect("PQC shared secret is 32 bytes");
+            let pqc_ciphertext: [u8; 1088] = from_hex(&case.pqc_ciphertext)
+                .try_into()
+                .expect("PQC ciphertext is 1088 bytes");
+            let transcript_hash: [u8; 32] = from_hex(&case.transcript_hash)
+                .try_into()
+                .expect("transcript hash is 32 bytes");
+            let expected_transfer_key: [u8; 32] = from_hex(&case.expected_transfer_key)
+                .try_into()
+                .expect("expected transfer key is 32 bytes");
 
             let expected_transfer_key = TransferKey::from_bytes(expected_transfer_key);
+            let recipient_public = X25519PublicKey::from_bytes(recipient_public);
+            let sender_public = X25519PublicKey::from_bytes(sender_public);
+            let pqc_ciphertext = MlKemCiphertext::from_bytes(pqc_ciphertext);
+            let pqc_shared_secret = SharedSecret::from_bytes(pqc_shared_secret);
+            let recipient_private = X25519PrivateKey::from_bytes(recipient_private);
+
+            let derived_recipient_pub = x25519_public_from_private(&recipient_private);
+            assert_eq!(
+                derived_recipient_pub.as_bytes(), recipient_public.as_bytes(),
+                "{}: recipient_classical_public_key does not match private key derivation",
+                case.case_id
+            );
+
+            let sender_transfer_key =
+                case.sender_ephemeral_private_key
+                    .as_ref()
+                    .map(|sender_private_hex| {
+                        let sender_private: [u8; 32] = from_hex(sender_private_hex)
+                            .try_into()
+                            .expect("sender private key is 32 bytes");
+                        let sender_priv_key = X25519PrivateKey::from_bytes(sender_private);
+                        let derived_sender_pub = x25519_public_from_private(&sender_priv_key);
+                        assert_eq!(
+                            derived_sender_pub.as_bytes(), sender_public.as_bytes(),
+                            "{}: sender_ephemeral_public_key does not match private key derivation",
+                            case.case_id
+                        );
+                        derive_transfer_key(
+                            &sender_priv_key,
+                            &sender_public,
+                            &recipient_public,
+                            &pqc_ciphertext,
+                            &pqc_shared_secret,
+                            &transcript_hash,
+                        )
+                        .expect("sender path derives")
+                    });
+
+            if case.path.as_deref() == Some("receiver") {
+                let dk_hex = case.pqc_decap_key.as_ref()
+                    .expect("receiver case must carry pqc_decap_key");
+                let dk_bytes: [u8; 2400] = from_hex(dk_hex)
+                    .try_into()
+                    .expect("pqc_decap_key must be 2400 bytes");
+                let pqc_private = MlKemPrivateKey::from_bytes(dk_bytes);
+                let receiver_transfer_key = receive_transfer_key(
+                    &recipient_private,
+                    &recipient_public,
+                    &sender_public,
+                    &pqc_ciphertext,
+                    &pqc_private,
+                    &transcript_hash,
+                )
+                .expect("receiver KAT must succeed");
+                assert!(
+                    bool::from(receiver_transfer_key.ct_eq(&expected_transfer_key)),
+                    "receiver case {}: transfer key mismatch",
+                    case.case_id
+                );
+                continue;
+            }
+
+            let transfer_key = sender_transfer_key.expect("sender vectors must carry sender key");
+
             assert!(
                 bool::from(transfer_key.ct_eq(&expected_transfer_key)),
-                "case {case_id}: transfer key mismatch"
+                "case {}: transfer key mismatch",
+                case.case_id
             );
         }
+    }
+
+    #[test]
+    fn transfer_hybrid_kat_single_input_changes_change_output() {
+        let kat = load_kat();
+        let case0 = kat
+            .cases
+            .iter()
+            .find(|case| case.case_id == "ug-combiner-transcript-00")
+            .expect("case 00 present");
+        let case1 = kat
+            .cases
+            .iter()
+            .find(|case| case.case_id == "ug-combiner-transcript-01")
+            .expect("case 01 present");
+        let case2 = kat
+            .cases
+            .iter()
+            .find(|case| case.case_id == "transfer-distinct-keypairs")
+            .expect("distinct-keypairs case present");
+
+        let key0 = TransferKey::from_bytes(
+            from_hex(&case0.expected_transfer_key)
+                .try_into()
+                .expect("case0 expected key length"),
+        );
+        let key1 = TransferKey::from_bytes(
+            from_hex(&case1.expected_transfer_key)
+                .try_into()
+                .expect("case1 expected key length"),
+        );
+        let key2 = TransferKey::from_bytes(
+            from_hex(&case2.expected_transfer_key)
+                .try_into()
+                .expect("case2 expected key length"),
+        );
+
+        assert!(bool::from(!key0.ct_eq(&key1)));
+        assert!(bool::from(!key0.ct_eq(&key2)));
+        assert!(bool::from(!key1.ct_eq(&key2)));
+    }
+
+    #[test]
+    fn x25519_keypair_successive_calls_produce_distinct_private_keys() {
+        let (first_private, _) = x25519_keypair();
+        let (second_private, _) = x25519_keypair();
+        assert!(bool::from(!first_private.ct_eq(&second_private)));
     }
 }
 
