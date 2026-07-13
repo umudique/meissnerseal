@@ -4436,7 +4436,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace parse_kat_field() in both files with typed serde structs.
       For mlkem.rs:
@@ -4489,7 +4489,7 @@ findings:
       descriptive message) if any required field is missing from a vector
       entry. cargo test -p meissnerseal-pqc exits 0 with all existing
       KAT tests passing.
-    commit: ""
+    commit: "717e111"
 
   - id: F-135
     kind: coverage_gap
@@ -4597,7 +4597,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add the following normative rules to vault_format_v1.md. Suggested
       placement: a new "§3.1 Header TLV Parsing Rules" subsection
@@ -4631,7 +4631,7 @@ findings:
       (0x0001–0x0007) and the negative fixture for duplicate critical TLV
       (F-121 gap 2) passes. A vault with two 0x0001 (vault_id) TLV
       entries is rejected by the parser with a deterministic error.
-    commit: ""
+    commit: "1627736"
 
   - id: F-137
     kind: consistency
@@ -4940,7 +4940,7 @@ findings:
     cwe: "CWE-710"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the direct field access with the public API:
 
@@ -4952,7 +4952,7 @@ findings:
       Test compiles and passes using with_secret_bytes. No direct access
       to private_key.bytes in the test module. cargo test -p
       meissnerseal-pqc exits 0.
-    commit: ""
+    commit: "717e111"
 
   - id: F-142
     kind: consistency
@@ -4971,7 +4971,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a module-level doc comment to the #[cfg(test)] mod explaining
       that ML-DSA KAT is deferred pending the PQ signing audit referenced
@@ -4983,7 +4983,7 @@ findings:
       The test module header clearly documents the deferral. Either the
       filename matches the actual scope or a doc comment explains the gap.
       cargo test -p meissnerseal-pqc exits 0.
-    commit: ""
+    commit: "717e111"
 
   # ── E2E test harness review findings (2026-07-05) ────────────────────────────
   - id: F-143
@@ -5114,7 +5114,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       After the list assertion, parse the item id from the list output
       and call get to verify the secret:
@@ -5130,7 +5130,7 @@ findings:
     verification: >-
       get on the imported item returns the original SECRET_VALUE.
       cargo test -p meissnerseal-cli exits 0.
-    commit: ""
+    commit: "639a421"
 
   - id: F-146
     kind: coverage_gap
@@ -5202,7 +5202,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Define a stable output contract for the add command (e.g. a
       dedicated "Item ID: <id>" line) and parse it with a prefix match:
@@ -5218,7 +5218,7 @@ findings:
     verification: >-
       add_item() extracts the correct ID when other 32-hex tokens appear
       in the add output. cargo test -p meissnerseal-cli exits 0.
-    commit: ""
+    commit: "639a421"
 
   - id: F-148
     kind: coverage_gap
@@ -5278,7 +5278,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test:
 
@@ -5299,7 +5299,7 @@ findings:
       Test returns non-zero on mismatch. No .msv file exists after the
       failed init. assert_no_secret_leak passes. cargo test
       -p meissnerseal-cli exits 0.
-    commit: ""
+    commit: "639a421"
 
   - id: F-150
     kind: coverage_gap
@@ -5382,7 +5382,7 @@ findings:
     cwe: "CWE-354"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that creates a valid vault, flips a byte in the
       ciphertext region of the .msv, then runs list and get:
@@ -5409,7 +5409,7 @@ findings:
     verification: >-
       list on a corrupted vault returns non-zero. assert_no_secret_leak
       passes for the failed output. cargo test -p meissnerseal-cli exits 0.
-    commit: ""
+    commit: "639a421"
 
   - id: F-152
     kind: coverage_gap
@@ -5467,7 +5467,7 @@ findings:
     cwe: "CWE-116"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two label-injection tests analogous to
       list_label_with_newline_does_not_inject: one with a label containing
@@ -5477,7 +5477,7 @@ findings:
     verification: >-
       Both tests fail when escape_default() is removed and pass with it
       in place. cargo test -p meissnerseal-cli exits 0.
-    commit: ""
+    commit: "639a421"
 
   # ── engine.rs test module review findings (2026-07-05) ───────────────────────
   - id: F-154
@@ -8527,7 +8527,7 @@ findings:
     cwe: "CWE-312"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace assert!(!debug.contains("1")) with
       assert_eq!(debug, "SecretBytes([REDACTED])") (and the equivalent for
@@ -8537,7 +8537,7 @@ findings:
     verification: >-
       Debug output asserted to exact expected string for both SecretBytes and
       SecretString. cargo test -p meissnerseal-security passes.
-    commit: ""
+    commit: "6c42f26"
 
   - id: F-250
     kind: coverage_gap
@@ -8554,7 +8554,7 @@ findings:
     cwe: "CWE-697"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add assert_not_impl_any!(SecretBytes: Clone, PartialEq, core::fmt::Display)
       and the equivalent for SecretString to the test module. This mirrors
@@ -8562,7 +8562,7 @@ findings:
     verification: >-
       assert_not_impl_any! guards compile for both types.
       cargo test -p meissnerseal-security passes.
-    commit: ""
+    commit: "6c42f26"
 
   - id: F-251
     kind: coverage_gap
@@ -8578,7 +8578,7 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests asserting SecretBytes::new(vec![0u8; 4]).len() == 4,
       SecretBytes::new(vec![]).is_empty() == true, and the equivalents for
@@ -8586,7 +8586,7 @@ findings:
     verification: >-
       len() and is_empty() tested for both SecretBytes and SecretString.
       cargo test -p meissnerseal-security passes.
-    commit: ""
+    commit: "6c42f26"
 
   - id: F-252
     kind: coverage_gap
@@ -8601,14 +8601,14 @@ findings:
     cwe: "CWE-392"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test constructing a SecretString with a known value and calling
       with_secret to assert the closure receives the expected byte content.
     verification: >-
       SecretString::with_secret tested with a known value.
       cargo test -p meissnerseal-security passes.
-    commit: ""
+    commit: "6c42f26"
 
   - id: F-253
     kind: coverage_gap
@@ -8627,7 +8627,7 @@ findings:
     cwe: "CWE-226"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that uses ManuallyDrop to obtain a raw pointer to the
       backing buffer, manually drops the SecretBytes/SecretString, then
@@ -8637,7 +8637,7 @@ findings:
     verification: >-
       Drop path tested for SecretBytes and SecretString via raw pointer
       read after manual drop. cargo test -p meissnerseal-security passes.
-    commit: ""
+    commit: "6c42f26"
 
   - id: F-254
     kind: coverage_gap
@@ -8972,7 +8972,7 @@ findings:
     cwe: "CWE-392"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add at least one KAT vector where only one IKM field differs (e.g.
       ct_ML_KEM changed while all others are fixed) and assert the transfer
@@ -8981,7 +8981,7 @@ findings:
     verification: >-
       Each IKM field tested individually for transfer key sensitivity.
       cargo test -p meissnerseal-pqc passes.
-    commit: ""
+    commit: "717e111"
 
   - id: F-267
     kind: coverage_gap
@@ -8999,14 +8999,14 @@ findings:
     cwe: "CWE-338"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test calling x25519_keypair() twice and asserting the two
       private keys differ (using ct_eq returning false).
     verification: >-
       Two successive x25519_keypair() calls produce different private keys.
       cargo test -p meissnerseal-pqc passes.
-    commit: ""
+    commit: "717e111"
 
   - id: F-268
     kind: coverage_gap
@@ -9024,7 +9024,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Extend the adversarial key test with at least one random-looking
       1184-byte pattern (e.g. incrementing byte values) and assert the
@@ -9034,7 +9034,7 @@ findings:
     verification: >-
       encapsulate does not panic for arbitrary 1184-byte public keys.
       cargo test -p meissnerseal-pqc passes.
-    commit: ""
+    commit: "717e111"
 
   - id: F-269
     kind: coverage_gap
@@ -9051,7 +9051,7 @@ findings:
     cwe: "CWE-226"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that obtains a raw pointer to the SharedSecret backing
       bytes, manually drops the Zeroizing wrapper, and asserts the bytes
@@ -9059,7 +9059,7 @@ findings:
     verification: >-
       Drop path zeroing verified via raw pointer for SharedSecret.
       cargo test -p meissnerseal-pqc passes.
-    commit: ""
+    commit: "717e111"
 
   - id: F-270
     kind: coverage_gap
@@ -9079,7 +9079,7 @@ findings:
     cwe: "CWE-392"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test module to main.rs with at least one test per public
       command handler using an in-memory Write impl for stdout and
@@ -9089,4 +9089,4 @@ findings:
     verification: >-
       At least one unit test per command handler in main.rs.
       cargo test -p meissnerseal-cli passes.
-    commit: ""
+    commit: "639a421"
