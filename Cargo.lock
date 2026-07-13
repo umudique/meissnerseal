@@ -787,6 +787,7 @@ name = "meissnerseal-security"
 version = "0.2.0"
 dependencies = [
  "meissnerseal-crypto",
+ "static_assertions",
  "thiserror",
  "zeroize",
 ]
