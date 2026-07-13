@@ -58,22 +58,52 @@ flags bit 0 = critical
 ### 3.1 Header TLV Parsing Rules
 
 Header TLVs are parsed under the fail-closed versioning policy in ADR-030 and
-the load-bearing profile-ID policy in ADR-039.
+the load-bearing profile-ID policy in ADR-039. ADR-006 governs the `kdf_profile`
+sub-TLV parameter map in §4. No separate ADR currently defines canonical header
+TLV ordering or a tighter MVP-0 header-size cap than the `u32le` `header_len`
+field; that ADR gap is noted here rather than filled by an invented reference.
 
-1. Each header TLV tag defined in §3 is singleton. A parser must reject a header
-   that contains the same tag more than once, regardless of whether the
-   duplicated tag is critical or non-critical.
-2. Header TLVs are not semantically ordered. A writer may emit the required tags
-   in any order, and a reader must not assign different meaning to two headers
-   that contain the same TLV set in different orders.
-3. Required tags must each appear exactly once. Absence of a required tag is a
+For `SCHEMA_MEISSNER_RECORDS_V2 = 0x0002`, the header TLV rules are normative:
+
+1. The required header TLV set is exactly:
+   - `0x0001` `vault_id`
+   - `0x0002` `created_at`
+   - `0x0003` `kdf_profile`
+   - `0x0004` `aead_profile`
+   - `0x0005` `pqc_profile`
+   - `0x0006` `schema_profile`
+   - `0x0007` `header_nonce`
+2. No optional known header TLV tags are assigned in this version. Any future
+   optional header TLV must receive an explicit tag assignment and wire
+   definition before it is valid on the wire.
+3. Each header TLV tag is singleton. A parser must reject a header that contains
+   the same tag more than once, regardless of whether the duplicated tag is
+   known, unknown, critical, or non-critical.
+4. The canonical writer order for the required TLVs is exactly the ascending tag
+   order listed in rule 1:
+   `0x0001`, `0x0002`, `0x0003`, `0x0004`, `0x0005`, `0x0006`, `0x0007`.
+5. If a future extension defines optional known header TLVs, writers must emit
+   all required TLVs first in the canonical order above, then emit optional
+   known TLVs in strictly ascending numeric tag order.
+6. Readers must parse header TLVs in wire order and must reject any known header
+   TLV sequence that violates the canonical ordering rule in 4 or 5. Two
+   semantically equivalent headers therefore have one valid byte-level encoding.
+7. A required tag must appear exactly once. Absence of any required tag is a
    parse failure.
-4. Unknown non-critical header TLVs may be ignored only after their full
-   declared length has been bounds-checked and skipped. Unknown critical header
-   TLVs must be rejected per §10 and ADR-030.
-5. A parser must consume exactly `header_len` bytes of TLV payload. If the TLV
-   sequence ends before `header_len` is consumed, or if any TLV would extend
-   beyond `header_len`, the header is malformed and must be rejected.
+8. An unknown header TLV with `flags bit 0 = 1` is an unknown critical field and
+   must be rejected per ADR-030 and §10.
+9. An unknown header TLV with `flags bit 0 = 0` is an unknown non-critical field
+   and must be skipped only after its full declared `len` has been
+   bounds-checked against `header_len`.
+10. A parser must consume exactly `header_len` bytes of TLV payload. If the TLV
+    sequence ends before `header_len` bytes are consumed, if any TLV extends
+    beyond `header_len`, or if trailing bytes remain after the last complete TLV,
+    the header is malformed and must be rejected.
+11. The maximum header TLV payload length is `0xFFFF_FFFF` bytes because
+    `header_len` is encoded as `u32le` in §2. The maximum total cleartext header
+    length, including the 26-byte file prefix, is therefore
+    `26 + 0xFFFF_FFFF = 0x1_0000_0019` bytes. Any decode path whose prefix-plus-
+    header arithmetic overflows must be rejected.
 
 ### Required MVP-0 Tags
 
