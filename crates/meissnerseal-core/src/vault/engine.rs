@@ -666,7 +666,11 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
     let frame_slice = bytes
         .get(wrk_frame_offset..)
         .ok_or_else(|| CoreError::Format("frame offset out of bounds".into()))?;
-    let frame = parse_record_frame(frame_slice, wrk_frame_len, context.profile_set.aead_profile.value())?;
+    let frame = parse_record_frame(
+        frame_slice,
+        wrk_frame_len,
+        context.profile_set.aead_profile.value(),
+    )?;
 
     let aad = build_aad(
         &context.vault_id,
@@ -830,7 +834,8 @@ mod tests {
         let frame_len =
             record_frame_len_at(&bytes, frame_offset).expect("WRK frame length fixture");
         let frame_bytes = bytes.get(frame_offset..).expect("frame fixture slice");
-        let frame = parse_record_frame(frame_bytes, frame_len, AEAD_XCHACHA20_POLY1305_V1).expect("frame");
+        let frame =
+            parse_record_frame(frame_bytes, frame_len, AEAD_XCHACHA20_POLY1305_V1).expect("frame");
         (bytes, frame, frame_offset, frame_len)
     }
 
