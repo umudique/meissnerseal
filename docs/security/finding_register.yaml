@@ -3191,7 +3191,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add fuzz/fuzz_targets/export_bundle.rs. The target should call
       meissnerseal_core::export::import() (or an exposed parse_bundle wrapper)
@@ -3206,8 +3206,7 @@ findings:
       cargo +nightly fuzz list shows export_bundle. Smoke run of at least
       30 seconds produces zero crashes. The target exercises parse_bundle and
       deserialize_item_set reachable from the public import() surface.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-110
     kind: consistency
     component: test-vectors
@@ -5516,7 +5515,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace tmp_path_for() with unique_tmp_path() using a known seed:
 
@@ -5542,8 +5541,7 @@ findings:
       All three tests assert the correct unique temp path. A deliberate
       bug that fails to remove the correct temp causes the assertions to
       fail. cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-155
     kind: coverage_gap
     component: meissnerseal-core
@@ -5566,7 +5564,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Rewrite the test to trigger failure after target_claim and/or after
       tmp_file write. One approach: create the parent directory, start a
@@ -5581,8 +5579,7 @@ findings:
       Test exercises the cleanup path after at least one file has been
       created. Assertions fail when remove_file calls are removed.
       cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-156
     kind: consistency
     component: meissnerseal-core
@@ -5602,7 +5599,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       In record_table_entries_for_test(), compute wrk_frame_end from
       wrk_frame_offset and wrk_frame_len and pass it as the boundary
@@ -5624,8 +5621,7 @@ findings:
       blob crafted to overlap the WRK region is rejected by both
       production and the test helper. cargo test -p meissnerseal-core
       exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-157
     kind: coverage_gap
     component: meissnerseal-core
@@ -5652,7 +5648,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       In unlock_impl, replace the current unconditional read with a
       size-gated read:
@@ -5675,8 +5671,7 @@ findings:
       std::fs::read is called. Peak allocation during the rejection
       path is O(1), not O(file_size). cargo test -p meissnerseal-core
       exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-158
     kind: consistency
     component: meissnerseal-core
@@ -5694,7 +5689,7 @@ findings:
     cwe: "CWE-732"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Serialize the umask test against all other tests that create files.
       Options:
@@ -5715,8 +5710,7 @@ findings:
       The umask test cannot run concurrently with other file-creating
       tests. No other test observes umask(0) side-effects. cargo test
       -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-159
     kind: consistency
     component: meissnerseal-core
@@ -5735,7 +5729,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the stale comment with an accurate description:
 
@@ -5746,8 +5740,7 @@ findings:
     verification: >-
       Comment describes the actual create_new behaviour. cargo test
       -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-160
     kind: coverage_gap
     component: meissnerseal-core
@@ -5764,7 +5757,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test:
 
@@ -5784,8 +5777,7 @@ findings:
     verification: >-
       Test returns Err(InvalidState) on path mismatch without touching
       the filesystem. cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-161
     kind: coverage_gap
     component: meissnerseal-core
@@ -5802,7 +5794,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test:
 
@@ -5822,8 +5814,7 @@ findings:
     verification: >-
       Test returns Err for a wrong non-empty password. cargo test
       -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-162
     kind: coverage_gap
     component: meissnerseal-core
@@ -5892,7 +5883,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add direct unit tests for record_frame_len_at with crafted byte
       slices:
@@ -5906,8 +5897,7 @@ findings:
     verification: >-
       Each crafted input triggers the expected Format error variant.
       cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-164
     kind: coverage_gap
     component: meissnerseal-core
@@ -5922,7 +5912,7 @@ findings:
     cwe: "CWE-276"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a Unix-only test that creates a vault, sets umask(0) via
       UmaskGuard, calls persist_vault_mutation_v2, then asserts the
@@ -5948,8 +5938,7 @@ findings:
       Test fails when persist_vault_mutation_v2 does not set mode 0o600
       on the temp file. Final vault mode is 0o600 under umask(0).
       cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-165
     kind: consistency
     component: meissnerseal-core
@@ -5967,7 +5956,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the manual temp-dir / temp-file pattern with TempDir:
 
@@ -5984,8 +5973,7 @@ findings:
     verification: >-
       Tests leave no files in the system temp directory on panic.
       cargo test -p meissnerseal-core exits 0.
-    commit: ""
-
+    commit: "d81a18f"
 # ── meissnerseal-core transfer/envelope.rs security review (2026-07-05) ────────
 
   - id: F-166
@@ -6269,15 +6257,14 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Change the build_aad call in serialize_record_frame_roundtrip_parses_same_frame
       to pass SCHEMA_MEISSNER_RECORDS_V2 instead of the literal 1.
     verification: >-
       The roundtrip test passes with SCHEMA_MEISSNER_RECORDS_V2.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-176
     kind: security_review
     component: meissnerseal-core
@@ -6303,7 +6290,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace the partial field checks in validate_stored_record_aad with a
       full 79-byte comparison against the caller-supplied canonical AAD, or
@@ -6316,8 +6303,7 @@ findings:
       Corrupting any byte of the stored AAD causes parse_record_frame to
       return Err. All five previously-skipped field offsets are covered by
       dedicated test cases. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-177
     kind: coverage_gap
     component: meissnerseal-core
@@ -6340,7 +6326,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Extend test_build_aad_length (or add a sibling test) to assert the
       exact value at each field offset: domain bytes, vault_id, all five
@@ -6352,8 +6338,7 @@ findings:
       A field-reordering regression in build_aad is caught by the layout test.
       build_table_aad_v2 with V1 or unknown schema returns the expected error.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-178
     kind: coverage_gap
     component: meissnerseal-core
@@ -6376,7 +6361,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add tests: parse_header rejects a header with each required tag absent
       (one test per tag); parse_header rejects a header with an unknown
@@ -6389,8 +6374,7 @@ findings:
       critical TLV returns Err. Unknown non-critical TLV returns Ok.
       pqc_profile missing behavior matches the documented default.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-179
     kind: coverage_gap
     component: meissnerseal-core
@@ -6411,7 +6395,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a serialize_vault_file layout test that calls serialize_vault_file
       with known header, record_table, and body slices and asserts the exact
@@ -6421,8 +6405,7 @@ findings:
     verification: >-
       A section-reordering regression in serialize_vault_file is caught by the
       layout test. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-180
     kind: consistency
     component: meissnerseal-core
@@ -6443,7 +6426,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Document the intended validation split explicitly: either add contract
       language to serialize_sealed_record_table_v2 stating that frame
@@ -6454,8 +6437,7 @@ findings:
       The contract comment on serialize_sealed_record_table_v2 clearly states
       which validations are the serializer's responsibility versus the opener's.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-181
     kind: coverage_gap
     component: meissnerseal-core
@@ -6481,7 +6463,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a test: open_sealed_record_table_v2 rejects an entry with
       frame_len = 0 (confirm it returns Err(CoreError::Format(_))).
@@ -6493,8 +6475,7 @@ findings:
       All three negative categories return the expected error variant.
       parse_record_frame rejects ciphertext_len < TAG_LEN without reaching
       the AEAD layer. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-182
     kind: coverage_gap
     component: meissnerseal-core
@@ -6515,7 +6496,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add negative tests for parse_item_record_frame_envelope: empty
       wrapped_rek, empty encrypted_payload, truncated nonce, length overrun,
@@ -6527,8 +6508,7 @@ findings:
       All parse_item_record_frame_envelope negative cases return Err.
       Proptest confirms no panic on arbitrary input for all four parsers.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-183
     kind: consistency
     component: meissnerseal-core
@@ -6548,7 +6528,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Replace raw byte offsets in these three tests with expressions derived
       from the existing layout constants (e.g. 2 + 16 + 16 for the aead_profile
@@ -6559,8 +6539,7 @@ findings:
       A layout-constant change that shifts the aead_profile or aad_len field
       causes the corresponding test to mutate the correct byte.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
 # ── meissnerseal-core export.rs security review (2026-07-05) ────────────────────
 
   - id: F-184
@@ -6578,7 +6557,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add export_empty_passphrase_rejects: call export() with an empty
       passphrase and assert Err(CoreError::InvalidState). Add
@@ -6589,8 +6568,7 @@ findings:
     verification: >-
       Both tests pass. Removing either empty-passphrase guard causes the
       corresponding test to fail. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-185
     kind: coverage_gap
     component: meissnerseal-core
@@ -6607,7 +6585,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that exports a multi-item bundle and imports it into a vault
       where the second add() is forced to fail (e.g. by vault corruption or a
@@ -6618,8 +6596,7 @@ findings:
       Rollback-success path returns Err(CoreError::InvalidState) and the vault
       contains no imported items. Rollback-failure path returns
       Err(CoreError::PartialImport). cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-186
     kind: coverage_gap
     component: meissnerseal-core
@@ -6668,7 +6645,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add table-driven tamper tests covering: one byte of source_vault_id
       flipped, one byte of the nonce flipped, one byte of kdf_params flipped,
@@ -6677,8 +6654,7 @@ findings:
     verification: >-
       All four tamper categories return Err. cargo test -p meissnerseal-core
       passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-188
     kind: consistency
     component: meissnerseal-core
@@ -6704,7 +6680,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Rewrite import_rejects_wrong_magic, import_rejects_unknown_version,
       and import_rejects_truncated_bundle to call parse_bundle() or
@@ -6721,8 +6697,7 @@ findings:
       rewritten tests without the ignore annotation. The new helper enables
       authenticate()-level tests without a full vault session.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-189
     kind: consistency
     component: meissnerseal-core
@@ -6740,7 +6715,7 @@ findings:
     cwe: ""
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Either remove the trailing &0u32.to_le_bytes() from the fixture (since
       the rejection occurs before it is consumed) and add an inline comment
@@ -6750,8 +6725,7 @@ findings:
     verification: >-
       The test still passes after the fixture is clarified.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-190
     kind: coverage_gap
     component: meissnerseal-core
@@ -6769,7 +6743,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add deserialize_item_set_rejects_invalid_utf8_label: supply a label
       length field followed by bytes that are not valid UTF-8 (e.g. [0xFF])
@@ -6781,8 +6755,7 @@ findings:
     verification: >-
       All three new negative cases return Err(CoreError::Format).
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-191
     kind: coverage_gap
     component: meissnerseal-core
@@ -6799,7 +6772,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add boundary tests: item_count = MAX_EXPORT_ITEM_COUNT (4096) must
       be accepted; item_count = MAX_EXPORT_ITEM_COUNT + 1 (4097) must return
@@ -6810,8 +6783,7 @@ findings:
       Exact-boundary accept cases return Ok. One-over-boundary reject cases
       return Err(CoreError::Format). An off-by-one in the comparison is
       caught. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-192
     kind: coverage_gap
     component: meissnerseal-core
@@ -6832,7 +6804,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a test calling serialize_bundle() with a nonce slice not equal
       to 24 bytes and asserting Err(CoreError::Format).
@@ -6843,8 +6815,7 @@ findings:
     verification: >-
       All new negative cases return the expected error. serialize_bundle nonce
       length guard is exercised. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-193
     kind: coverage_gap
     component: meissnerseal-core
@@ -6859,7 +6830,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add an export_aad_layout test that calls export_aad() with a known
       vault_id and version and asserts: aad[0..16] == vault_id, aad[16..24]
@@ -6868,8 +6839,7 @@ findings:
     verification: >-
       A field-reordering regression in export_aad is caught by the layout
       test. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-194
     kind: coverage_gap
     component: meissnerseal-core
@@ -6893,7 +6863,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) After cross-vault export and import, assert that list(source).len()
       equals the pre-export item count and that source item contents are
@@ -6906,8 +6876,7 @@ findings:
       Source vault is confirmed unchanged after cross-vault export.
       Same-vault duplicate label behavior matches the documented policy.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
 # ── meissnerseal-core keys/hierarchy.rs security review (2026-07-05) ────────────
 
   - id: F-195
@@ -7200,7 +7169,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add two tests: (1) build a byte slice with count == 65_536 followed by
       65_536 * 24 zero bytes and assert from_bytes returns Ok; (2) build a
@@ -7210,8 +7179,7 @@ findings:
     verification: >-
       Both boundary values are explicitly asserted. cargo test -p
       meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-204
     kind: security_review
     component: meissnerseal-core
@@ -7233,7 +7201,7 @@ findings:
     cwe: "CWE-190"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Enforce the MAX_REPLAY_ENTRIES cap in check_and_insert(): after
       evict_expired(), if self.entries.len() >= MAX_REPLAY_ENTRIES as usize,
@@ -7246,8 +7214,7 @@ findings:
       Inserting MAX_REPLAY_ENTRIES + 1 entries without expiry is rejected or
       causes the oldest to be evicted. to_bytes() on a valid store never
       produces a blob from_bytes() would reject. cargo test passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-205
     kind: coverage_gap
     component: meissnerseal-core
@@ -7298,7 +7265,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Decide and document the eviction policy: either evict during from_bytes()
       or explicitly state that eviction is lazy and only occurs on
@@ -7308,8 +7275,7 @@ findings:
     verification: >-
       Eviction policy is documented in the contract comment and pinned by a
       test. cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-207
     kind: coverage_gap
     component: meissnerseal-core
@@ -7358,7 +7324,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a test that inserts ID-A with past_timestamp(), then inserts ID-B
       (different value) and asserts Ok(()). After the second insert, assert
@@ -7366,8 +7332,7 @@ findings:
     verification: >-
       Eviction of a different-ID expired entry is explicitly tested. cargo
       test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-209
     kind: coverage_gap
     component: meissnerseal-core
@@ -7386,7 +7351,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Introduce a clock abstraction (e.g., a fn pointer or trait injected into
       evict_expired or check_and_insert) so tests can supply a fixed timestamp.
@@ -7396,8 +7361,7 @@ findings:
     verification: >-
       expires_at == now boundary is explicitly tested with a fixed clock.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-210
     kind: coverage_gap
     component: meissnerseal-core
@@ -7419,7 +7383,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a KAT test: build a store with a known ID and expires_at, call
       to_bytes(), and assert the result byte-for-byte against a hand-computed
@@ -7430,8 +7394,7 @@ findings:
     verification: >-
       Wire format is pinned by a KAT. Truncated count field is rejected.
       Empty store serializes to four zero bytes. cargo test passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-211
     kind: coverage_gap
     component: meissnerseal-core
@@ -7449,7 +7412,7 @@ findings:
     cwe: "CWE-20"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add a proptest that generates an arbitrary Vec<u8> and calls
       from_bytes() on it, asserting only that the result is either Ok or
@@ -7458,8 +7421,7 @@ findings:
     verification: >-
       from_bytes() does not panic on any arbitrary byte input per proptest.
       cargo test -p meissnerseal-core passes.
-    commit: ""
-
+    commit: "d81a18f"
   - id: F-212
     kind: coverage_gap
     component: meissnerseal-crypto
