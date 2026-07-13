@@ -142,7 +142,10 @@ fn export_writes_nonempty_msexp_bundle() {
     }
     let bytes = std::fs::read(&bundle).expect("bundle bytes");
     assert!(!contains_subslice(&bytes, SECRET_VALUE.as_bytes()));
-    assert!(!contains_subslice(&bytes, b"exported note"), "label must not appear in bundle plaintext");
+    assert!(
+        !contains_subslice(&bytes, b"exported note"),
+        "label must not appear in bundle plaintext"
+    );
     let header_prefix = bytes.get(..bytes.len().min(16)).expect("bundle prefix");
     assert!(!contains_subslice(header_prefix, b"ARCEXP"));
     assert!(contains_subslice(&bytes, b"MSEXP"));
@@ -202,7 +205,13 @@ fn export_then_import_roundtrips_item() {
         &[PASSWORD],
     );
     assert_success(&get);
-    assert!(stdout(&get).contains(SECRET_VALUE));
+    let rendered = stdout(&get);
+    assert!(rendered.contains("NOTE: secret printed to stdout"));
+    let secret_line = rendered
+        .lines()
+        .last()
+        .expect("get output must end with secret line");
+    assert_eq!(secret_line, SECRET_VALUE);
 }
 
 #[test]
@@ -557,42 +566,73 @@ fn export_refuses_existing_bundle() {
 
     let first = run_cli(
         &env,
-        ["export", "--output", path_str(&bundle), "--vault", path_str(&vault)],
+        [
+            "export",
+            "--output",
+            path_str(&bundle),
+            "--vault",
+            path_str(&vault),
+        ],
         &[PASSWORD, EXPORT_PASS],
     );
     assert_success(&first);
-    let original_len = std::fs::metadata(&bundle).expect("first export metadata").len();
+    let original_len = std::fs::metadata(&bundle)
+        .expect("first export metadata")
+        .len();
 
     let second = run_cli(
         &env,
-        ["export", "--output", path_str(&bundle), "--vault", path_str(&vault)],
+        [
+            "export",
+            "--output",
+            path_str(&bundle),
+            "--vault",
+            path_str(&vault),
+        ],
         &[PASSWORD, EXPORT_PASS],
     );
-    let after_len = std::fs::metadata(&bundle).expect("second export metadata").len();
+    let after_len = std::fs::metadata(&bundle)
+        .expect("second export metadata")
+        .len();
     if second.status.success() {
-        assert!(after_len >= original_len, "atomic replace must not truncate bundle");
+        assert!(
+            after_len >= original_len,
+            "atomic replace must not truncate bundle"
+        );
     } else {
-        assert_eq!(after_len, original_len, "refused export must not modify existing bundle");
+        assert_eq!(
+            after_len, original_len,
+            "refused export must not modify existing bundle"
+        );
         assert_no_secret_leak(&second);
     }
 }
 
 #[test]
-fn corrupted_vault_list_and_get_fail_without_plaintext_leak() {
+fn corrupted_vault_is_rejected_without_secret_leak() {
     let env = TestEnv::new();
     let vault = env.path().join("corrupted.msv");
     init_vault(&env, &vault);
     let item_id = add_item(&env, &vault, "corrupt me");
 
     let mut bytes = std::fs::read(&vault).expect("vault bytes");
-    let flip_at = bytes.len() / 2;
-    assert!(flip_at > 26, "vault must have ciphertext region");
-    *bytes.get_mut(flip_at).expect("ciphertext offset") ^= 0x01;
+    let start = bytes.len() / 2;
+    let end = start.saturating_add(32).min(bytes.len());
+    assert!(start > 26, "vault must have ciphertext region");
+    assert!(end > start, "vault must have writable ciphertext bytes");
+    let region = bytes
+        .get_mut(start..end)
+        .expect("ciphertext corruption region must be in bounds");
+    for byte in region {
+        *byte = 0xA5;
+    }
     std::fs::write(&vault, &bytes).expect("write corrupted vault");
 
     let list = run_cli(&env, ["list", path_str(&vault)], &[PASSWORD]);
     assert!(!list.status.success());
     assert_no_secret_leak(&list);
+    assert!(!stdout(&list).contains(SECRET_VALUE));
+    assert!(!stderr(&list).contains(SECRET_VALUE));
     assert!(!stderr(&list).contains("panicked"));
 
     let get = run_cli(
@@ -602,15 +642,18 @@ fn corrupted_vault_list_and_get_fail_without_plaintext_leak() {
     );
     assert!(!get.status.success());
     assert_no_secret_leak(&get);
+    assert!(!stdout(&get).contains(SECRET_VALUE));
+    assert!(!stderr(&get).contains(SECRET_VALUE));
     assert!(!stderr(&get).contains("panicked"));
 }
 
 #[test]
-fn list_label_with_ansi_escape_does_not_inject_control_sequence() {
+fn control_sequences_roundtrip_in_storage_but_not_terminal_output() {
     let env = TestEnv::new();
-    let vault = env.path().join("ansi-label.msv");
+    let vault = env.path().join("control-seq.msv");
     init_vault(&env, &vault);
-    let label = "primary\x1b[31mred";
+    let label = "primary\x1b[31mred\rrow";
+    let secret = "secret\x1b[31mred\rrow";
 
     let add = run_cli(
         &env,
@@ -623,44 +666,32 @@ fn list_label_with_ansi_escape_does_not_inject_control_sequence() {
             "--vault",
             path_str(&vault),
         ],
-        &[PASSWORD, SECRET_VALUE.as_bytes()],
+        &[PASSWORD, secret.as_bytes()],
     );
     assert_success(&add);
+    let add_stdout = stdout(&add);
+    let item_id = first_output_line_with_prefix(&add_stdout, "Item ID: ").expect("item id line");
 
     let list = run_cli(&env, ["list", path_str(&vault)], &[PASSWORD]);
     assert_success(&list);
     let rendered = stdout(&list);
     assert!(!rendered.contains('\u{001b}'));
-    assert_eq!(rendered.lines().count(), 1);
-}
-
-#[test]
-fn list_label_with_carriage_return_does_not_inject_control_sequence() {
-    let env = TestEnv::new();
-    let vault = env.path().join("cr-label.msv");
-    init_vault(&env, &vault);
-    let label = "primary\rfake-row";
-
-    let add = run_cli(
-        &env,
-        [
-            "add",
-            "--label",
-            label,
-            "--kind",
-            "secure-note",
-            "--vault",
-            path_str(&vault),
-        ],
-        &[PASSWORD, SECRET_VALUE.as_bytes()],
-    );
-    assert_success(&add);
-
-    let list = run_cli(&env, ["list", path_str(&vault)], &[PASSWORD]);
-    assert_success(&list);
-    let rendered = stdout(&list);
     assert!(!rendered.contains('\r'));
     assert_eq!(rendered.lines().count(), 1);
+    assert!(rendered.contains("\\u{1b}[31mred\\rrow"));
+
+    let get = run_cli(
+        &env,
+        ["get", item_id, "--vault", path_str(&vault)],
+        &[PASSWORD],
+    );
+    assert_success(&get);
+    let get_stdout = stdout(&get);
+    let secret_line = get_stdout
+        .lines()
+        .last()
+        .expect("get output must end with secret line");
+    assert_eq!(secret_line, secret);
 }
 
 fn init_vault(env: &TestEnv, path: &Path) {
@@ -753,7 +784,7 @@ fn assert_success(output: &Output) {
 fn assert_no_secret_leak(output: &Output) {
     for (label, secret) in [
         ("SECRET_VALUE", SECRET_VALUE.as_bytes()),
-        ("PASSWORD",    PASSWORD),
+        ("PASSWORD", PASSWORD),
         ("EXPORT_PASS", EXPORT_PASS),
     ] {
         assert!(

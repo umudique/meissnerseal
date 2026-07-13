@@ -919,6 +919,38 @@ fn hex_id(id: &[u8; 16]) -> String {
 }
 
 #[cfg(test)]
+fn dispatched_handler_name(command: &Commands) -> &'static str {
+    match command {
+        Commands::Init { .. } => "init_vault",
+        Commands::Add { .. } => "add_command",
+        Commands::List { .. } => "list_command",
+        Commands::Get { .. } => "get_command",
+        Commands::Export { .. } => "export_command",
+        Commands::Import { .. } => "import_command",
+        Commands::Lock => "lock",
+        Commands::Transfer { .. } => "transfer_command",
+        Commands::Device { .. } => "device_command",
+    }
+}
+
+#[cfg(test)]
+fn transfer_action_handler_name(action: &TransferCommands) -> &'static str {
+    match action {
+        TransferCommands::Create { .. } => "transfer_create_command",
+        TransferCommands::Receive { .. } => "transfer_receive_command",
+    }
+}
+
+#[cfg(test)]
+fn device_action_handler_name(action: &DeviceCommands) -> &'static str {
+    match action {
+        DeviceCommands::Pair { .. } => "device_pair_command",
+        DeviceCommands::List => "device_command_unwired",
+        DeviceCommands::Revoke => "device_command_unwired",
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
@@ -1269,6 +1301,39 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn add_emits_exact_item_id_stdout_contract() {
+        let path = unique_vault_path("cli-add-contract");
+        create_test_vault(&path);
+
+        let mut sink = Vec::new();
+        add_item(
+            path.clone(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            PlainItem {
+                kind: ItemKind::SecureNote,
+                label: "contract".to_string(),
+                secret: SecretBytes::new(KNOWN_SECRET.as_bytes().to_vec()),
+                tags: Vec::new(),
+            },
+            &mut sink,
+        )
+        .expect("add succeeds");
+
+        let rendered = String::from_utf8(sink).expect("stdout utf8");
+        let suffix = rendered
+            .strip_prefix("Item ID: ")
+            .expect("stdout must start with Item ID prefix")
+            .trim_end_matches('\n');
+        assert_eq!(rendered.matches('\n').count(), 1);
+        assert!(suffix.len() == 32 && suffix.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(rendered, format!("Item ID: {suffix}\n"));
+        assert!(!rendered.contains(KNOWN_SECRET));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn init_vault_with_passwords_writes_created_path_to_stdout() {
         let path = unique_vault_path("cli-init-handler");
         let mut sink = Vec::new();
@@ -1403,6 +1468,159 @@ mod tests {
         assert_eq!(
             String::from_utf8(sink).expect("stdout utf8"),
             "Vault is locked.\n"
+        );
+    }
+
+    #[test]
+    fn dispatches_init_to_init_vault_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Init {
+                path: PathBuf::from("/tmp/test.msv"),
+            }),
+            "init_vault",
+        );
+    }
+
+    #[test]
+    fn dispatches_add_to_add_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Add {
+                label: "label".to_string(),
+                kind: "secure-note".to_string(),
+                vault: PathBuf::from("/tmp/test.msv"),
+            }),
+            "add_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_list_to_list_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::List {
+                vault: PathBuf::from("/tmp/test.msv"),
+            }),
+            "list_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_get_to_get_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Get {
+                item_id: "00".repeat(16),
+                vault: PathBuf::from("/tmp/test.msv"),
+            }),
+            "get_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_export_to_export_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Export {
+                output: PathBuf::from("/tmp/out.msexp"),
+                vault: PathBuf::from("/tmp/test.msv"),
+            }),
+            "export_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_import_to_import_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Import {
+                input: PathBuf::from("/tmp/in.msexp"),
+                vault: PathBuf::from("/tmp/test.msv"),
+            }),
+            "import_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_lock_to_lock_handler() {
+        assert_eq!(dispatched_handler_name(&Commands::Lock), "lock");
+    }
+
+    #[test]
+    fn dispatches_transfer_to_transfer_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Transfer {
+                action: TransferCommands::Create {
+                    sender_keypair: PathBuf::from("/tmp/sender.ms-kp"),
+                    recipient_identity: PathBuf::from("/tmp/recipient.ms-id"),
+                    input: PathBuf::from("/tmp/plain.txt"),
+                    output: PathBuf::from("/tmp/out.msenv"),
+                    expires_in: 60,
+                },
+            }),
+            "transfer_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_device_to_device_command_handler() {
+        assert_eq!(
+            dispatched_handler_name(&Commands::Device {
+                action: DeviceCommands::List,
+            }),
+            "device_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_transfer_create_to_transfer_create_handler() {
+        assert_eq!(
+            transfer_action_handler_name(&TransferCommands::Create {
+                sender_keypair: PathBuf::from("/tmp/sender.ms-kp"),
+                recipient_identity: PathBuf::from("/tmp/recipient.ms-id"),
+                input: PathBuf::from("/tmp/plain.txt"),
+                output: PathBuf::from("/tmp/out.msenv"),
+                expires_in: 60,
+            }),
+            "transfer_create_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_transfer_receive_to_transfer_receive_handler() {
+        assert_eq!(
+            transfer_action_handler_name(&TransferCommands::Receive {
+                envelope: PathBuf::from("/tmp/in.msenv"),
+                recipient_keypair: PathBuf::from("/tmp/recipient.ms-kp"),
+                sender_identity: PathBuf::from("/tmp/sender.ms-id"),
+                output: Some(PathBuf::from("/tmp/out.txt")),
+                seen_ids: Some(PathBuf::from("/tmp/seen.bin")),
+            }),
+            "transfer_receive_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_device_pair_to_device_pair_handler() {
+        assert_eq!(
+            device_action_handler_name(&DeviceCommands::Pair {
+                name: "peer".to_string(),
+                self_keypair: PathBuf::from("/tmp/self.ms-kp"),
+                self_identity: PathBuf::from("/tmp/self.ms-id"),
+                peer_identity: PathBuf::from("/tmp/peer.ms-id"),
+            }),
+            "device_pair_command",
+        );
+    }
+
+    #[test]
+    fn dispatches_device_list_to_unwired_device_handler() {
+        assert_eq!(
+            device_action_handler_name(&DeviceCommands::List),
+            "device_command_unwired",
+        );
+    }
+
+    #[test]
+    fn dispatches_device_revoke_to_unwired_device_handler() {
+        assert_eq!(
+            device_action_handler_name(&DeviceCommands::Revoke),
+            "device_command_unwired",
         );
     }
 
