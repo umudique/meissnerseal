@@ -5,7 +5,13 @@
 //! `Ed25519MlDsa87HybridV1` identifier is a fail-closed agility slot: it is
 //! carried in types and parsing so protocols can authenticate algorithm
 //! identifiers now, but all sign/verify operations for that slot return
-//! `Unimplemented` until a future ML-DSA backend is approved and audited.
+//! `Unimplemented`.
+//!
+//! ML-DSA is deferred for the MVP profile under ADR-012 and ADR-028. The crate
+//! keeps the algorithm identifier and wire-level parsing so protocol messages
+//! can bind the future slot today, but production signing remains Ed25519-only
+//! until an ML-DSA backend is selected, independently audited, and approved for
+//! re-enablement in the active transfer/signing profile.
 
 use ed25519_dalek::{Signer, VerifyingKey};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -276,21 +282,15 @@ pub fn ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey) {
 /// - Does not implement signing primitives directly.
 pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature> {
     match private_key.algorithm() {
-        SigningAlgorithmId::Ed25519V1 => {
-            let seed = Zeroizing::new(
-                private_key
-                    .bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| SigningError::InvalidKey)?,
-            );
+        SigningAlgorithmId::Ed25519V1 => private_key.with_secret_bytes(|bytes| {
+            let seed = Zeroizing::new(bytes.try_into().map_err(|_| SigningError::InvalidKey)?);
             let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
             let signature = signing_key.sign(message);
             Ok(Signature::new(
                 SigningAlgorithmId::Ed25519V1,
                 signature.to_bytes().to_vec(),
             ))
-        }
+        }),
         SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Err(SigningError::Unimplemented),
     }
 }
@@ -641,10 +641,7 @@ mod tests {
             let message = from_hex(&case.message);
             let expected_sig = from_hex(&case.expected_signature);
 
-            let seed_arr: [u8; 32] = seed
-                .as_slice()
-                .try_into()
-                .expect("seed must be 32 bytes");
+            let seed_arr: [u8; 32] = seed.as_slice().try_into().expect("seed must be 32 bytes");
             let derived_pub = ed25519_dalek::SigningKey::from_bytes(&seed_arr)
                 .verifying_key()
                 .to_bytes()

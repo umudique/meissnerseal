@@ -147,10 +147,149 @@ where
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+    use serde::Deserializer;
+    use std::mem::ManuallyDrop;
+    use std::slice;
     use zeroize::Zeroize;
     use zeroize::Zeroizing;
 
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct KatFile {
+        #[serde(rename = "schema", deserialize_with = "deserialize_mlkem_kat_schema")]
+        _schema: String,
+        #[serde(rename = "description")]
+        _description: String,
+        #[serde(rename = "m_usage_note")]
+        _m_usage_note: String,
+        #[serde(rename = "source")]
+        _source: KatSource,
+        vectors: Vec<KatVector>,
+        val_group: ValGroup,
+    }
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    #[serde(deny_unknown_fields)]
+    struct KatSource {
+        name: String,
+        repository: String,
+        file: String,
+        commit: String,
+        algorithm: String,
+        #[serde(rename = "testType")]
+        test_type: String,
+        #[serde(rename = "tcIds")]
+        tc_ids: Vec<usize>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct KatVector {
+        #[serde(rename = "tcId")]
+        tc_id: usize,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        ek: String,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        dk: String,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        c: String,
+        #[serde(default, deserialize_with = "deserialize_optional_hex_string")]
+        k: Option<String>,
+        #[serde(
+            rename = "m",
+            default,
+            deserialize_with = "deserialize_optional_hex_string"
+        )]
+        _m: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ValGroup {
+        #[serde(rename = "tgId")]
+        _tg_id: usize,
+        #[serde(rename = "testType")]
+        _test_type: String,
+        #[serde(rename = "parameterSet")]
+        _parameter_set: String,
+        #[serde(rename = "function")]
+        _function: String,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        dk: String,
+        #[serde(rename = "ek", deserialize_with = "deserialize_hex_string")]
+        _ek: String,
+        tests: Vec<ValCase>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ValCase {
+        #[serde(rename = "tcId")]
+        tc_id: usize,
+        #[serde(rename = "deferred")]
+        _deferred: bool,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        c: String,
+        #[serde(deserialize_with = "deserialize_hex_string")]
+        k: String,
+        #[serde(rename = "reason")]
+        _reason: String,
+    }
+
+    fn deserialize_hex_string<'de, D>(deserializer: D) -> core::result::Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value.len() % 2 != 0 {
+            return Err(serde::de::Error::custom("hex string must have even length"));
+        }
+        if !value.as_bytes().iter().all(u8::is_ascii_hexdigit) {
+            return Err(serde::de::Error::custom(
+                "hex string contains non-hex digit",
+            ));
+        }
+        Ok(value)
+    }
+
+    fn deserialize_mlkem_kat_schema<'de, D>(
+        deserializer: D,
+    ) -> core::result::Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "mlkem-768-kat-v1" {
+            return Err(serde::de::Error::custom("schema must be mlkem-768-kat-v1"));
+        }
+        Ok(value)
+    }
+
+    fn deserialize_optional_hex_string<'de, D>(
+        deserializer: D,
+    ) -> core::result::Result<Option<String>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<String>::deserialize(deserializer)?
+            .map(|value| {
+                if value.len() % 2 != 0 {
+                    return Err(serde::de::Error::custom("hex string must have even length"));
+                }
+                if !value.as_bytes().iter().all(u8::is_ascii_hexdigit) {
+                    return Err(serde::de::Error::custom(
+                        "hex string contains non-hex digit",
+                    ));
+                }
+                Ok(value)
+            })
+            .transpose()
+    }
+
     fn from_hex(s: &str) -> Vec<u8> {
+        assert_eq!(s.len() % 2, 0, "hex string must have even length: {}", s);
         s.as_bytes()
             .chunks(2)
             .map(|pair| {
@@ -158,6 +297,17 @@ mod tests {
                 u8::from_str_radix(hex, 16).expect("valid hex")
             })
             .collect()
+    }
+
+    fn load_kat() -> KatFile {
+        serde_json::from_str(KAT).expect("mlkem_768_kat_v1.json must be valid")
+    }
+
+    fn find_vector(kat: &KatFile, tc_id: usize) -> &KatVector {
+        kat.vectors
+            .iter()
+            .find(|vector| vector.tc_id == tc_id)
+            .expect("tcId must exist")
     }
 
     #[test]
@@ -212,6 +362,31 @@ mod tests {
         assert!(secret.as_slice().iter().all(|byte| *byte == 0));
     }
 
+    #[test]
+    #[ignore = "Meaningful under Miri: validates drop-path zeroization after destruction."]
+    #[allow(unsafe_code)]
+    fn shared_secret_drop_zeroizes_backing_bytes() {
+        let secret = SharedSecret::from_bytes([0xA5; 32]);
+        let mut secret = ManuallyDrop::new(secret);
+        let ptr = secret.as_bytes().as_ptr();
+
+        // SAFETY: `ptr` is captured from the allocation owned by `secret`.
+        // This test is ignored in normal runs and intended for Miri, where
+        // reading the bytes after drop is used to validate zeroization of the
+        // same backing storage.
+        unsafe {
+            ManuallyDrop::drop(&mut secret);
+            let bytes = slice::from_raw_parts(ptr, SharedSecret::LEN);
+            assert!(bytes.iter().all(|byte| *byte == 0));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "hex string must have even length")]
+    fn from_hex_rejects_odd_length_input() {
+        let _ = from_hex("abc");
+    }
+
     // NIST FIPS 203 ML-KEM-768 Known-Answer Tests (F-20)
     // Source: NIST ACVP-Server ML-KEM-encapDecap-FIPS203/internalProjection.json
     // commit 65370b8, tcIds 26-28, ML-KEM-768 AFT vectors.
@@ -220,19 +395,6 @@ mod tests {
 
     const KAT: &str = include_str!("../../../test-vectors/mlkem_768_kat_v1.json");
 
-    fn parse_kat_field<'a>(json: &'a str, field: &str, after_tc_id: usize) -> &'a str {
-        let marker = format!("\"tcId\": {after_tc_id}");
-        let after_tc = json.split_once(&marker).expect("tcId not found").1;
-        let key = format!("\"{field}\": \"");
-        after_tc
-            .split_once(&key)
-            .expect("field not found")
-            .1
-            .split_once('"')
-            .expect("closing quote")
-            .0
-    }
-
     // F-55: encapsulate boundary — adversarial public keys must not panic.
     // ML-KEM has no "invalid" 1184-byte public key (any bytes are structurally
     // valid); this test verifies the boundary handles edge-case inputs gracefully.
@@ -240,6 +402,50 @@ mod tests {
     fn encapsulate_adversarial_keys_do_not_panic() {
         let _ = encapsulate(&MlKemPublicKey::from_bytes([0u8; 1184]));
         let _ = encapsulate(&MlKemPublicKey::from_bytes([0xffu8; 1184]));
+        let incrementing = core::array::from_fn(|index| {
+            u8::try_from(index % (usize::from(u8::MAX) + 1)).expect("mod 256 fits into u8")
+        });
+        let _ = encapsulate(&MlKemPublicKey::from_bytes(incrementing));
+        let low_order_like = {
+            let mut bytes = [0u8; 1184];
+            bytes[0] = 0x01;
+            bytes
+        };
+        let _ = encapsulate(&MlKemPublicKey::from_bytes(low_order_like));
+    }
+
+    #[test]
+    fn adversarial_public_key_length_boundary_is_rejected() {
+        let short = vec![0x5a; 1183];
+        assert!(matches!(
+            super::key_from_slice::<1184>(&short),
+            Err(MlKemError::BackendUnavailable)
+        ));
+    }
+
+    #[test]
+    fn kat_loader_rejects_malformed_fields() {
+        let missing_colon = r#"{"vectors":[{"tcId":26,"ek" "aa","dk":"bb","c":"cc","k":"dd"}],"val_group":{"dk":"00","tests":[]}}"#;
+        assert!(serde_json::from_str::<KatFile>(missing_colon).is_err());
+
+        let bad_hex = r#"{"vectors":[{"tcId":26,"ek":"zz","dk":"00","c":"00","k":"00"}],"val_group":{"dk":"00","tests":[]}}"#;
+        assert!(serde_json::from_str::<KatFile>(bad_hex).is_err());
+    }
+
+    #[test]
+    fn kat_loader_rejects_wrong_schema() {
+        let bad_schema = r#"{
+            "schema":"not-mlkem-768-kat-v1",
+            "description":"bad schema",
+            "m_usage_note":"test",
+            "source":"test",
+            "vectors":[],
+            "val_group":{"dk":"00","tests":[]}
+        }"#;
+        assert!(
+            serde_json::from_str::<KatFile>(bad_schema).is_err(),
+            "typed KAT loader must reject an unexpected schema tag"
+        );
     }
 
     // F-55: encapsulate cross-verify — using NIST key material confirms that
@@ -247,9 +453,11 @@ mod tests {
     // the gap between the one-sided NIST KAT vectors (decapsulation only).
     #[test]
     fn encapsulate_with_nist_ek_consistent_with_dk() {
+        let kat = load_kat();
         for tc_id in [26usize, 27, 28] {
-            let ek_hex = parse_kat_field(KAT, "ek", tc_id);
-            let dk_hex = parse_kat_field(KAT, "dk", tc_id);
+            let vector = find_vector(&kat, tc_id);
+            let ek_hex = &vector.ek;
+            let dk_hex = &vector.dk;
 
             let ek_bytes: [u8; 1184] = from_hex(ek_hex).try_into().expect("ek 1184 bytes");
             let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("dk 2400 bytes");
@@ -271,11 +479,13 @@ mod tests {
 
     #[test]
     fn nist_kat_decapsulate() {
+        let kat = load_kat();
         // Vectors tcId 26, 27, 28 from NIST ACVP internalProjection.json.
         for tc_id in [26usize, 27, 28] {
-            let dk_hex = parse_kat_field(KAT, "dk", tc_id);
-            let c_hex = parse_kat_field(KAT, "c", tc_id);
-            let k_hex = parse_kat_field(KAT, "k", tc_id);
+            let vector = find_vector(&kat, tc_id);
+            let dk_hex = &vector.dk;
+            let c_hex = &vector.c;
+            let k_hex = vector.k.as_ref().expect("positive KAT must carry k");
 
             let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("dk 2400 bytes");
             let c_bytes: [u8; 1088] = from_hex(c_hex).try_into().expect("c 1088 bytes");
@@ -303,31 +513,16 @@ mod tests {
     // "no modification" cases: normal decapsulation positive KATs.
     #[test]
     fn nist_val_implicit_rejection_and_positive_decapsulate() {
-        let val_group = {
-            let marker = "\"val_group\"";
-            KAT.split_once(marker).expect("val_group present").1
-        };
-
-        let dk_hex = val_group
-            .split_once("\"dk\": \"")
-            .expect("val_group dk")
-            .1
-            .split_once('"')
-            .expect("val_group dk close")
-            .0;
+        let kat = load_kat();
+        let dk_hex = &kat.val_group.dk;
         let dk_bytes: [u8; 2400] = from_hex(dk_hex).try_into().expect("val dk 2400 bytes");
         let private_key = MlKemPrivateKey::from_bytes(dk_bytes);
 
-        // tcIds with their expected k values; (tcId, reason) pairs.
-        // Extracted from NIST ACVP internalProjection.json tgId=5.
-        let tc_ids: &[usize] = &[86, 87, 88, 89, 90, 91, 92, 93, 94, 95];
-        for &tc_id in tc_ids {
-            let c_hex = parse_kat_field(val_group, "c", tc_id);
-            let k_hex = parse_kat_field(val_group, "k", tc_id);
-            let c_bytes: [u8; 1088] = from_hex(c_hex)
+        for case in &kat.val_group.tests {
+            let c_bytes: [u8; 1088] = from_hex(&case.c)
                 .try_into()
                 .expect("VAL tcId c must be 1088 bytes");
-            let k_bytes: [u8; 32] = from_hex(k_hex)
+            let k_bytes: [u8; 32] = from_hex(&case.k)
                 .try_into()
                 .expect("VAL tcId k must be 32 bytes");
             let ciphertext = MlKemCiphertext::from_bytes(c_bytes);
@@ -338,7 +533,8 @@ mod tests {
             assert_eq!(
                 result.as_slice(),
                 k_bytes.as_slice(),
-                "tcId {tc_id}: decapsulate output does not match NIST VAL known answer"
+                "tcId {}: decapsulate output does not match NIST VAL known answer",
+                case.tc_id
             );
         }
     }
