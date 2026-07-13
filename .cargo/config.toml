@@ -12,7 +12,8 @@ geiger-scan = ["geiger", "--workspace"]
 # Miri — cryptographic crates only (requires nightly)
 miri-crypto   = ["+nightly", "miri", "test", "-p", "meissnerseal-crypto"]
 miri-pqc      = ["+nightly", "miri", "test", "-p", "meissnerseal-pqc"]
-miri-security = ["+nightly", "miri", "test", "-p", "meissnerseal-security"]
+miri-security         = ["+nightly", "miri", "test", "-p", "meissnerseal-security"]
+miri-security-ignored = ["+nightly", "miri", "test", "-p", "meissnerseal-security", "--", "--include-ignored", "secret_bytes_drop_path_zeroizes_backing_bytes"]
 miri-ffi      = ["+nightly", "miri", "test", "-p", "meissnerseal-ffi"]
 miri-all      = ["+nightly", "miri", "test",
                  "-p", "meissnerseal-crypto",
