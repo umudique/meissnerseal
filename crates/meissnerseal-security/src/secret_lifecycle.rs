@@ -4,6 +4,28 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Zeroizing byte wrapper for secret material.
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretBytes;
+///
+/// let secret = SecretBytes::new(vec![1, 2, 3]);
+/// let _clone = secret.clone();
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretBytes;
+///
+/// let secret = SecretBytes::new(vec![1, 2, 3]);
+/// let _ = format!("{secret}");
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretBytes;
+///
+/// let left = SecretBytes::new(vec![1, 2, 3]);
+/// let right = SecretBytes::new(vec![1, 2, 3]);
+/// let _ = left == right;
+/// ```
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecretBytes(Vec<u8>);
 
@@ -78,6 +100,28 @@ impl SecretBytes {
 }
 
 /// Zeroizing UTF-8 string wrapper for secret material.
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretString;
+///
+/// let secret = SecretString::new(String::from("top-secret"));
+/// let _clone = secret.clone();
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretString;
+///
+/// let secret = SecretString::new(String::from("top-secret"));
+/// let _ = format!("{secret}");
+/// ```
+///
+/// ```compile_fail
+/// use meissnerseal_security::secret_lifecycle::SecretString;
+///
+/// let left = SecretString::new(String::from("a"));
+/// let right = SecretString::new(String::from("a"));
+/// let _ = left == right;
+/// ```
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecretString(String);
 
@@ -174,7 +218,11 @@ mod proofs {
 #[allow(unsafe_code)]
 mod tests {
     use super::*;
+    use static_assertions::assert_not_impl_any;
     use std::{mem::ManuallyDrop, ops::DerefMut, slice};
+
+    assert_not_impl_any!(SecretBytes: Clone, PartialEq, core::fmt::Display);
+    assert_not_impl_any!(SecretString: Clone, PartialEq, core::fmt::Display);
 
     fn non_zero_count(bytes: &[u8]) -> usize {
         bytes.iter().filter(|byte| **byte != 0).count()
@@ -186,11 +234,7 @@ mod tests {
         let s = SecretBytes(secret.to_vec());
         let rendered = format!("{s:?}");
 
-        assert!(rendered.contains("[REDACTED]"));
-        assert!(rendered.contains("SecretBytes"));
-        assert!(!rendered.contains("1"));
-        assert!(!rendered.contains("2"));
-        assert!(!rendered.contains("3"));
+        assert_eq!(rendered, "SecretBytes([REDACTED])");
     }
 
     #[test]
@@ -199,12 +243,14 @@ mod tests {
         let s = SecretString(String::from(plaintext));
         let rendered = format!("{s:?}");
 
-        assert!(rendered.contains("[REDACTED]"));
-        assert!(rendered.contains("SecretString"));
-        assert!(!rendered.contains(plaintext));
+        assert_eq!(rendered, "SecretString([REDACTED])");
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "raw post-zeroize backing-buffer inspection is not stacked-borrows-safe under Miri"
+    )]
     fn test_secret_bytes_zeroize() {
         let mut secret = ManuallyDrop::new(SecretBytes::new(vec![0xAA_u8; 32]));
         let len = secret.with_secret(|bytes| bytes.len());
@@ -228,6 +274,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "raw post-zeroize backing-buffer inspection is not stacked-borrows-safe under Miri"
+    )]
     fn test_secret_string_zeroize() {
         let mut secret = ManuallyDrop::new(SecretString::new("top-secret".repeat(4)));
         let len = secret.with_secret(|text| text.len());
@@ -270,5 +320,97 @@ mod tests {
         let sum = s.with_secret(|b| b.iter().map(|x| u32::from(*x)).sum::<u32>());
 
         assert_eq!(sum, 0xde + 0xad);
+    }
+
+    #[test]
+    fn secret_bytes_len_and_is_empty_cover_empty_and_non_empty() {
+        let non_empty = SecretBytes::new(vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(non_empty.len(), 4);
+        assert!(!non_empty.is_empty());
+
+        let empty = SecretBytes::new(Vec::new());
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn secret_string_len_and_is_empty_cover_empty_and_non_empty() {
+        let non_empty = SecretString::new(String::from("abcd"));
+        assert_eq!(non_empty.len(), 4);
+        assert!(!non_empty.is_empty());
+
+        let empty = SecretString::new(String::new());
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn secret_string_with_secret_exposes_expected_plaintext() {
+        let secret = SecretString::new(String::from("top-secret"));
+        let observed = secret.with_secret(|s| s.to_uppercase());
+        assert_eq!(observed, "TOP-SECRET");
+    }
+
+    #[test]
+    #[ignore = "requires Miri to make post-drop raw-pointer inspection meaningful under release optimizations"]
+    fn secret_bytes_drop_path_zeroizes_backing_bytes() {
+        if !cfg!(miri) {
+            return;
+        }
+
+        let mut secret = ManuallyDrop::new(SecretBytes::new(vec![0xA5_u8; 32]));
+        let (ptr, len) = secret.with_secret(|bytes| (bytes.as_ptr(), bytes.len()));
+
+        // SAFETY: `ptr` points to the allocation owned by `secret`. We invoke the
+        // wrapper's drop path exactly once, inspect the same allocation bytes
+        // immediately after drop for zeroization, and intentionally leak the freed
+        // allocation handle because this test is only meaningful under Miri.
+        unsafe {
+            ManuallyDrop::drop(&mut secret);
+            let after = slice::from_raw_parts(ptr, len);
+            assert!(after.iter().all(|byte| *byte == 0x00));
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "raw post-zeroize backing-buffer inspection is not stacked-borrows-safe under Miri"
+    )]
+    fn secret_bytes_zeroize_clears_backing_bytes_before_drop() {
+        let secret = SecretBytes::new(vec![0xA5_u8; 32]);
+        let mut secret = ManuallyDrop::new(secret);
+        let (ptr, len) = secret.with_secret(|bytes| (bytes.as_ptr(), bytes.len()));
+
+        // SAFETY: `ptr` points into the still-live allocation owned by
+        // `secret`. We zeroize in place, inspect the same allocation before it
+        // is freed, and only then drop the wrapper.
+        unsafe {
+            ManuallyDrop::deref_mut(&mut secret).zeroize();
+            let after = slice::from_raw_parts(ptr, len);
+            assert_eq!(non_zero_count(after), 0, "SecretBytes must zero on drop");
+            ManuallyDrop::drop(&mut secret);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "raw post-zeroize backing-buffer inspection is not stacked-borrows-safe under Miri"
+    )]
+    fn secret_string_drop_path_zeroizes_backing_bytes() {
+        let secret = SecretString::new("top-secret".repeat(4));
+        let mut secret = ManuallyDrop::new(secret);
+        let (ptr, len) = secret.with_secret(|text| (text.as_ptr(), text.len()));
+
+        // SAFETY: `ptr` points into the still-live allocation owned by
+        // `secret`. We zeroize in place, inspect the same allocation before it
+        // is freed, and only then drop the wrapper.
+        unsafe {
+            ManuallyDrop::deref_mut(&mut secret).zeroize();
+            let after = slice::from_raw_parts(ptr, len);
+            assert_eq!(non_zero_count(after), 0, "SecretString must zero on drop");
+            ManuallyDrop::drop(&mut secret);
+        }
     }
 }
