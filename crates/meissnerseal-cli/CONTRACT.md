@@ -75,6 +75,12 @@ Device list/revoke commands parse correctly but return an error at runtime until
 
 [G-06] Item retrieval uses opaque item-id, not sensitive item names,
        where practical.
+
+[G-07] `meissnerseal add` success stdout is stable:
+       it must emit exactly `Item ID: <id>\n`, where `<id>` is the opaque
+       item identifier encoded as 32 lowercase hexadecimal characters.
+       No label, secret value, or other item fields may be printed on stdout
+       for successful `add`.
 ```
 
 ---
