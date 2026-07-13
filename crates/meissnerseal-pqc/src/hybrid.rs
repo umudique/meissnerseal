@@ -185,13 +185,17 @@ fn x25519_shared_secret(
     private_key: &X25519PrivateKey,
     peer_public_key: &X25519PublicKey,
 ) -> Result<Zeroizing<[u8; 32]>> {
+    if peer_public_key.as_slice().iter().all(|&byte| byte == 0xff) {
+        return Err(HybridError::X25519Invalid);
+    }
     let private_bytes = Zeroizing::new(*private_key.as_bytes());
     let secret = StaticSecret::from(*private_bytes);
     let peer_public = PublicKey::from(*peer_public_key.as_bytes());
-    let shared = Zeroizing::new(secret.diffie_hellman(&peer_public).to_bytes());
-    if shared.iter().all(|&b| b == 0) {
+    let shared_secret = secret.diffie_hellman(&peer_public);
+    if !shared_secret.was_contributory() {
         return Err(HybridError::X25519Invalid);
     }
+    let shared = Zeroizing::new(shared_secret.to_bytes());
     Ok(shared)
 }
 
@@ -224,14 +228,18 @@ fn derive_transfer_key_from_shared_parts(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
+    use serde::{Deserialize, Deserializer, Serialize};
 
     const TRANSFER_HYBRID_KAT: &str = include_str!("../../../test-vectors/transfer_hybrid_v1.json");
 
     #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
     struct KatFile {
+        #[serde(deserialize_with = "deserialize_transfer_hybrid_schema")]
         schema: String,
+        #[serde(deserialize_with = "deserialize_transfer_hybrid_profile")]
         profile: String,
+        #[serde(deserialize_with = "deserialize_transfer_hybrid_version")]
         version: u32,
         description: String,
         generated_by: String,
@@ -239,10 +247,11 @@ mod tests {
     }
 
     #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
     struct KatCase {
         case_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
+        path: Option<KatPath>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_ephemeral_private_key: Option<String>,
         sender_ephemeral_public_key: String,
@@ -254,6 +263,56 @@ mod tests {
         expected_transfer_key: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pqc_decap_key: Option<String>,
+    }
+
+    #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+    #[serde(rename_all = "lowercase")]
+    enum KatPath {
+        Sender,
+        Receiver,
+    }
+
+    fn deserialize_transfer_hybrid_schema<'de, D>(
+        deserializer: D,
+    ) -> core::result::Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "transfer-hybrid-v1" {
+            return Err(serde::de::Error::custom(
+                "schema must be transfer-hybrid-v1",
+            ));
+        }
+        Ok(value)
+    }
+
+    fn deserialize_transfer_hybrid_profile<'de, D>(
+        deserializer: D,
+    ) -> core::result::Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1" {
+            return Err(serde::de::Error::custom(
+                "profile must be TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1",
+            ));
+        }
+        Ok(value)
+    }
+
+    fn deserialize_transfer_hybrid_version<'de, D>(
+        deserializer: D,
+    ) -> core::result::Result<u32, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u32::deserialize(deserializer)?;
+        if value != 1 {
+            return Err(serde::de::Error::custom("version must be 1"));
+        }
+        Ok(value)
     }
 
     fn from_hex(s: &str) -> Vec<u8> {
@@ -289,13 +348,23 @@ mod tests {
         let transcript_01 = [0x01u8; 32];
 
         let key_00 = derive_transfer_key(
-            &sender_priv_0, &sender_pub_0, &recip_pub_0,
-            &pqc_ct_0, &pqc_ss_0, &transcript_00,
-        ).expect("derive 00");
+            &sender_priv_0,
+            &sender_pub_0,
+            &recip_pub_0,
+            &pqc_ct_0,
+            &pqc_ss_0,
+            &transcript_00,
+        )
+        .expect("derive 00");
         let key_01 = derive_transfer_key(
-            &sender_priv_0, &sender_pub_0, &recip_pub_0,
-            &pqc_ct_0, &pqc_ss_0, &transcript_01,
-        ).expect("derive 01");
+            &sender_priv_0,
+            &sender_pub_0,
+            &recip_pub_0,
+            &pqc_ct_0,
+            &pqc_ss_0,
+            &transcript_01,
+        )
+        .expect("derive 01");
 
         let (sender_priv_2, sender_pub_2) = x25519_keypair();
         let (recip_priv_2, recip_pub_2) = x25519_keypair();
@@ -304,14 +373,24 @@ mod tests {
         let transcript_02 = [0x22u8; 32];
 
         let key_distinct = derive_transfer_key(
-            &sender_priv_2, &sender_pub_2, &recip_pub_2,
-            &pqc_ct_2, &pqc_ss_2, &transcript_02,
-        ).expect("derive distinct");
+            &sender_priv_2,
+            &sender_pub_2,
+            &recip_pub_2,
+            &pqc_ct_2,
+            &pqc_ss_2,
+            &transcript_02,
+        )
+        .expect("derive distinct");
 
         let receiver_key = receive_transfer_key(
-            &recip_priv_2, &recip_pub_2, &sender_pub_2,
-            &pqc_ct_2, &pqc_priv_2, &transcript_02,
-        ).expect("receiver KAT");
+            &recip_priv_2,
+            &recip_pub_2,
+            &sender_pub_2,
+            &pqc_ct_2,
+            &pqc_priv_2,
+            &transcript_02,
+        )
+        .expect("receiver KAT");
         assert!(
             bool::from(key_distinct.ct_eq(&receiver_key)),
             "sender and receiver must derive the same transfer key"
@@ -326,7 +405,7 @@ mod tests {
             cases: vec![
                 KatCase {
                     case_id: "ug-combiner-transcript-00".into(),
-                    path: Some("sender".into()),
+                    path: Some(KatPath::Sender),
                     sender_ephemeral_private_key: Some(to_hex(sender_priv_0.as_bytes())),
                     sender_ephemeral_public_key: to_hex(sender_pub_0.as_bytes()),
                     recipient_classical_private_key: to_hex(recip_priv_0.as_bytes()),
@@ -339,7 +418,7 @@ mod tests {
                 },
                 KatCase {
                     case_id: "ug-combiner-transcript-01".into(),
-                    path: Some("sender".into()),
+                    path: Some(KatPath::Sender),
                     sender_ephemeral_private_key: Some(to_hex(sender_priv_0.as_bytes())),
                     sender_ephemeral_public_key: to_hex(sender_pub_0.as_bytes()),
                     recipient_classical_private_key: to_hex(recip_priv_0.as_bytes()),
@@ -352,7 +431,7 @@ mod tests {
                 },
                 KatCase {
                     case_id: "transfer-distinct-keypairs".into(),
-                    path: Some("sender".into()),
+                    path: Some(KatPath::Sender),
                     sender_ephemeral_private_key: Some(to_hex(sender_priv_2.as_bytes())),
                     sender_ephemeral_public_key: to_hex(sender_pub_2.as_bytes()),
                     recipient_classical_private_key: to_hex(recip_priv_2.as_bytes()),
@@ -365,7 +444,7 @@ mod tests {
                 },
                 KatCase {
                     case_id: "transfer-receiver-path".into(),
-                    path: Some("receiver".into()),
+                    path: Some(KatPath::Receiver),
                     sender_ephemeral_private_key: None,
                     sender_ephemeral_public_key: to_hex(sender_pub_2.as_bytes()),
                     recipient_classical_private_key: to_hex(recip_priv_2.as_bytes()),
@@ -619,7 +698,8 @@ mod tests {
 
             let derived_recipient_pub = x25519_public_from_private(&recipient_private);
             assert_eq!(
-                derived_recipient_pub.as_bytes(), recipient_public.as_bytes(),
+                derived_recipient_pub.as_bytes(),
+                recipient_public.as_bytes(),
                 "{}: recipient_classical_public_key does not match private key derivation",
                 case.case_id
             );
@@ -634,7 +714,8 @@ mod tests {
                         let sender_priv_key = X25519PrivateKey::from_bytes(sender_private);
                         let derived_sender_pub = x25519_public_from_private(&sender_priv_key);
                         assert_eq!(
-                            derived_sender_pub.as_bytes(), sender_public.as_bytes(),
+                            derived_sender_pub.as_bytes(),
+                            sender_public.as_bytes(),
                             "{}: sender_ephemeral_public_key does not match private key derivation",
                             case.case_id
                         );
@@ -649,8 +730,10 @@ mod tests {
                         .expect("sender path derives")
                     });
 
-            if case.path.as_deref() == Some("receiver") {
-                let dk_hex = case.pqc_decap_key.as_ref()
+            if case.path == Some(KatPath::Receiver) {
+                let dk_hex = case
+                    .pqc_decap_key
+                    .as_ref()
                     .expect("receiver case must carry pqc_decap_key");
                 let dk_bytes: [u8; 2400] = from_hex(dk_hex)
                     .try_into()
@@ -701,6 +784,11 @@ mod tests {
             .iter()
             .find(|case| case.case_id == "transfer-distinct-keypairs")
             .expect("distinct-keypairs case present");
+        let case3 = kat
+            .cases
+            .iter()
+            .find(|case| case.case_id == "x25519-ikm-variation-only")
+            .expect("x25519-only variation case present");
 
         let key0 = TransferKey::from_bytes(
             from_hex(&case0.expected_transfer_key)
@@ -717,17 +805,95 @@ mod tests {
                 .try_into()
                 .expect("case2 expected key length"),
         );
+        let key3 = TransferKey::from_bytes(
+            from_hex(&case3.expected_transfer_key)
+                .try_into()
+                .expect("case3 expected key length"),
+        );
 
         assert!(bool::from(!key0.ct_eq(&key1)));
         assert!(bool::from(!key0.ct_eq(&key2)));
+        assert!(bool::from(!key0.ct_eq(&key3)));
         assert!(bool::from(!key1.ct_eq(&key2)));
+        assert!(bool::from(!key1.ct_eq(&key3)));
+        assert!(bool::from(!key2.ct_eq(&key3)));
     }
 
     #[test]
-    fn x25519_keypair_successive_calls_produce_distinct_private_keys() {
-        let (first_private, _) = x25519_keypair();
-        let (second_private, _) = x25519_keypair();
+    fn x25519_keypair_outputs_are_unique() {
+        let (first_private, first_public) = x25519_keypair();
+        let (second_private, second_public) = x25519_keypair();
         assert!(bool::from(!first_private.ct_eq(&second_private)));
+        assert!(bool::from(!first_public.ct_eq(&second_public)));
+        assert!(first_private.as_slice().iter().any(|byte| *byte != 0));
+        assert!(second_private.as_slice().iter().any(|byte| *byte != 0));
+    }
+
+    #[test]
+    fn transfer_hybrid_kat_loader_rejects_unknown_path_value() {
+        let malformed = r#"{
+            "schema":"transfer-hybrid-v1",
+            "profile":"TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1",
+            "version":1,
+            "description":"invalid path test",
+            "generated_by":"test",
+            "cases":[{
+                "case_id":"bad-path",
+                "path":"sideways",
+                "sender_ephemeral_private_key":"00",
+                "sender_ephemeral_public_key":"00",
+                "recipient_classical_private_key":"00",
+                "recipient_classical_public_key":"00",
+                "pqc_shared_secret":"00",
+                "pqc_ciphertext":"00",
+                "transcript_hash":"00",
+                "expected_transfer_key":"00"
+            }]
+        }"#;
+        assert!(
+            serde_json::from_str::<KatFile>(malformed).is_err(),
+            "typed KAT loader must reject unknown path values"
+        );
+    }
+
+    #[test]
+    fn x25519_shared_secret_rejects_adversarial_peer_public_keys() {
+        let (private, _public) = x25519_keypair();
+        // All 8 Curve25519 torsion points (small-subgroup order 8).
+        // Source: Bernstein et al., "Curve25519: new Diffie-Hellman speed records"
+        // and RFC 7748 §6 test vectors. Every point produces all-zero DH output,
+        // silently removing the X25519 contribution from the hybrid IKM.
+        let low_order_points = [
+            "0000000000000000000000000000000000000000000000000000000000000000", // 0 (identity)
+            "0100000000000000000000000000000000000000000000000000000000000000", // order 2
+            "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800", // order 4
+            "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157", // order 8
+            "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", // order 4 (−1 mod p)
+            "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", // order 8 variant
+            "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880", // order 4 (sign bit)
+            "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7", // order 8 (sign bit)
+        ];
+
+        for (index, peer_hex) in low_order_points.into_iter().enumerate() {
+            let peer = X25519PublicKey::from_bytes(
+                from_hex(peer_hex)
+                    .try_into()
+                    .expect("low-order point is 32 bytes"),
+            );
+            assert!(
+                matches!(
+                    x25519_shared_secret(&private, &peer),
+                    Err(HybridError::X25519Invalid)
+                ),
+                "low-order point index {index} must be rejected"
+            );
+        }
+
+        let all_ff_peer = X25519PublicKey::from_bytes([0xff; 32]);
+        assert!(matches!(
+            x25519_shared_secret(&private, &all_ff_peer),
+            Err(HybridError::X25519Invalid)
+        ));
     }
 }
 
