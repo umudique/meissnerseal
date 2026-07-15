@@ -234,14 +234,19 @@ mod tests {
 
         ManuallyDrop::deref_mut(&mut secret).zeroize();
 
-        // SAFETY: same Stacked Borrows rationale as test_secret_bytes_zeroize —
-        // ptr is obtained after zeroize() to avoid SharedReadOnly→Unique
-        // provenance conflict. String::as_mut_ptr() is valid post-clear since
-        // the backing allocation is unchanged.
-        let ptr = ManuallyDrop::deref_mut(&mut secret).0.as_mut_ptr();
-        let after = unsafe { slice::from_raw_parts(ptr, len) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+        // SAFETY: String::zeroize() zeroes backing bytes via as_bytes_mut().zeroize()
+        // then calls truncate(0), setting len=0 while preserving capacity. After
+        // truncation, as_mut_ptr() produces a zero-size Stacked Borrows tag, causing
+        // Miri UB when passed to from_raw_parts(ptr, orig_len). spare_capacity_mut()
+        // returns [0..capacity]=[0..orig_len] post-truncation — the allocation range
+        // zeroed in-place — and is valid within Miri's borrow model.
+        // assume_init() is sound: zeroize() wrote 0 to every byte before truncating.
+        let vec = unsafe { ManuallyDrop::deref_mut(&mut secret).0.as_mut_vec() }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+        let spare = vec.spare_capacity_mut();
+        let all_zero = spare.iter().all(|b| unsafe { b.assume_init() } == 0); // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
 
-        assert!(non_zero_count(after) == 0, "SecretString must zero on drop");
+        assert!(all_zero, "SecretString must zero on drop");
+        let _ = len; // captured above; unused now that we inspect via spare_capacity_mut
 
         // SAFETY: Free the backing allocation after the zeroization check to
         // avoid leaking the test fixture.
