@@ -599,8 +599,8 @@ def generate_aead_vectors() -> dict:
 
     return {
         "profile": "AEAD_XCHACHA20_POLY1305_V1",
-        "version": 1,
-        "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical AAD (libsodium)",
+        "version": 2,
+        "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical 79-byte AAD (meissnerseal-aad-v1)",
         "generated_by": "cross_verify.py (pynacl/libsodium), updated for F-56/F-57 AAD enforcement",
         "cases": [
             {
@@ -678,7 +678,7 @@ def generate_aead_vectors() -> dict:
             },
             {
                 "id": "c4-empty-plaintext-encrypt",
-                "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates AAD (crypto_design.md §6)",
+                "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates 79-byte AAD (crypto_design.md §6)",
                 "inputs": {
                     "key": to_hex(key),
                     "nonce": to_hex(nonce),
