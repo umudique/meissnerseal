@@ -72,6 +72,7 @@ impl TransferProfileId {
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum TransferError {
     #[error("unknown transfer profile")]
     UnknownProfile,
