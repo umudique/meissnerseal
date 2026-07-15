@@ -1346,7 +1346,7 @@ findings:
       receive_transfer_key_rejects_low_order_sender_public_key,
       derive_transfer_key_rejects_low_order_recipient_public_key.
       All assert Err(HybridError::X25519Invalid) for [0u8;32] peer public key.
-    commit: "101e22f"
+    commit: "374db94"
 
   - id: F-52
     kind: security_review
@@ -1377,7 +1377,7 @@ findings:
       sign_with_domain_matches_manual_domain_prepend verifies API equivalence with
       manual concatenation. sign_with_domain_different_domains_produce_different_signatures
       confirms cross-domain replay protection. Existing domain_is_distinct test retained.
-    commit: "ff77609"
+    commit: "af169e7"
 
   - id: F-53
     kind: design
@@ -1404,7 +1404,7 @@ findings:
       bytes written to Zeroizing<Vec<u8>> out buffer), device.rs:486 (deserialization,
       bytes.to_vec() inside closure — caller holds non-Zeroizing copy transiently).
       No new call sites. Grep CI check deferred to SEC-AUDIT-1.
-    commit: "ff77609"
+    commit: "af169e7"
 
   - id: F-54
     kind: coverage_gap
@@ -1430,7 +1430,7 @@ findings:
       x25519_shared_secret_rejects_low_order_peer_public_key,
       receive_transfer_key_rejects_low_order_sender_public_key,
       derive_transfer_key_rejects_low_order_recipient_public_key all pass.
-    commit: "101e22f"
+    commit: "374db94"
 
   - id: F-55
     kind: coverage_gap
@@ -1457,7 +1457,7 @@ findings:
       encapsulate_adversarial_keys_do_not_panic: no panic on edge-case keys.
       encapsulate_with_nist_ek_consistent_with_dk: shared secrets match across
       encapsulate/decapsulate for all three NIST tcIds.
-    commit: "93d2be0"
+    commit: "080ba5c"
 
 # ── meissnerseal-crypto external security review findings (2026-06-29) ────────
 
@@ -1490,7 +1490,7 @@ findings:
       RECORD_AAD_LEN constant added to aead.rs; test vectors updated to 79-byte
       AAD; types.rs TODO updated to reference 79 bytes. 238/238 workspace tests
       pass (2026-06-29).
-    commit: "9be69d8"
+    commit: "bb29302"
 
   - id: F-57
     kind: consistency
@@ -1521,7 +1521,7 @@ findings:
       RECORD_AAD_LEN constant exported from meissnerseal_crypto::aead. Proptest
       roundtrip/bit-flip/wrong-key/wrong-aad tests use [u8; 79] AAD arrays.
       238/238 workspace tests pass (2026-06-29).
-    commit: "9be69d8"
+    commit: "bb29302"
 
   - id: F-58
     kind: design
@@ -1548,7 +1548,7 @@ findings:
       #[should_panic] test random_bytes_rejects_lengths_above_conservative_max
       passes in cargo test. Kani verify_random_bytes_max_len_is_conservative
       proves the constant stays within the conservative range.
-    commit: "e993880"
+    commit: "e8fad68"
 
   - id: F-59
     kind: consistency
@@ -1574,7 +1574,7 @@ findings:
       top_level_argon2_module_re_exports_kdf_implementation and
       top_level_hkdf_module_re_exports_kdf_implementation tests confirm both paths
       resolve to the real implementation structs/enums.
-    commit: "e993880"
+    commit: "e8fad68"
 
   - id: F-60
     kind: coverage_gap
@@ -1602,7 +1602,7 @@ findings:
       cargo kani --package meissnerseal-crypto runs all four harnesses. Harnesses
       share constants with production builders — drift in any encoding causes proof
       failure.
-    commit: "e993880"
+    commit: "e8fad68"
 
 # ── meissnerseal-crypto KDF security review findings (2026-06-29) ─────────────
 
@@ -1644,7 +1644,7 @@ findings:
       accepted. Integration test: vault file with tampered m_cost_kib=8 must
       return a parse error before any KDF derivation is invoked.
       cargo test -p meissnerseal-crypto -p meissnerseal-core: 165/165 pass (2026-06-29)
-    commit: "7941a86"
+    commit: "3a066c9"
 
   - id: F-62
     kind: security_review
@@ -1675,7 +1675,7 @@ findings:
       test_subkey_derivation_all) confirm identical output after the Zeroizing
       wrapping. Full Miri proof deferred (MIRI-1 backlog). 238/238 workspace
       tests pass (2026-06-29).
-    commit: "ea54988"
+    commit: "38c1da9"
 
   - id: F-63
     kind: design
@@ -1704,7 +1704,7 @@ findings:
       cargo check --workspace --all-targets passes with pub(crate) visibility —
       any external reference would be a compile error. CONTRACT.md reflects
       the reduced public surface.
-    commit: "e993880"
+    commit: "e8fad68"
 
   - id: F-64
     kind: coverage_gap
@@ -1733,7 +1733,7 @@ findings:
       cargo test --workspace: all three negative tests pass. Any regression that
       makes an AEAD-scoped purpose accept None (or non-AEAD accept Some) will
       break these tests immediately.
-    commit: "e993880"
+    commit: "e8fad68"
 
   - id: F-65
     kind: consistency
@@ -1760,7 +1760,7 @@ findings:
       test_argon2id_salt_construction asserts salt.len() == ARGON2ID_SALT_LEN.
       verify_argon2id_salt_length Kani harness proves salt.len() == ARGON2ID_SALT_LEN
       for all vault_id inputs. Consistent 45-byte reference throughout.
-    commit: "e993880"
+    commit: "e8fad68"
 
   - id: F-66
     kind: security_review
@@ -1800,7 +1800,7 @@ findings:
       succeeds with a bundle using the canonical KDF_ARGON2ID_V1 profile.
       Covered by parse_kdf_profile_params_rejects_m_cost_below_minimum in vectors.rs;
       cargo test -p meissnerseal-core: 68/68 pass (2026-06-29)
-    commit: "7941a86"
+    commit: "3a066c9"
 
 # ── meissnerseal-core integration test coverage review (2026-06-29) ───────────
 
@@ -1828,7 +1828,7 @@ findings:
       CI consumes the new .msexp vectors through the real public export/import
       APIs and fails on any change to export AAD bytes, KDF derivation bytes,
       nonce/ciphertext framing, or item-set parser behavior.
-    commit: "faa895d"
+    commit: "ab54f23"
 
   - id: F-68
     kind: coverage_gap
@@ -1856,7 +1856,7 @@ findings:
       CI asserts these malformed vault files return Err from the production API
       rather than panicking in test helpers or being filtered by shadow parsing
       logic.
-    commit: "dda2d2e"
+    commit: "988844d"
 
   - id: F-69
     kind: coverage_gap
@@ -1883,7 +1883,7 @@ findings:
     verification: >-
       CI fails if parse_kdf_profile_params accepts any malformed, duplicated,
       unknown, below-floor, or over-bound KDF parameter encoding.
-    commit: "dda2d2e"
+    commit: "988844d"
 
   - id: F-70
     kind: consistency
@@ -1910,7 +1910,7 @@ findings:
     verification: >-
       Grep vectors.rs for assert_eq! over MUK, PRK, subkey, AEAD key, or
       plaintext-secret byte slices and confirm no side is printed on failure.
-    commit: "dda2d2e"
+    commit: "988844d"
 
   - id: F-71
     kind: coverage_gap
@@ -1937,7 +1937,7 @@ findings:
       CI proves that the vectors tested are the same bytes committed with the
       crate revision, and that editing any vector file forces recompilation or
       an explicit drift-check failure.
-    commit: "db05e01"
+    commit: "3ba5f5e"
 
 # ── meissnerseal-security zeroization test review (2026-06-30) ───────────────
 
@@ -1965,7 +1965,7 @@ findings:
     verification: >-
       The replacement test must fail when the ZeroizeOnDrop derive is removed
       from SecretBytes. Confirm under Miri that volatile writes are present.
-    commit: "b55f0b4"
+    commit: "0912063"
 
 # ── meissnerseal-core export/import security review (2026-06-29) ─────────────
 
@@ -1996,7 +1996,7 @@ findings:
       Add tests proving that export key derivation differs from vault MUK/VKEK
       derivation even when passphrase == vault password and source_vault_id ==
       vault_id. Add a KAT for the export-specific derivation chain.
-    commit: "0349809"
+    commit: "cb07be4"
 
   - id: F-74
     kind: security_review
@@ -2023,7 +2023,7 @@ findings:
       Add negative import tests for item_count = u32::MAX, tag_count = u32::MAX,
       oversized label/tag/secret lengths, and short payloads that reach
       Vec::with_capacity before exhausting the buffer.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-75
     kind: design
@@ -2050,7 +2050,7 @@ findings:
     verification: >-
       Add a test that modifies the on-disk vault header after unlock and asserts
       that export either uses the session-bound vault_id or returns Err.
-    commit: "faba078"
+    commit: "936a437"
 
   - id: F-76
     kind: coverage_gap
@@ -2078,7 +2078,7 @@ findings:
       CI should fail if parse_bundle accepts trailing bytes or length fields
       that overrun the input, and if deserialize_item_set allocates from
       unbounded attacker-controlled counts before validating remaining bytes.
-    commit: "b6249de"
+    commit: "e056f07"
 
   - id: F-77
     kind: design
@@ -2106,7 +2106,7 @@ findings:
       Add tests for export/import error paths asserting that no plaintext item
       metadata, passphrase material, or filesystem path appears in formatted
       CoreError output.
-    commit: "476b2d0"
+    commit: "ea67426"
 
 # ── meissnerseal-core item store security review (2026-06-30) ────────────────
 
@@ -2137,7 +2137,7 @@ findings:
       Add compile-fail tests showing that returning Vec<u8>, String, PlainItem,
       or SecretBytes from the closure is rejected. Add a positive test for a
       permitted non-secret return type such as usize or bool.
-    commit: "a21faa8"
+    commit: "17bbe3f"
 
   - id: F-79
     kind: security_review
@@ -2191,7 +2191,7 @@ findings:
       Add negative tests for tag_count and label/tag/secret lengths at and
       beyond the defined maxima. Confirm deserialization rejects over-limit
       payloads before entering allocation loops.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-81
     kind: consistency
@@ -2217,7 +2217,7 @@ findings:
       Add an assertion or test confirming item_record_aad(...).len() == 79.
       Grep the codebase for stale "74-byte AAD" references and confirm none
       remain in item store code or contracts.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-82
     kind: coverage_gap
@@ -2245,7 +2245,7 @@ findings:
       CI should fail if malformed authenticated item payloads parse
       successfully, if update reuses revision or nonce material, or if
       with_item allows owned plaintext to escape contrary to G-02.
-    commit: "b6249de"
+    commit: "e056f07"
 
 # ── meissnerseal-core device identity & pairing security review (2026-06-30) ─
 
@@ -2276,7 +2276,7 @@ findings:
       Add API tests proving that external callers cannot obtain raw plaintext
       device private key bytes. Add storage round-trip tests proving persisted
       keypair bytes are AEAD-protected and reject tampering.
-    commit: "c018716"
+    commit: "59df4c3"
 
   - id: F-84
     kind: security_review
@@ -2308,7 +2308,7 @@ findings:
       Add malformed keypair tests for wrong Ed25519V1 signing key length,
       unimplemented signing algorithm, X25519 public/private mismatch, and
       trailing garbage bytes after the final field.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-85
     kind: security_review
@@ -2339,7 +2339,7 @@ findings:
       Add vectors showing that different header AEAD profile IDs produce
       distinct item-wrap and metadata subkeys. Add tests proving that unlock
       fails closed for an unsupported AEAD profile ID.
-    commit: "904662f"
+    commit: "bf177a4"
 
   - id: F-86
     kind: design
@@ -2370,7 +2370,7 @@ findings:
       Add tests proving that the same transcript bytes signed under enrollment
       and pairing domains produce distinct signatures, and that pairing
       verification rejects enrollment-domain signatures.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-87
     kind: security_review
@@ -2399,7 +2399,7 @@ findings:
       Add a complete transition-matrix test covering every DeviceTrustState
       source/target pair and asserting that Revoked and Expired cannot
       transition to any state other than themselves.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-88
     kind: coverage_gap
@@ -2429,7 +2429,7 @@ findings:
       display names with newlines or control chars are accepted, if AEAD profile
       variation does not change AEAD-scoped subkeys, or if pairing transcript
       signatures verify under the wrong domain.
-    commit: "b6249de"
+    commit: "e056f07"
 
 # ── meissnerseal-core transfer / envelope / replay security review (2026-06-30) ─
 
@@ -2461,7 +2461,7 @@ findings:
       Add a test that submits a transcriptvalid envelope with garbage
       encrypted_payload first, then submits the authentic envelope with the
       same envelope_id and verifies it is still accepted without replay error.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-90
     kind: consistency
@@ -2494,7 +2494,7 @@ findings:
       they produce distinct hashes, and negative tests proving anonymous
       envelopes fail validation when the bound anonymous key is absent or
       modified.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-91
     kind: consistency
@@ -2524,7 +2524,7 @@ findings:
       Add tests proving validate_envelope rejects version != 1 when the struct
       is constructed directly, and that changing the version field changes the
       transcript hash.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-92
     kind: security_review
@@ -2555,7 +2555,7 @@ findings:
       a zeroizing buffer, create_envelope zeroizes the sealed_payload on both
       success and failure, and the plaintext parameter type enforces zeroizing
       ownership at the call site.
-    commit: "2269d0e"
+    commit: "54e434e"
 
   - id: F-93
     kind: security_review
@@ -2613,7 +2613,7 @@ findings:
       Add tests for count = u32::MAX, count values whose declared size exceeds
       the actual input, exact-boundary valid stores, and trailing garbage.
       Confirm no allocation occurs before the bounds check passes.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-95
     kind: coverage_gap
@@ -2647,7 +2647,7 @@ findings:
       changes do not affect validation, if anonymous recipient material is not
       transcript-bound, if wrong-key envelopes return plaintext, or if a
       failed open_envelope call records the envelope_id in the replay store.
-    commit: "b6249de"
+    commit: "e056f07"
 
 # ── meissnerseal-core vault module security review (2026-06-30) ───────────────
 
@@ -2680,7 +2680,7 @@ findings:
       (set via libc::umask) and assert the resulting vault file and
       temporary file have mode 0o600. Add a regression test proving
       mutation does not widen an existing restrictive vault file mode.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-97
     kind: security_review
@@ -2712,7 +2712,7 @@ findings:
       TAG_KDF_PROFILE, TAG_AEAD_PROFILE, TAG_PQC_PROFILE,
       TAG_SCHEMA_PROFILE, and TAG_HEADER_NONCE TLVs. CI should fail if
       any duplicate known header field parses successfully.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-98
     kind: security_review
@@ -2746,7 +2746,7 @@ findings:
       Add tests that construct or patch headers with unsupported AEAD
       and PQC profile values and assert parse_header or unlock fails
       closed before record frame decryption or session key derivation.
-    commit: "faba078"
+    commit: "936a437"
 
   - id: F-99
     kind: security_review
@@ -2780,7 +2780,7 @@ findings:
       aad_len, and stored AAD bytes while leaving ciphertext unchanged.
       Each case should fail before or during unlock or list instead of
       silently accepting drift.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-100
     kind: security_review
@@ -2811,7 +2811,7 @@ findings:
       frame body, frame_offset inside the sealed table section,
       overlapping item frames, duplicate record IDs, and frame bounds
       that exactly touch each protected section.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-101
     kind: security_review
@@ -2836,7 +2836,7 @@ findings:
     verification: >-
       Add tests using oversized sparse or fixture files and assert unlock
       returns a format error without reading the entire file into memory.
-    commit: "476b2d0"
+    commit: "ea67426"
 
   - id: F-102
     kind: coverage_gap
@@ -2868,7 +2868,7 @@ findings:
       profile, drifted frame metadata, WRK-overlapping table entry,
       inter-frame overlap, permission-widening rewrite, or oversized vault
       file is accepted without error.
-    commit: "476b2d0"
+    commit: "ea67426"
 
 # ── meissnerseal-core cross-protocol trust boundary review (2026-06-30) ───────
 
@@ -2910,7 +2910,7 @@ findings:
       applies, what canonical form is enforced, what cryptographic context
       authenticates it, and at what point state mutation is permitted. CI should
       block new public-facing parse functions that do not satisfy this matrix.
-    commit: "5b8a31d"
+    commit: "f414991"
 
 # ── meissnerseal-core security architecture review (2026-06-30) ───────────────
 
@@ -2947,7 +2947,7 @@ findings:
       type. Add positive tests for Verified and Approved devices, and negative
       tests asserting Untrusted, PendingInbound, PendingOutbound, Revoked, and
       Expired devices are rejected before AEAD decryption begins.
-    commit: "79aa621"
+    commit: "feb69ca"
 
   - id: F-105
     kind: security_architecture
@@ -2983,7 +2983,7 @@ findings:
       session-bound authenticated values or fail closed on a detected mismatch.
       Verify vault_id in AAD construction always equals the value parsed at
       unlock, regardless of on-disk header state at operation time.
-    commit: "faba078"
+    commit: "936a437"
 
   - id: F-106
     kind: security_architecture
@@ -3021,7 +3021,7 @@ findings:
       content, and corrupted signing or classical private key sections.
       All must produce a rejected-load error before pairing, transfer create,
       or transfer receive can proceed with the compromised material.
-    commit: "c018716"
+    commit: "59df4c3"
 
   - id: F-107
     kind: security_architecture
@@ -3061,7 +3061,7 @@ findings:
       implement ZeroizeOnDrop. Add tests asserting that the return value of
       open_envelope and the intermediate buffers in export zeroize on drop
       without requiring manual caller action.
-    commit: "2269d0e"
+    commit: "54e434e"
 
   - id: F-108
     kind: security_architecture
@@ -3101,7 +3101,7 @@ findings:
       aead_profile values produce distinct AEAD-scoped subkeys. Add tests that
       a vault with a valid header but unsupported aead_profile or pqc_profile
       is rejected at the VaultProfileSet parse step.
-    commit: "faba078"
+    commit: "936a437"
 
   - id: F-109
     kind: coverage_gap
