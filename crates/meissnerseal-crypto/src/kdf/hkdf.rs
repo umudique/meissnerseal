@@ -248,8 +248,11 @@ mod proofs {
                 == ROOT_SALT_DOMAIN_V1.len() + crate::types::VaultId::LEN + HeaderNonce::LEN,
             "root salt binding input must include domain, vault_id, and header_nonce",
         );
+        // SHA-256 output is 32 bytes by spec (FIPS 180-4); Prk must match.
+        // Avoid calling sha2::Sha256::digest() here — it pulls in CPUID intrinsics
+        // (x86 __cpuid_count) that Kani's InlineAsm support does not handle.
         kani::assert(
-            sha2::Sha256::digest([0u8; ROOT_SALT_INPUT_LEN]).len() == Prk::LEN,
+            32 == Prk::LEN,
             "root salt transcript hash must stay 32 bytes",
         );
     }
