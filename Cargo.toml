@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["MeissnerSeal Contributors"]
 license = "Apache-2.0"
@@ -19,12 +19,12 @@ repository = "https://github.com/umudique/meissnerseal"
 
 [workspace.dependencies]
 # Internal workspace crates — versioned to satisfy cargo-deny wildcard check
-meissnerseal-crypto      = { path = "crates/meissnerseal-crypto",      version = "0.1.0" }
-meissnerseal-pqc         = { path = "crates/meissnerseal-pqc",         version = "0.1.0" }
-meissnerseal-security    = { path = "crates/meissnerseal-security",    version = "0.1.0" }
-meissnerseal-core        = { path = "crates/meissnerseal-core",        version = "0.1.0" }
-meissnerseal-ffi         = { path = "crates/meissnerseal-ffi",         version = "0.1.0" }
-meissnerseal-sync-server = { path = "crates/meissnerseal-sync-server", version = "0.1.0" }
+meissnerseal-crypto      = { path = "crates/meissnerseal-crypto",      version = "0.2.0" }
+meissnerseal-pqc         = { path = "crates/meissnerseal-pqc",         version = "0.2.0" }
+meissnerseal-security    = { path = "crates/meissnerseal-security",    version = "0.2.0" }
+meissnerseal-core        = { path = "crates/meissnerseal-core",        version = "0.2.0" }
+meissnerseal-ffi         = { path = "crates/meissnerseal-ffi",         version = "0.2.0" }
+meissnerseal-sync-server = { path = "crates/meissnerseal-sync-server", version = "0.2.0" }
 
 # Cryptography
 argon2 = "0.5"
