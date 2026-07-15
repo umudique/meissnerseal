@@ -207,39 +207,45 @@ mod tests {
     #[test]
     fn test_secret_bytes_zeroize() {
         let mut secret = ManuallyDrop::new(SecretBytes::new(vec![0xAA_u8; 32]));
-        let (ptr, len) = secret.with_secret(|bytes| (bytes.as_ptr(), bytes.len()));
+        let len = secret.with_secret(|bytes| bytes.len());
 
         ManuallyDrop::deref_mut(&mut secret).zeroize();
 
-        // SAFETY: `ptr` points into the still-live allocation owned by
-        // `secret`. `zeroize()` clears bytes in place and sets len to 0, but
-        // does not free or reallocate the backing buffer.
-        let after = unsafe { slice::from_raw_parts(ptr, len) };
+        // SAFETY: ptr is obtained *after* zeroize() so its provenance tag is
+        // Unique (not SharedReadOnly). Saving as_ptr() before zeroize() yields
+        // a SharedReadOnly tag that zeroize()'s Unique retag pops off the
+        // Stacked Borrows stack, causing Miri UB. zeroize() clears bytes in
+        // place and sets len to 0 but does not free or reallocate; the original
+        // `len` bytes remain accessible within the still-live Vec capacity.
+        let ptr = ManuallyDrop::deref_mut(&mut secret).0.as_mut_ptr();
+        let after = unsafe { slice::from_raw_parts(ptr, len) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
 
         assert!(non_zero_count(after) == 0, "SecretBytes must zero on drop");
 
         // SAFETY: Free the backing allocation after the zeroization check to
         // avoid leaking the test fixture.
-        unsafe { ManuallyDrop::drop(&mut secret) };
+        unsafe { ManuallyDrop::drop(&mut secret) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     }
 
     #[test]
     fn test_secret_string_zeroize() {
         let mut secret = ManuallyDrop::new(SecretString::new("top-secret".repeat(4)));
-        let (ptr, len) = secret.with_secret(|text| (text.as_ptr(), text.len()));
+        let len = secret.with_secret(|text| text.len());
 
         ManuallyDrop::deref_mut(&mut secret).zeroize();
 
-        // SAFETY: `ptr` points into the still-live allocation owned by
-        // `secret`. `zeroize()` clears bytes in place and sets len to 0, but
-        // does not free or reallocate the backing buffer.
-        let after = unsafe { slice::from_raw_parts(ptr, len) };
+        // SAFETY: same Stacked Borrows rationale as test_secret_bytes_zeroize —
+        // ptr is obtained after zeroize() to avoid SharedReadOnly→Unique
+        // provenance conflict. String::as_mut_ptr() is valid post-clear since
+        // the backing allocation is unchanged.
+        let ptr = ManuallyDrop::deref_mut(&mut secret).0.as_mut_ptr();
+        let after = unsafe { slice::from_raw_parts(ptr, len) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
 
         assert!(non_zero_count(after) == 0, "SecretString must zero on drop");
 
         // SAFETY: Free the backing allocation after the zeroization check to
         // avoid leaking the test fixture.
-        unsafe { ManuallyDrop::drop(&mut secret) };
+        unsafe { ManuallyDrop::drop(&mut secret) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     }
 
     // Compile-time sentinel: ZeroizeOnDrop generates `impl Drop for T`.
