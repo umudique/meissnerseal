@@ -534,14 +534,14 @@ def generate_aead_vectors() -> dict:
     key   = bytes.fromhex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
     nonce = bytes.fromhex("010203040506070809101112131415161718192021222324")
     aad   = bytes.fromhex(
-        "617263616e756d2d6161642d7631"          # b"arcanum-aad-v1"  (14 bytes)
-        "0102030405060708090a0b0c0d0e0f10"      # vault_id          (16 bytes)
-        "01000200010001000100"                   # format=1, schema=2, aead=1, kdf=1, pqc=1
-        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"      # record_id         (16 bytes)
-        "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"      # revision_id       (16 bytes)
-        "0100"                                   # record_kind u16le  (2 bytes)
+        "6d656973736e65727365616c2d6161642d7631"  # b"meissnerseal-aad-v1"  (19 bytes)
+        "0102030405060708090a0b0c0d0e0f10"        # vault_id               (16 bytes)
+        "01000100010001000100"                     # format=1, schema=1, aead=1, kdf=1, pqc=1
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"        # record_id              (16 bytes)
+        "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"        # revision_id            (16 bytes)
+        "0100"                                     # record_kind u16le       (2 bytes)
     )
-    assert len(aad) == 74, f"AAD must be 74 bytes, got {len(aad)}"
+    assert len(aad) == 79, f"AAD must be 79 bytes, got {len(aad)}"
     plaintext = b"secret-payload-for-meissnerseal-test"
 
     # libsodium XChaCha20-Poly1305 IETF: returns ciphertext || 16-byte tag
@@ -605,7 +605,7 @@ def generate_aead_vectors() -> dict:
         "cases": [
             {
                 "id": "xchacha20-basic-encrypt",
-                "description": "Encrypt with canonical 74-byte AAD, verify ciphertext and tag",
+                "description": "Encrypt with canonical 79-byte AAD, verify ciphertext and tag",
                 "inputs": {
                     "key":       to_hex(key),
                     "nonce":     to_hex(nonce),
