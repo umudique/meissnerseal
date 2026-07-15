@@ -601,7 +601,7 @@ def generate_aead_vectors() -> dict:
         "profile": "AEAD_XCHACHA20_POLY1305_V1",
         "version": 1,
         "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical AAD (libsodium)",
-        "generated_by": "cross_verify.py (pynacl/libsodium)",
+        "generated_by": "cross_verify.py (pynacl/libsodium), updated for F-56/F-57 AAD enforcement",
         "cases": [
             {
                 "id": "xchacha20-basic-encrypt",
