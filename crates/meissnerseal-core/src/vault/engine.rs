@@ -1359,13 +1359,13 @@ mod tests {
             fn drop(&mut self) {
                 // SAFETY: Restoring the prior umask is the documented contract
                 // of umask(2), and the saved value came from a previous call.
-                unsafe { umask(self.0) };
+                unsafe { umask(self.0) }; // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             }
         }
 
         // SAFETY: This test temporarily sets the process umask to 0 to verify
         // create-time permissions and restores the previous value via UmaskGuard.
-        let _guard = UmaskGuard(unsafe { umask(0) });
+        let _guard = UmaskGuard(unsafe { umask(0) }); // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
 
         let path = unique_temp_vault_path("mode-600");
         let tmp_path = tmp_path_for(&path);
