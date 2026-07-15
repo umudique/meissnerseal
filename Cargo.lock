@@ -710,7 +710,7 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 
 [[package]]
 name = "meissnerseal-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "meissnerseal-crypto",
  "meissnerseal-pqc",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-crypto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "meissnerseal-core",
  "meissnerseal-security",
@@ -768,7 +768,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-pqc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "hkdf",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-security"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "meissnerseal-crypto",
  "thiserror",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "meissnerseal-sync-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "meissnerseal-core",
