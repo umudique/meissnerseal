@@ -67,6 +67,8 @@ fn exercise(bytes: &[u8]) {
     match envelope_from_bytes(bytes) {
         Ok(_) => {}
         Err(TransferError::UnknownProfile) => {}
+        // Structurally valid envelope that has passed its expiry window — not a parser bug.
+        Err(TransferError::ExpiredEnvelope) => {}
         Err(other) => panic!("unexpected transfer envelope parser error: {other:?}"),
     }
 }
