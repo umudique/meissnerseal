@@ -522,7 +522,7 @@ def generate_aead_vectors() -> dict:
     aad   = bytes.fromhex(
         "6d656973736e65727365616c2d6161642d7631"  # b"meissnerseal-aad-v1"  (19 bytes)
         "0102030405060708090a0b0c0d0e0f10"        # vault_id               (16 bytes)
-        "01000100010001000100"                     # format=1, schema=1, aead=1, kdf=1, pqc=1
+        "01000200010001000100"                     # format=1, schema=2, aead=1, kdf=1, pqc=1
         "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"        # record_id              (16 bytes)
         "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"        # revision_id            (16 bytes)
         "0100"                                     # record_kind u16le       (2 bytes)
