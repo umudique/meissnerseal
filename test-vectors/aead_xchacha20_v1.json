@@ -1,12 +1,12 @@
 {
   "profile": "AEAD_XCHACHA20_POLY1305_V1",
-  "version": 1,
-  "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with production 79-byte canonical AAD (libsodium)",
-  "generated_by": "cross_verify.py (pynacl/libsodium)",
+  "version": 2,
+  "description": "XChaCha20-Poly1305 IETF encrypt/decrypt with canonical 79-byte AAD (meissnerseal-aad-v1)",
+  "generated_by": "cross_verify.py (pynacl/libsodium), updated for F-56/F-57 AAD enforcement",
   "cases": [
     {
       "id": "xchacha20-basic-encrypt",
-      "description": "Encrypt with production 79-byte canonical AAD, verify ciphertext and tag",
+      "description": "Encrypt with canonical 79-byte AAD, verify ciphertext and tag",
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
@@ -85,7 +85,7 @@
     },
     {
       "id": "c4-empty-plaintext-encrypt",
-      "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates AAD (crypto_design.md §6)",
+      "description": "Empty-plaintext encrypt edge: empty ciphertext, 16-byte tag authenticates 79-byte AAD (crypto_design.md §6)",
       "inputs": {
         "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
         "nonce": "010203040506070809101112131415161718192021222324",
