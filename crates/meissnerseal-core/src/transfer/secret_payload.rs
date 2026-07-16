@@ -121,7 +121,7 @@ mod tests {
 
         ManuallyDrop::deref_mut(&mut payload).zeroize();
 
-        unsafe {
+        unsafe { // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             // SAFETY: `ptr` points into the still-live allocation owned by
             // `payload`. `zeroize()` clears bytes in place before the final
             // destructor frees the allocation. Reading the allocation after

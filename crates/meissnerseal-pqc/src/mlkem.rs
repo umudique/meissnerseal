@@ -374,7 +374,7 @@ mod tests {
         // This test is ignored in normal runs and intended for Miri, where
         // reading the bytes after drop is used to validate zeroization of the
         // same backing storage.
-        unsafe {
+        unsafe { // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             ManuallyDrop::drop(&mut secret);
             let bytes = slice::from_raw_parts(ptr, SharedSecret::LEN);
             assert!(bytes.iter().all(|byte| *byte == 0));
@@ -512,6 +512,7 @@ mod tests {
     //   K' (not Err), preventing chosen-ciphertext oracle attacks.
     // "no modification" cases: normal decapsulation positive KATs.
     #[test]
+    #[cfg_attr(miri, ignore = "serde_json triggers memchr SSE2 alignment UB under Miri")]
     fn nist_val_implicit_rejection_and_positive_decapsulate() {
         let kat = load_kat();
         let dk_hex = &kat.val_group.dk;

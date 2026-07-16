@@ -29,6 +29,14 @@ pub const MSEXP_MAGIC: [u8; 8] = *b"MSEXP\x01\0\0";
 /// MVP-0 encrypted export container version.
 pub const MSEXP_VERSION_V1: u16 = 1;
 
+/// Legacy export magic bytes from before the meissnerseal rename.
+#[deprecated(note = "use MSEXP_MAGIC; this constant identifies the legacy ARCEXP wire format")]
+pub const ARCEXP_MAGIC: [u8; 8] = *b"ARCEXP\x01\0";
+
+/// Legacy export version constant from before the meissnerseal rename.
+#[deprecated(note = "use MSEXP_VERSION_V1")]
+pub const ARCEXP_VERSION_V1: u16 = 1;
+
 const MAGIC_LEN: usize = 8;
 const VERSION_LEN: usize = 2;
 const VAULT_ID_LEN: usize = 16;
