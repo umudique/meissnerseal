@@ -144,6 +144,12 @@ C FFI surface; Rust bindings provided as-is. Trail of Bits audited the C library
 - `meissnerseal-pqc` Kani harnesses remain mandatory at the usage boundary
   (PQC-1 task scope). This is now the primary project-controlled verification
   mechanism for the PQC layer, not inherited verification from the backend.
+- **NIST ACVP VAL group as implicit-rejection oracle.** FIPS 203 §6.3
+  implicit-rejection coverage must use NIST ACVP VAL group vectors as the
+  authoritative oracle, not custom-constructed test vectors. ACVP vectors pin
+  expected outputs to the NIST reference implementation and constitute
+  conformance evidence; custom vectors constitute finding-register evidence only.
+  This distinction must be preserved when extending PQC test coverage.
 - `meissnerseal-pqc/CONTRACT.md` must document: RustCrypto `ml-kem` backend,
   audit status, verification scope (Kani at usage boundary only), and that hybrid
   composition (ADR-027) provides the classical security floor.
