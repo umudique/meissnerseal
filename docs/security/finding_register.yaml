@@ -3736,7 +3736,7 @@ findings:
       where the serialized vault omits TAG_PQC_PROFILE and the parsed
       pqc_profile is 0. The test passes and git diff shows no change to
       the vector file after regeneration.
-    commit: "4f2135d"
+    commit: "79d2b47"
     note: >-
       2026-07-05: Separate spec gap identified. The Rust implementation
       correctly rejects non-zero pqc_profile via PqcProfileId::new()
@@ -4115,7 +4115,7 @@ findings:
       The forbidden-prefix scan (validate_vectors.py) exits 0 on the
       updated file. All three import KATs pass against the regenerated
       vectors.
-    commit: "4f2135d"
+    commit: "79d2b47"
 
   - id: F-129
     kind: coverage_gap
@@ -4395,7 +4395,7 @@ findings:
       both mlkem.rs and hybrid.rs test modules. from_hex("ABCD") returns
       [0xAB, 0xCD] correctly. cargo test -p meissnerseal-pqc passes with
       no regressions.
-    commit: "a081b68"
+    commit: "d39cfc9"
     note: >-
       2026-07-05 mldsa.rs — mldsa.rs:400 from_hex() has the even-length
       guard (assert_eq!(s.len() % 2, 0, "hex string must have even
@@ -4560,7 +4560,7 @@ findings:
       recipient_classical_public_key causes both assertions to fail.
       transfer_hybrid_v1.json contains a pqc_decap_key field in every
       case. cargo test -p meissnerseal-pqc exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-136
     kind: consistency
     component: specs
@@ -4631,7 +4631,7 @@ findings:
       (0x0001–0x0007) and the negative fixture for duplicate critical TLV
       (F-121 gap 2) passes. A vault with two 0x0001 (vault_id) TLV
       entries is rejected by the parser with a deterministic error.
-    commit: "1627736"
+    commit: "e61a92b"
 
   - id: F-137
     kind: consistency
@@ -4696,7 +4696,7 @@ findings:
       frame.aead_profile against the header value rather than a
       hardcoded constant. A negative test for mismatched frame/header
       aead_profile passes. cargo test -p meissnerseal-core exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-138
     kind: consistency
     component: specs
@@ -4766,7 +4766,7 @@ findings:
       and ciphertext_len = 15 pass. cargo test -p meissnerseal-core
       exits 0. §10 aad_len = 79 rule is consistent with the corrected
       §7 value (79 bytes, not 74).
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-139
     kind: coverage_gap
     component: meissnerseal-pqc
@@ -4854,7 +4854,7 @@ findings:
       VerificationFailed. tampered-signature test returns VerificationFailed
       not MalformedSignature. AlgorithmMismatch reverse test returns
       AlgorithmMismatch. cargo test -p meissnerseal-pqc exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-140
     kind: coverage_gap
     component: meissnerseal-pqc
@@ -4917,7 +4917,7 @@ findings:
       A mutated KAT with a wrong public_key field fails the derivation
       assert before reaching verify(). cargo test -p meissnerseal-pqc
       exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-141
     kind: consistency
     component: meissnerseal-pqc
@@ -5046,7 +5046,7 @@ findings:
       assert_no_secret_leak() fails when PASSWORD or EXPORT_PASS appears
       in stdout/stderr. All existing E2E tests pass. cargo test
       -p meissnerseal-cli exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-144
     kind: coverage_gap
     component: meissnerseal-cli
@@ -5097,7 +5097,7 @@ findings:
       A test that hangs is killed after 30 s and the test suite reports
       a timeout failure rather than stalling. Tests pass when HOME is
       set to a throwaway tempdir. cargo test -p meissnerseal-cli exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-145
     kind: coverage_gap
     component: meissnerseal-cli
@@ -5176,7 +5176,7 @@ findings:
       Tampered bundle import returns non-zero. Destination vault list
       shows no imported item. assert_no_secret_leak passes for the
       failed import output. cargo test -p meissnerseal-cli exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-147
     kind: coverage_gap
     component: meissnerseal-cli
@@ -5262,7 +5262,7 @@ findings:
       Test fails when the export format writes the label in plaintext.
       Test passes with the current encrypted export implementation.
       cargo test -p meissnerseal-cli exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-149
     kind: coverage_gap
     component: meissnerseal-cli
@@ -5364,7 +5364,7 @@ findings:
       init on an existing .msv returns non-zero and leaves the vault
       unchanged. export on an existing .msexp behaves per documented
       policy without data loss. cargo test -p meissnerseal-cli exits 0.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-151
     kind: coverage_gap
     component: meissnerseal-cli
@@ -5451,7 +5451,7 @@ findings:
       that creates the file without explicit mode (relying on umask)
       fails the assertion under a permissive umask (0o022).
       cargo test -p meissnerseal-cli exits 0 on Unix.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-153
     kind: coverage_gap
     component: meissnerseal-cli
@@ -6009,7 +6009,7 @@ findings:
       confirms anonymous hash changes when anonymous_recipient_public_key
       changes. create_envelope with recipient_device_id: None and no
       anonymous key returns an error.
-    commit: "f68256d"
+    commit: "ab692c8"
 
   - id: F-167
     kind: consistency
@@ -6067,7 +6067,7 @@ findings:
       cargo test -p meissnerseal-core -- transfer passes. TrustedSender
       negative cases return the expected error variants. Replay store is
       empty after a wrong-sender-key open attempt.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-169
     kind: coverage_gap
@@ -6096,7 +6096,7 @@ findings:
     verification: >-
       Anonymous roundtrip test passes after F-166 fix. Wrong-anon-key test
       returns TranscriptMismatch. cargo test -p meissnerseal-core passes.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-170
     kind: coverage_gap
@@ -6124,7 +6124,7 @@ findings:
     verification: >-
       Each field mutation produces a distinct transcript hash. cargo test
       -p meissnerseal-core -- transfer passes.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-171
     kind: coverage_gap
@@ -6151,7 +6151,7 @@ findings:
     verification: >-
       All new cases return the expected error variant. No case panics or
       reaches KEM/AEAD. cargo test -p meissnerseal-core -- transfer passes.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-172
     kind: consistency
@@ -6182,7 +6182,7 @@ findings:
     verification: >-
       Test names and comments match the code under test. No test name
       implies coverage it does not provide.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-173
     kind: coverage_gap
@@ -6208,7 +6208,7 @@ findings:
     verification: >-
       create_envelope roundtrip invariants hold. Successive calls produce
       distinct IDs. cargo test -p meissnerseal-core -- transfer passes.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
   - id: F-174
     kind: coverage_gap
@@ -6237,7 +6237,7 @@ findings:
     verification: >-
       Both negative cases return the expected error variant. Positive controls
       pass. cargo test -p meissnerseal-core -- transfer passes.
-    commit: "476cd1e"
+    commit: "0e843cd"
 
 # ── meissnerseal-core vault/format.rs security review (2026-07-05) ──────────────
 
@@ -6908,7 +6908,7 @@ findings:
       test_aad() no longer embeds SCHEMA_MEISSNER_RECORDS_V1. All hierarchy
       tests that use the fixture continue to pass.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-196
     kind: coverage_gap
@@ -6935,7 +6935,7 @@ findings:
       All seven subkeys are asserted via ct_eq in the roundtrip test.
       A regression zeroing any single subkey causes the test to fail.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-197
     kind: coverage_gap
@@ -6973,7 +6973,7 @@ findings:
     verification: >-
       All five negative cases return the expected error or subkey mismatch.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-198
     kind: coverage_gap
@@ -7004,7 +7004,7 @@ findings:
       Each guard case returns Err. Removing any guard causes its test to fail.
       The Miri-compatible tests (non-KDF rejections) run without the ignore
       annotation. cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-199
     kind: coverage_gap
@@ -7041,7 +7041,7 @@ findings:
       All seven subkeys are pairwise distinct. AEAD-scoped keys change with
       aead_id. Non-AEAD-scoped keys are stable under aead_id changes.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-200
     kind: consistency
@@ -7090,7 +7090,7 @@ findings:
       Test names accurately describe what each test exercises. The comment
       describes the actual failure reason. cargo test -p meissnerseal-core
       passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-201
     kind: coverage_gap
@@ -7124,7 +7124,7 @@ findings:
       A regression producing all-zero or identical subkeys is caught.
       Two successive create calls produce distinct ciphertext and nonce.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-202
     kind: coverage_gap
@@ -7151,7 +7151,7 @@ findings:
     verification: >-
       Adding #[derive(Debug)] to UnlockedKeys causes a compile error.
       cargo test -p meissnerseal-core passes without the derive.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-203
     kind: coverage_gap
@@ -7449,7 +7449,7 @@ findings:
     verification: >-
       encrypt() production path is exercised. Two calls produce distinct
       nonces and ciphertexts. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-213
     kind: coverage_gap
@@ -7477,7 +7477,7 @@ findings:
     verification: >-
       Wrong nonce is explicitly rejected by decrypt(). cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-214
     kind: coverage_gap
@@ -7506,7 +7506,7 @@ findings:
     verification: >-
       Both tag-byte and body-byte tampering are asserted to return Err.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-215
     kind: coverage_gap
@@ -7536,7 +7536,7 @@ findings:
       Debug output for both types is pinned to the redacted string. A
       derive(Debug) on either type causes the test to fail.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-216
     kind: coverage_gap
@@ -7563,7 +7563,7 @@ findings:
     verification: >-
       RECORD_AAD_LEN is pinned to the sum of its component fields.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-217
     kind: consistency
@@ -7591,7 +7591,7 @@ findings:
     verification: >-
       KAT source is documented in the test file. A future reviewer can
       regenerate the expected bytes using the stated tool.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-218
     kind: consistency
@@ -7619,7 +7619,7 @@ findings:
     verification: >-
       WRONG_AAD static constant is removed. Test still rejects modified AAD.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-219
     kind: coverage_gap
@@ -7645,7 +7645,7 @@ findings:
     verification: >-
       Test name accurately describes its behavior. cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-220
     kind: coverage_gap
@@ -7681,7 +7681,7 @@ findings:
     verification: >-
       Empty plaintext test is non-redundant and complete. Boundary sizes
       are explicitly covered. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-221
     kind: coverage_gap
@@ -7715,7 +7715,7 @@ findings:
       derive_device_keypair_key() is exercised for KAT, salt sensitivity,
       invalid param rejection, and cross-domain separation. cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-222
     kind: coverage_gap
@@ -7751,7 +7751,7 @@ findings:
       Empty passphrase handling is consistent between contract and
       implementation. Invalid params are tested. cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-223
     kind: coverage_gap
@@ -7784,7 +7784,7 @@ findings:
     verification: >-
       Empty-password policy is documented in the contract and pinned by a
       test. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-224
     kind: coverage_gap
@@ -7811,7 +7811,7 @@ findings:
     verification: >-
       vault_id sensitivity of derive_vkek() is explicitly tested. cargo
       test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-225
     kind: coverage_gap
@@ -7844,7 +7844,7 @@ findings:
     verification: >-
       vault_id sensitivity is pinned for both derive() and
       derive_export_bundle_key(). cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-226
     kind: consistency
@@ -7871,7 +7871,7 @@ findings:
     verification: >-
       KAT source is documented. A future reviewer can regenerate the
       expected bytes from the stated inputs and tool.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-227
     kind: coverage_gap
@@ -7898,7 +7898,7 @@ findings:
     verification: >-
       All three output_len rejection cases are covered. cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-228
     kind: coverage_gap
@@ -7929,7 +7929,7 @@ findings:
     verification: >-
       Min boundary acceptance is explicitly pinned for all three params.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-229
     kind: coverage_gap
@@ -7961,7 +7961,7 @@ findings:
       Standard cargo test completes without large memory allocation.
       Security suite still exercises the KATs. CI is not flaky on
       memory-constrained runners.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-230
     kind: consistency
@@ -8037,7 +8037,7 @@ findings:
       build_subkey_info() output is pinned byte-for-byte for AEAD and
       non-AEAD purposes. Lowercase hex encoding of alphabetic digits is
       explicitly asserted. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-232
     kind: coverage_gap
@@ -8066,7 +8066,7 @@ findings:
     verification: >-
       All five non-AEAD SubkeyPurpose variants reject aead_id Some(_).
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-233
     kind: coverage_gap
@@ -8095,7 +8095,7 @@ findings:
     verification: >-
       aead_id sensitivity is explicitly tested for both AEAD-scoped
       purposes. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-234
     kind: coverage_gap
@@ -8123,7 +8123,7 @@ findings:
     verification: >-
       vault_id sensitivity is explicitly tested for derive_subkey().
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-235
     kind: coverage_gap
@@ -8153,7 +8153,7 @@ findings:
     verification: >-
       vault_id and header_nonce sensitivity are each explicitly tested for
       derive_root_prk(). cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-236
     kind: coverage_gap
@@ -8181,7 +8181,7 @@ findings:
       All seven subkeys are confirmed pairwise distinct. A registry collision
       (duplicate info_label) causes a test failure. cargo test -p
       meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-237
     kind: consistency
@@ -8209,7 +8209,7 @@ findings:
     verification: >-
       Proptest name and comment accurately characterize the guarantee.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-238
     kind: coverage_gap
@@ -8236,7 +8236,7 @@ findings:
     verification: >-
       expand with N > 8160 returns Err(KdfError::InvalidInput).
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-239
     kind: consistency
@@ -8264,7 +8264,7 @@ findings:
     verification: >-
       KAT source is documented. A future reviewer can regenerate all eight
       expected values from the stated inputs and tool.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-240
     kind: coverage_gap
@@ -8292,7 +8292,7 @@ findings:
     verification: >-
       blake2b_256_bytes("abc") matches the RFC 7693 reference value.
       Output length asserted == 32. cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-241
     kind: coverage_gap
@@ -8318,7 +8318,7 @@ findings:
     verification: >-
       sha256_bytes("abc") matches FIPS 180-4 reference. Output length asserted.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-242
     kind: coverage_gap
@@ -8344,7 +8344,7 @@ findings:
     verification: >-
       random_bytes(4096) returns a 4096-byte Vec without panic.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-243
     kind: coverage_gap
@@ -8374,7 +8374,7 @@ findings:
     verification: >-
       Debug output asserted to exact expected string. No key bytes appear.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-244
     kind: coverage_gap
@@ -8403,7 +8403,7 @@ findings:
     verification: >-
       assert_not_impl_any!(Key<32>: PartialEq, Eq, Display) compiles.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-245
     kind: coverage_gap
@@ -8429,7 +8429,7 @@ findings:
     verification: >-
       At least one Key<24> alias is tested for LEN, ct_eq, and debug.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-246
     kind: coverage_gap
@@ -8455,7 +8455,7 @@ findings:
     verification: >-
       lib.rs tests either removed as redundant or promoted to behavioral tests.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-247
     kind: coverage_gap
@@ -8485,7 +8485,7 @@ findings:
     verification: >-
       AuditEventKind fields cannot hold arbitrary secret-bearing strings.
       cargo test -p meissnerseal-security passes.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-248
     kind: coverage_gap
     component: meissnerseal-security
@@ -8509,7 +8509,7 @@ findings:
     verification: >-
       Adding a secret-bearing field to a new AuditEventKind variant triggers
       a compile error or clippy warning.
-    commit: "a081b68"
+    commit: "d39cfc9"
   - id: F-249
     kind: coverage_gap
     component: meissnerseal-security
@@ -8663,7 +8663,7 @@ findings:
     verification: >-
       ItemKind::try_from(0x0000u16) returns Err.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-255
     kind: coverage_gap
@@ -8688,7 +8688,7 @@ findings:
     verification: >-
       assert_not_impl_any! guards compile for both types.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-256
     kind: coverage_gap
@@ -8715,7 +8715,7 @@ findings:
     verification: >-
       serialize_identity_text / deserialize_identity_text roundtrip tested.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-257
     kind: coverage_gap
@@ -8741,7 +8741,7 @@ findings:
     verification: >-
       device_trust_state_from_u8(7) returns Err(InvalidFileFormat).
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-258
     kind: coverage_gap
@@ -8769,7 +8769,7 @@ findings:
     verification: >-
       compute_pairing_transcript KAT passes against reference value.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-259
     kind: coverage_gap
@@ -8794,7 +8794,7 @@ findings:
     verification: >-
       PendingInbound → Revoked and PendingOutbound → Revoked both return Ok.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-260
     kind: coverage_gap
@@ -8821,7 +8821,7 @@ findings:
     verification: >-
       from_u16(0) and from_u16(2) return Err(UnknownProfile).
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-261
     kind: coverage_gap
@@ -8846,7 +8846,7 @@ findings:
     verification: >-
       Drop path verified via raw pointer read. Bytes are zero after drop.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-262
     kind: coverage_gap
@@ -8869,7 +8869,7 @@ findings:
     verification: >-
       len() and is_empty() tested for SecretPayload.
       cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-263
     kind: coverage_gap
@@ -8900,7 +8900,7 @@ findings:
     verification: >-
       Shadow parser removed. section_offset derived from production code or
       pinned in test vectors. cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-264
     kind: coverage_gap
@@ -8926,7 +8926,7 @@ findings:
     verification: >-
       unlocked_keys_exposes_all_seven_registry_subkeys asserts key content,
       not just array length. cargo test -p meissnerseal-core passes.
-    commit: "f46611b"
+    commit: "500528e"
 
   - id: F-265
     kind: coverage_gap
@@ -8953,7 +8953,7 @@ findings:
     verification: >-
       unhex() panics with a clear message on invalid hex characters.
       cargo test -p meissnerseal-crypto passes.
-    commit: "436d4bc"
+    commit: "5483822"
 
   - id: F-266
     kind: coverage_gap
