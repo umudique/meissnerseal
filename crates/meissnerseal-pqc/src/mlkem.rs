@@ -374,8 +374,8 @@ mod tests {
         // This test is ignored in normal runs and intended for Miri, where
         // reading the bytes after drop is used to validate zeroization of the
         // same backing storage.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
-            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             ManuallyDrop::drop(&mut secret);
             let bytes = slice::from_raw_parts(ptr, SharedSecret::LEN);
             assert!(bytes.iter().all(|byte| *byte == 0));

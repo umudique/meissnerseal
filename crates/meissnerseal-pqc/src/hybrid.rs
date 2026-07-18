@@ -659,6 +659,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "serde_json triggers memchr SSE2 alignment UB under Miri"
+    )]
     fn transfer_hybrid_v1_vectors() {
         let kat = load_kat();
         assert!(
@@ -767,6 +771,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "serde_json triggers memchr SSE2 alignment UB under Miri"
+    )]
     fn transfer_hybrid_kat_single_input_changes_change_output() {
         let kat = load_kat();
         let case0 = kat

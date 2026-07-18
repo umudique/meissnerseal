@@ -365,8 +365,8 @@ mod tests {
         // wrapper's drop path exactly once, inspect the same allocation bytes
         // immediately after drop for zeroization, and intentionally leak the freed
         // allocation handle because this test is only meaningful under Miri.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
-            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             ManuallyDrop::drop(&mut secret);
             let after = slice::from_raw_parts(ptr, len);
             assert!(after.iter().all(|byte| *byte == 0x00));
@@ -386,8 +386,8 @@ mod tests {
         // SAFETY: `ptr` points into the still-live allocation owned by
         // `secret`. We zeroize in place, inspect the same allocation before it
         // is freed, and only then drop the wrapper.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
-            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             ManuallyDrop::deref_mut(&mut secret).zeroize();
             let after = slice::from_raw_parts(ptr, len);
             assert_eq!(non_zero_count(after), 0, "SecretBytes must zero on drop");
@@ -408,8 +408,8 @@ mod tests {
         // SAFETY: `ptr` points into the still-live allocation owned by
         // `secret`. We zeroize in place, inspect the same allocation before it
         // is freed, and only then drop the wrapper.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
-            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             ManuallyDrop::deref_mut(&mut secret).zeroize();
             let after = slice::from_raw_parts(ptr, len);
             assert_eq!(non_zero_count(after), 0, "SecretString must zero on drop");
