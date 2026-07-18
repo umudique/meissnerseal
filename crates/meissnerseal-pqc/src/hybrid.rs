@@ -838,6 +838,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "serde_json triggers memchr SSE2 alignment UB under Miri"
+    )]
     fn transfer_hybrid_kat_loader_rejects_unknown_path_value() {
         let malformed = r#"{
             "schema":"transfer-hybrid-v1",
