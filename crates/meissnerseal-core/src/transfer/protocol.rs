@@ -96,10 +96,6 @@ pub enum TransferError {
     SigningFailed,
     #[error("transfer signature verification failed")]
     VerificationFailed,
-    #[error(
-        "anonymous transfer recipient public key is required when recipient_device_id is absent"
-    )]
-    MissingAnonymousRecipientPublicKey,
     #[error("sender identity is not trusted for envelope opening")]
     UntrustedSender,
     #[error("invalid transfer envelope id")]
@@ -110,6 +106,10 @@ pub enum TransferError {
     MalformedReplayStore,
     #[error("transfer implementation unavailable")]
     Unimplemented,
+    #[error(
+        "anonymous transfer recipient public key is required when recipient_device_id is absent"
+    )]
+    MissingAnonymousRecipientPublicKey,
 }
 
 #[cfg(test)]
