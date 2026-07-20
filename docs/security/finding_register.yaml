@@ -616,10 +616,15 @@ findings:
     cwe: CWE-459
     severity: low
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "Add an orphan-temp sweep at a QUIESCENT point (vault unlock, when no write is in flight): remove sibling vault.*.msv.tmp files. The single-writer-per-mount architecture makes this sound only at a quiescent point — never inside a persist error path mid-flight (that would reintroduce the F-12 foreign-delete shape). Until implemented, orphaned temps are harmless scratch litter (no plaintext: the temp holds only the already-encrypted vault image); disk hygiene only, no integrity/availability impact on user data."
-    verification: ""
-    commit: ""
+    verification: >-
+      sweep_orphan_tmp_files() added to engine.rs; called in unlock_impl
+      after empty-password check, before fs::read. Pattern: {stem}.{32
+      lowercase hex}.msv.tmp — strict hex validation, fail-open. Tests:
+      sweep_removes_orphan_tmp_files, sweep_is_noop_when_no_orphans,
+      sweep_ignores_malformed_names. cargo nextest run --workspace: passed.
+    commit: "f333b2a"
 
   - id: F-17
     kind: coverage_gap
