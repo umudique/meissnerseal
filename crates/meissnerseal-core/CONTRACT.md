@@ -150,6 +150,10 @@ recovery::  [MVP-1 — ADR-010]
 ```
 [G-01] Vault writes are crash-safe:
        serialize → encrypt → temp file → fsync → rename → fsync parent
+       Vault<Locked>::unlock performs a best-effort pre-read sweep of
+       sibling orphan temp files whose names match exactly
+       `{vault_stem}.{32-lowercase-hex}.msv.tmp`; non-matching siblings are
+       left untouched and sweep failures do not change unlock semantics.
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
