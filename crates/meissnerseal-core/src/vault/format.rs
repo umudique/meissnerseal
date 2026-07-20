@@ -1121,12 +1121,17 @@ pub fn serialize_vault_file(header: &[u8], record_table: &[u8], body: &[u8]) -> 
 /// # Contract
 /// ## Preconditions
 /// - `bytes` is a complete vault file byte slice.
+/// - Header TLV tag `0x0005` (`pqc_profile`) must be present exactly once and
+///   must encode `PQC_NONE = 0x0000` for MVP-0.
 /// ## Postconditions
 /// - On success, returns a parsed `VaultHeader`.
 /// - Rejects: wrong magic bytes, unknown or duplicate critical TLV tags,
 ///   truncated header, trailing garbage.
 /// - Rejects `SCHEMA_MEISSNER_RECORDS_V1`, unknown schema profiles, and newer
 ///   schema profiles before any record frame or sealed table is opened.
+/// - Returns `Err(CoreError::UnsupportedPqcProfile(value))` when the
+///   `pqc_profile` tag is absent (`value == 0`) or a non-zero profile value is
+///   observed in the header.
 /// ## Invariants
 /// - Never returns partial output on malformed input.
 /// - Does not perform cryptographic operations directly.
@@ -1169,11 +1174,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
     let mut kdf_profile = None;
     let mut kdf_params = None;
     let mut aead_profile = None;
-    // A missing TAG_PQC_PROFILE defaults to profile 0 ("no PQC"). This is the
-    // correct fail-safe while PQC is not active and the 79-byte AAD already
-    // binds pqc_profile. When PQC becomes active this MUST change to `None` +
-    // reject so a stripped tag cannot force a silent downgrade.
-    let mut pqc_profile: u16 = 0;
+    let mut pqc_profile = None;
     let mut schema_profile = None;
     let mut header_nonce = None;
     let mut seen_header_tags = 0u16;
@@ -1235,7 +1236,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
                     mark_seen_header_tag(&mut seen_header_tags, tag),
                     "duplicate pqc_profile",
                 )?;
-                pqc_profile = read_tlv_u16(value, "invalid pqc_profile length")?;
+                pqc_profile = Some(read_tlv_u16(value, "invalid pqc_profile length")?);
             }
             TAG_SCHEMA_PROFILE => {
                 reject_duplicate(
@@ -1272,7 +1273,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
         aead_profile: aead_profile.ok_or_else(|| format_error("missing aead_profile"))?,
         kdf_profile: kdf_profile.ok_or_else(|| format_error("missing kdf_profile"))?,
         kdf_params: kdf_params.ok_or_else(|| format_error("missing kdf params"))?,
-        pqc_profile,
+        pqc_profile: pqc_profile.ok_or(CoreError::UnsupportedPqcProfile(0))?,
         header_nonce: header_nonce.ok_or_else(|| format_error("missing header_nonce"))?,
         profile_set: VaultProfileSet {
             aead_profile: AeadProfileId(AEAD_XCHACHA20_POLY1305_V1),
@@ -1281,6 +1282,9 @@ pub fn parse_header(bytes: &[u8]) -> Result<VaultHeader> {
             schema: SchemaProfileId(SCHEMA_MEISSNER_RECORDS_V2),
         },
     };
+    if header.pqc_profile != PQC_NONE {
+        return Err(CoreError::UnsupportedPqcProfile(header.pqc_profile));
+    }
     let profile_set = validate_profile_set(&header)?;
 
     Ok(VaultHeader {
@@ -2053,6 +2057,37 @@ mod tests {
         bytes
     }
 
+    fn remove_header_tag_bytes(header: &VaultHeader, tag_to_remove: u16) -> Vec<u8> {
+        let bytes = vault_bytes_for_header(header, 4, 4);
+        let header_len = usize::try_from(u32::from_le_bytes(
+            bytes[10..14].try_into().expect("header len bytes"),
+        ))
+        .expect("header len");
+        let header_end = HEADER_MIN_LEN + header_len;
+        let mut rebuilt = bytes[..HEADER_MIN_LEN].to_vec();
+        let mut cursor = HEADER_MIN_LEN;
+
+        while cursor < header_end {
+            let tag = u16::from_le_bytes(bytes[cursor..cursor + 2].try_into().expect("tag bytes"));
+            let len = usize::try_from(u32::from_le_bytes(
+                bytes[cursor + 3..cursor + 7]
+                    .try_into()
+                    .expect("length bytes"),
+            ))
+            .expect("tlv len");
+            let tlv_end = cursor + TLV_HEADER_LEN + len;
+            if tag != tag_to_remove {
+                rebuilt.extend_from_slice(&bytes[cursor..tlv_end]);
+            }
+            cursor = tlv_end;
+        }
+
+        rebuilt.extend_from_slice(&bytes[header_end..]);
+        let new_header_len = rebuilt.len() - HEADER_MIN_LEN - 4;
+        rebuilt[10..14].copy_from_slice(&usize_to_u32_for_test(new_header_len).to_le_bytes());
+        rebuilt
+    }
+
     #[test]
     fn test_magic_bytes_constant() {
         assert_eq!(MAGIC, b"MEISSNER");
@@ -2266,7 +2301,33 @@ mod tests {
         header.pqc_profile = PQC_NONE + 1;
         let bytes = vault_bytes_for_header(&header, 4, 4);
 
-        assert!(matches!(parse_header(&bytes), Err(CoreError::Format(_))));
+        assert!(matches!(
+            parse_header(&bytes),
+            Err(CoreError::UnsupportedPqcProfile(value)) if value == PQC_NONE + 1
+        ));
+    }
+
+    #[test]
+    fn parse_header_rejects_missing_pqc_profile_tag() {
+        let header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        let bytes = remove_header_tag_bytes(&header, TAG_PQC_PROFILE);
+
+        assert!(matches!(
+            parse_header(&bytes),
+            Err(CoreError::UnsupportedPqcProfile(0))
+        ));
+    }
+
+    #[test]
+    fn parse_header_rejects_unknown_nonzero_pqc_profile_with_specific_error() {
+        let mut header = header_fixture(SCHEMA_MEISSNER_RECORDS_V2);
+        header.pqc_profile = 0xFFFF;
+        let bytes = vault_bytes_for_header(&header, 4, 4);
+
+        assert!(matches!(
+            parse_header(&bytes),
+            Err(CoreError::UnsupportedPqcProfile(0xFFFF))
+        ));
     }
 
     #[test]

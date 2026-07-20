@@ -171,6 +171,9 @@ recovery::  [MVP-1 — ADR-010]
        — wrong magic bytes
        — unknown critical TLV tags
        — duplicate critical fields
+       — missing `pqc_profile` header TLV
+       — unsupported non-zero `pqc_profile` values with
+         `CoreError::UnsupportedPqcProfile(observed_u16)`
        — truncated sections
        — trailing garbage
 

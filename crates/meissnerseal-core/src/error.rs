@@ -28,6 +28,10 @@ pub enum CoreError {
     #[error("crypto error")]
     Crypto,
 
+    /// Vault header declared an unsupported or missing PQC profile.
+    #[error("unsupported PQC profile: 0x{0:04x}")]
+    UnsupportedPqcProfile(u16),
+
     /// I/O error.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
