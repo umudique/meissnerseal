@@ -1281,7 +1281,7 @@ findings:
     severity: medium
     blocking: false
     blocks: "DEVICE-1"
-    status: deferred
+    status: resolved
     remediation: >-
       Deferred to DEVICE-1. Security impact is low — sign()/verify() already
       catch malformed keys via InvalidKey (F-37 fix). Typed constructors
@@ -1290,8 +1290,17 @@ findings:
       (Ed25519MlDsa87HybridV1) has variable-length keys so API shape should
       be decided once both variants are implemented. See DEVICE-1 notes in
       meissnerseal-ops/tasks.yaml.
-    verification: "Pending DEVICE-1 implementation."
-    commit: ""
+    verification: >-
+      SigningPrivateKey::try_new_ed25519([u8;32]) rejects all-zero seed with
+      Err(InvalidKey). Signature::try_new_ed25519([u8;64]) rejects all-zero
+      encoding with Err(MalformedSignature); dalek 2.x from_bytes is
+      infallible — scalar-range check deferred to verify_strict. Legacy
+      new() marked #[doc(hidden)]. TODO(PQC-4) hybrid constructor design
+      comment added. Tests: try_new_ed25519_rejects_all_zero_seed,
+      try_new_ed25519_accepts_valid_seed,
+      try_new_ed25519_signature_rejects_malformed,
+      try_new_ed25519_signature_accepts_valid. nextest 50/50 pass.
+    commit: "a8c6ff1"
 
   - id: F-39
     kind: design
