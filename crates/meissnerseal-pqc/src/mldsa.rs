@@ -89,6 +89,7 @@ pub struct SigningPublicKey {
 }
 
 impl SigningPublicKey {
+    #[doc(hidden)]
     #[must_use]
     pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self { algorithm, bytes }
@@ -132,6 +133,7 @@ pub struct SigningPrivateKey {
 }
 
 impl SigningPrivateKey {
+    #[doc(hidden)]
     #[must_use]
     pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self {
@@ -139,6 +141,36 @@ impl SigningPrivateKey {
             bytes: Zeroizing::new(bytes),
         }
     }
+
+    /// Construct a validated Ed25519V1 signing private key from a 32-byte seed.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `seed` must be a 32-byte Ed25519 seed.
+    /// - `seed` must not be the all-zero value.
+    ///
+    /// ## Postconditions
+    /// - Returns `Ok(Self)` tagged `SigningAlgorithmId::Ed25519V1` on valid input.
+    /// - Returns `Err(SigningError::InvalidKey)` when `seed` is all zero.
+    ///
+    /// ## Invariants
+    /// - The all-zero seed is rejected at the constructor boundary.
+    /// - Secret bytes are stored in `Zeroizing<Vec<u8>>` and remain inaccessible
+    ///   except through `with_secret_bytes`.
+    pub fn try_new_ed25519(seed: [u8; 32]) -> Result<Self> {
+        if seed == [0u8; 32] {
+            return Err(SigningError::InvalidKey);
+        }
+        Ok(Self {
+            algorithm: SigningAlgorithmId::Ed25519V1,
+            bytes: Zeroizing::new(seed.to_vec()),
+        })
+    }
+
+    // TODO(PQC-4): try_new_ed25519_mldsa87(bytes: &[u8]) -> Result<Self>
+    // Variable-length: Ed25519 seed (32 B) || ML-DSA-87 seed (variable).
+    // Deferred until ML-DSA backend is selected and audited (ADR-012, ADR-028).
 
     #[must_use]
     pub const fn algorithm(&self) -> SigningAlgorithmId {
@@ -192,10 +224,44 @@ pub struct Signature {
 }
 
 impl Signature {
+    #[doc(hidden)]
     #[must_use]
     pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self { algorithm, bytes }
     }
+
+    /// Construct a validated Ed25519V1 signature from a 64-byte encoding.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `bytes` must be a 64-byte Ed25519 signature encoding.
+    /// - `bytes` must not be the all-zero degenerate encoding.
+    ///
+    /// ## Postconditions
+    /// - Returns `Ok(Self)` tagged `SigningAlgorithmId::Ed25519V1` on valid input.
+    /// - Returns `Err(SigningError::MalformedSignature)` when the encoding is
+    ///   rejected at the constructor boundary.
+    ///
+    /// ## Invariants
+    /// - Constructor-level validation runs before the value is wrapped in the
+    ///   algorithm-tagged `Signature` type.
+    /// - The all-zero signature encoding is rejected as malformed.
+    /// - ed25519-dalek 2.x `Signature::from_bytes` is infallible; scalar-range
+    ///   validation occurs at `verify_strict` call time, not at construction.
+    pub fn try_new_ed25519(bytes: [u8; 64]) -> Result<Self> {
+        if bytes == [0u8; 64] {
+            return Err(SigningError::MalformedSignature);
+        }
+        Ok(Self {
+            algorithm: SigningAlgorithmId::Ed25519V1,
+            bytes: bytes.to_vec(),
+        })
+    }
+
+    // TODO(PQC-4): try_new_ed25519_mldsa87(bytes: &[u8]) -> Result<Self>
+    // Variable-length: Ed25519 seed (32 B) || ML-DSA-87 seed (variable).
+    // Deferred until ML-DSA backend is selected and audited (ADR-012, ADR-028).
 
     #[must_use]
     pub const fn algorithm(&self) -> SigningAlgorithmId {
@@ -440,6 +506,48 @@ mod tests {
             verify(&public_key, OTHER_MESSAGE, &signature),
             Err(SigningError::VerificationFailed)
         ));
+    }
+
+    #[test]
+    fn try_new_ed25519_rejects_all_zero_seed() {
+        assert!(matches!(
+            SigningPrivateKey::try_new_ed25519([0u8; 32]),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn try_new_ed25519_accepts_valid_seed() {
+        let seed = [0x42u8; 32];
+
+        let key = SigningPrivateKey::try_new_ed25519(seed).expect("valid KAT seed accepted");
+
+        assert_eq!(key.algorithm(), SigningAlgorithmId::Ed25519V1);
+        key.with_secret_bytes(|bytes| assert_eq!(bytes.len(), 32));
+    }
+
+    #[test]
+    fn try_new_ed25519_signature_rejects_malformed() {
+        assert!(matches!(
+            Signature::try_new_ed25519([0u8; 64]),
+            Err(SigningError::MalformedSignature)
+        ));
+    }
+
+    #[test]
+    fn try_new_ed25519_signature_accepts_valid() {
+        let private_key = ed25519_private_key();
+        let signature = sign(&private_key, MESSAGE).expect("Ed25519 signing succeeds");
+        let signature_bytes: [u8; 64] = signature
+            .as_bytes()
+            .try_into()
+            .expect("signature bytes must be 64 bytes");
+
+        let validated =
+            Signature::try_new_ed25519(signature_bytes).expect("valid signature accepted");
+
+        assert_eq!(validated.algorithm(), SigningAlgorithmId::Ed25519V1);
+        assert_eq!(validated.as_bytes(), signature.as_bytes());
     }
 
     #[test]

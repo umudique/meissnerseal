@@ -43,6 +43,8 @@ mldsa::  SigningAlgorithmId
          Signature { algorithm_id, signature_bytes }
 
          ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey)
+         SigningPrivateKey::try_new_ed25519(seed: [u8; 32]) -> Result<SigningPrivateKey>
+         Signature::try_new_ed25519(bytes: [u8; 64]) -> Result<Signature>
          sign(private_key, message: &[u8]) -> Result<Signature>
            // low-level: message must already contain domain prefix
          sign_with_domain(private_key, domain: &[u8], payload: &[u8]) -> Result<Signature>
@@ -64,6 +66,9 @@ mldsa::  SigningAlgorithmId
          approval. Hybrid signing slot is registered but returns
          Unimplemented until PQ signing audit clears a future PQC-4
          implementation.
+         Legacy `new(...)` constructors remain available for internal/test
+         fixture loading and cross-crate serialized-form handling; production
+         callers must use the validated `try_new_ed25519` entry points.
 ```
 
 ---
