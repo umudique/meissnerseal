@@ -247,10 +247,15 @@ findings:
     cwe: CWE-754
     severity: medium
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "MVP-0 fail-safe (PQC inactive, AAD binds pqc_profile); MVP-2: None+reject. Documented inline in format.rs (arcanum-ops DEC-1)"
-    verification: "Inline note present in format.rs"
-    commit: ""
+    verification: >-
+      parse_header() returns Err(CoreError::UnsupportedPqcProfile(0)) when
+      TAG_PQC_PROFILE is absent, and Err(CoreError::UnsupportedPqcProfile(value))
+      for any non-zero profile. Tests: parse_header_rejects_missing_pqc_profile_tag,
+      parse_header_rejects_unknown_nonzero_pqc_profile_with_specific_error.
+      cargo nextest run --workspace: 476 passed.
+    commit: "cd4f779"
 
   - id: F-07
     kind: security_review
