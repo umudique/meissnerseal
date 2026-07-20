@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-07-04
+updated: 2026-07-20
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -9090,3 +9090,103 @@ findings:
       At least one unit test per command handler in main.rs.
       cargo test -p meissnerseal-cli passes.
     commit: "c32ea9a"
+
+  - id: F-271
+    kind: security_review
+    component: meissnerseal-cli
+    source: "security review — crates/meissnerseal-cli/src/main.rs:393 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      device_pair_command constructs a synthetic peer pairing payload using
+      the local party's nonce (line 395: synthetic_pairing_payload(&peer,
+      payload.pairing_nonce)). The SAS is derived from this synthetic
+      payload. The remote side does the same with its own nonce. Because
+      the two nonces are independent, the SAS values always differ between
+      initiator and responder. The code acknowledges this (lines 403-406
+      comment) but still presents the SAS to the user and asks for
+      confirmation. The confirmation gate is therefore theater: a user who
+      says Y is not verifying anything, and a MITM substituting their own
+      identity during the exchange goes undetected. The peer identity is
+      then written as a permanent trust root (line 420).
+    cwe: "CWE-345"
+    severity: high
+    blocking: false
+    status: open
+    remediation: >-
+      Implement bilateral nonce commitment exchange: each side commits to
+      hash(nonce) before revealing the nonce, then computes
+      SAS = f(nonce_A || nonce_B || identity_A || identity_B). Until then,
+      remove the SAS prompt entirely and replace with explicit fingerprint
+      comparison (display both sides' signing key fingerprints for OOB
+      verification). Do not present a confirmation gate backed by a value
+      that cannot be verified.
+    verification: >-
+      SAS values match on both sides for the same pairing session, or the
+      SAS prompt is removed and replaced with fingerprint display only.
+
+  - id: F-272
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs:546, src/vault/engine.rs:452 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      Every vault mutation (add/update/delete) follows a read-modify-write
+      cycle: load_vault() reads the full vault, builds a new record set in
+      memory, then persist_vault_mutation_v2() atomically renames the result
+      over the existing file. There is no OS-level file lock, advisory lock,
+      or revision CAS on the mutation path. If two processes open the same
+      vault and both reach persist_vault_mutation_v2 concurrently, the last
+      rename wins and the first writer's changes are silently discarded.
+      ADR-029 explicitly scopes MVP-0 to a single-writer assumption, but
+      that constraint is not enforced. revision_id exists in the table
+      format (added for F-14) but is not used as a CAS guard.
+    cwe: "CWE-362"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Option A (preferred): acquire an exclusive OS advisory lock
+      (flock/LockFileEx) on the vault file at unlock and release at lock;
+      concurrent openers block or fail fast. Option B: use revision_id
+      already present in the table as a CAS token — read the on-disk
+      revision before write, fail if it changed. Either option enforces
+      the single-writer invariant that ADR-029 documents but does not
+      implement. Do not combine both without a clear ordering protocol.
+    verification: >-
+      Concurrent writers on the same vault file produce an error on the
+      second write rather than silently discarding the first writer's data.
+
+  - id: F-273
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-cli/src/main.rs:765, crates/meissnerseal-core/src/export.rs:71,436 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      Three unbounded allocation gaps in the import path. (1) CLI
+      import_bundle reads the entire input file into memory with no size
+      check before fs::read (main.rs:765); a crafted bundle can exhaust
+      process memory before any parsing occurs. (2) authenticate() copies
+      the ciphertext slice into a new Vec (export.rs:71:
+      ciphertext_and_tag.to_vec()); the bundle bytes are already fully
+      in memory, making this a second allocation of the same data with no
+      benefit. (3) deserialize_item_set take_vec reads label, tag, and
+      secret fields using a u32 length prefix with no per-field cap
+      (export.rs:436); F-74 capped item_count and tag_count but left
+      individual field sizes unbounded. A single item with a 4 GB secret
+      field passes the item-count gate and allocates without limit.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      (1) Add a MAX_BUNDLE_LEN constant; check file metadata size before
+      fs::read in import_bundle and reject oversized files. (2) Change
+      authenticate() signature to accept &[u8] through to decrypt without
+      an intermediate to_vec(); or pass the slice directly if Ciphertext
+      supports it. (3) Add MAX_SECRET_LEN, MAX_LABEL_LEN, MAX_TAG_LEN
+      constants; enforce them in take_vec before allocating.
+    verification: >-
+      Importing a bundle exceeding MAX_BUNDLE_LEN returns Err before
+      reading the file. A bundle with a single item whose secret field
+      length prefix equals u32::MAX returns Err without allocating.
+      Ciphertext path holds at most one copy of the encrypted bytes.
