@@ -9240,15 +9240,16 @@ findings:
     cwe: "CWE-400"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Add bundle.len() > MAX_BUNDLE_LEN guard at the top of authenticate()
       (and in parse_bundle if called independently) so the size cap is
       enforced at the API boundary regardless of caller.
     verification: >-
-      authenticate() called with a slice exceeding MAX_BUNDLE_LEN returns
-      Err before any allocation or KDF work. CLI check retained as
-      defence-in-depth.
+      bundle.len() > MAX_BUNDLE_LEN guard added as first check in
+      authenticate(), before parse_bundle, KDF, or ciphertext copy.
+      authenticate_rejects_bundle_exceeding_max_bundle_len passes.
+    commit: "7b68240"
 
   - id: F-275
     kind: design
@@ -9267,7 +9268,7 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Align the limits: either raise export import caps to match store caps
       (MAX_LABEL_LEN=1024, MAX_TAG_LEN=256), or lower store caps to match
@@ -9276,5 +9277,7 @@ findings:
       Single source of truth — export.rs should import its caps from
       store.rs, not define independent values.
     verification: >-
-      A vault item with a label of exactly store::MAX_LABEL_LEN bytes
-      round-trips through export and import without error.
+      MAX_LABEL_LEN raised 256->1024 and MAX_TAG_LEN raised 128->256 in
+      export.rs; both now match item::store caps.
+      export_import_round_trips_item_with_max_store_label_len passes.
+    commit: "7b68240"
