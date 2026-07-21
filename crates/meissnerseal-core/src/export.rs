@@ -36,10 +36,10 @@ pub const MAX_BUNDLE_LEN: usize = 64 * 1024 * 1024;
 pub const MAX_SECRET_LEN: usize = 64 * 1024;
 
 /// Maximum accepted imported label length per item.
-pub const MAX_LABEL_LEN: usize = 256;
+pub const MAX_LABEL_LEN: usize = 1024;
 
 /// Maximum accepted imported tag length per tag.
-pub const MAX_TAG_LEN: usize = 128;
+pub const MAX_TAG_LEN: usize = 256;
 
 /// Legacy export magic bytes from before the meissnerseal rename.
 #[deprecated(note = "use MSEXP_MAGIC; this constant identifies the legacy ARCEXP wire format")]
@@ -71,6 +71,9 @@ pub struct UntrustedExportBundle {
 
 impl UntrustedExportBundle {
     pub fn authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle> {
+        if bundle.len() > MAX_BUNDLE_LEN {
+            return Err(CoreError::Format("bundle exceeds maximum length".into()));
+        }
         if passphrase.is_empty() {
             return Err(CoreError::InvalidState("empty export passphrase".into()));
         }
@@ -831,6 +834,16 @@ mod tests {
     }
 
     #[test]
+    fn authenticate_rejects_bundle_exceeding_max_bundle_len() {
+        let bundle = vec![0u8; MAX_BUNDLE_LEN + 1];
+
+        assert!(matches!(
+            UntrustedExportBundle::authenticate(&bundle, EXPORT_PASSPHRASE),
+            Err(CoreError::Format(message)) if message == "bundle exceeds maximum length"
+        ));
+    }
+
+    #[test]
     #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
     fn import_rejects_trailing_garbage_after_bundle() {
         let (path, session) = unlocked_session("bundle-trailing-garbage");
@@ -1098,6 +1111,23 @@ mod tests {
             !bundle.windows(SECRET.len()).any(|w| w == SECRET),
             "export bundle must not contain plaintext secret bytes"
         );
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn export_import_round_trips_item_with_max_store_label_len() {
+        let (path, session) = unlocked_session("max-store-label-len");
+        let label = "a".repeat(crate::item::store::MAX_LABEL_LEN);
+
+        add(&session, plain_item(&label, b"max label secret"))
+            .expect("fixture item add with max store label length");
+        let bundle = export(&session, EXPORT_PASSPHRASE).expect("export bundle");
+        let imported_ids =
+            import(&session, &bundle, EXPORT_PASSPHRASE).expect("import bundle roundtrip");
+
+        assert_eq!(imported_ids.len(), 1);
+        assert_imported_item(&session, &label, b"max label secret");
         cleanup(&path, session);
     }
 

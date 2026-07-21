@@ -35,10 +35,12 @@ item::
 export::
   MAX_BUNDLE_LEN: usize = 64 * 1024 * 1024
   MAX_SECRET_LEN: usize = 64 * 1024
-  MAX_LABEL_LEN: usize = 256
-  MAX_TAG_LEN: usize = 128
+  MAX_LABEL_LEN: usize = 1024   // matches item::store::MAX_LABEL_LEN
+  MAX_TAG_LEN: usize = 256      // matches item::store::MAX_TAG_LEN
   UntrustedExportBundle
   UntrustedExportBundle::authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle>
+    // Precondition: bundle.len() <= MAX_BUNDLE_LEN; returns Err before
+    // any allocation or KDF work if the bundle exceeds this cap.
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
