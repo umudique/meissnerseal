@@ -20,6 +20,10 @@ pub const PAIRING_COMMIT_LEN: usize = 32;
 /// Short authentication string length in RFC 4648 base32 characters.
 pub const PAIRING_SAS_LEN: usize = 7;
 
+/// Deprecated: use `PAIRING_SAS_LEN`.
+#[deprecated(since = "0.1.0", note = "use PAIRING_SAS_LEN instead")]
+pub const PAIRING_SAS_HEX_LEN: usize = PAIRING_SAS_LEN;
+
 /// SHA-256 public key fingerprint.
 pub type PublicKeyFingerprint = [u8; PAIRING_FINGERPRINT_LEN];
 
@@ -389,6 +393,21 @@ pub fn derive_bilateral_sas(
 /// - Allows `Untrusted -> PendingInbound`.
 /// - Allows `Untrusted -> PendingOutbound`.
 /// - Allows pending states to move to `Verified`.
+/// Deprecated: replaced by `derive_bilateral_sas`.
+///
+/// The old unilateral SAS scheme is insecure against SAS substitution attacks.
+/// This stub is retained for API compatibility only and always returns `Err`.
+#[doc(hidden)]
+#[deprecated(since = "0.1.0", note = "use derive_bilateral_sas instead")]
+pub fn derive_short_authentication_string(
+    _pairing_nonce: &PairingNonce,
+    _transcript_hash: &[u8; 32],
+) -> core::result::Result<ShortAuthenticationString, crate::error::CoreError> {
+    Err(crate::error::CoreError::Format(
+        "derive_short_authentication_string is superseded by derive_bilateral_sas".into(),
+    ))
+}
+
 /// - Allows `Verified -> Approved`.
 /// - Returns `Err(InvalidTrustTransition)` for skipped or backward states.
 ///

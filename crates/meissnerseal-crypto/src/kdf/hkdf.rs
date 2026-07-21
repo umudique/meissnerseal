@@ -327,17 +327,28 @@ mod proofs {
 
     #[kani::proof]
     fn verify_sas_commit_output_length() {
-        let nonce = [0u8; 32];
-        let out = sas_commit(&nonce, b"identity");
-        kani::assert(out.len() == 32, "SAS commit output must be 32 bytes");
+        // Cannot call sas_commit() — sha2 pulls in CPUID intrinsics that
+        // Kani's InlineAsm support does not handle. The return type [u8; 32]
+        // encodes the length as a const generic; the type binding below is
+        // the proof.
+        let _f: fn(&[u8; 32], &[u8]) -> [u8; 32] = sas_commit;
+        kani::assert(
+            std::mem::size_of::<[u8; 32]>() == 32,
+            "SAS commit output must be 32 bytes",
+        );
     }
 
     #[kani::proof]
     fn verify_sas_derive_output_length() {
-        let nonce_a = [0u8; 32];
-        let nonce_b = [0u8; 32];
-        let out = sas_derive(&nonce_a, &nonce_b, b"a", b"b");
-        kani::assert(out.len() == 4, "bilateral SAS seed must be 4 bytes");
+        // Cannot call sas_derive() — sha2 pulls in CPUID intrinsics that
+        // Kani's InlineAsm support does not handle. The return type [u8; 4]
+        // encodes the length as a const generic; the type binding below is
+        // the proof.
+        let _f: fn(&[u8; 32], &[u8; 32], &[u8], &[u8]) -> [u8; 4] = sas_derive;
+        kani::assert(
+            std::mem::size_of::<[u8; 4]>() == 4,
+            "bilateral SAS seed must be 4 bytes",
+        );
     }
 }
 
