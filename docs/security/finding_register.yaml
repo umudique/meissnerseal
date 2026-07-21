@@ -9224,3 +9224,57 @@ findings:
       MAX_SECRET_LEN=64 KiB) prevent allocation. cargo nextest 499/499
       pass including four new rejection tests.
     commit: "0784ca8"
+
+  - id: F-274
+    kind: security_review
+    component: meissnerseal-core
+    source: "orchestrator review — crates/meissnerseal-core/src/export.rs:73 (2026-07-21)"
+    date: 2026-07-21
+    description: >-
+      UntrustedExportBundle::authenticate(&[u8], ...) accepts a slice of
+      arbitrary length with no bundle size check. MAX_BUNDLE_LEN is
+      enforced only in the CLI caller; FFI, sync, or any other consumer
+      calling authenticate directly bypasses the cap and can trigger
+      unbounded allocation via ciphertext_and_tag.to_vec() before AEAD
+      authentication runs.
+    cwe: "CWE-400"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Add bundle.len() > MAX_BUNDLE_LEN guard at the top of authenticate()
+      (and in parse_bundle if called independently) so the size cap is
+      enforced at the API boundary regardless of caller.
+    verification: >-
+      authenticate() called with a slice exceeding MAX_BUNDLE_LEN returns
+      Err before any allocation or KDF work. CLI check retained as
+      defence-in-depth.
+
+  - id: F-275
+    kind: design
+    component: meissnerseal-core
+    source: "orchestrator review — crates/meissnerseal-core/src/export.rs:36, src/item/store.rs:11 (2026-07-21)"
+    date: 2026-07-21
+    description: >-
+      Export import caps (MAX_LABEL_LEN=256, MAX_TAG_LEN=128) added in
+      F-273 are tighter than the vault item store caps (store::MAX_LABEL_LEN
+      =1024, store::MAX_TAG_LEN=256). A vault item with a 512-byte label
+      can be created and exported successfully, but re-importing the same
+      bundle fails with CoreError::Format because deserialize_item_set
+      rejects the field as oversized. The vault->export->import->vault
+      round-trip is broken for any item whose label or tag exceeds the
+      export import cap.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Align the limits: either raise export import caps to match store caps
+      (MAX_LABEL_LEN=1024, MAX_TAG_LEN=256), or lower store caps to match
+      export import caps and migrate existing vaults. Preferred: raise
+      export import caps to store caps so no existing data is rejected.
+      Single source of truth — export.rs should import its caps from
+      store.rs, not define independent values.
+    verification: >-
+      A vault item with a label of exactly store::MAX_LABEL_LEN bytes
+      round-trips through export and import without error.
