@@ -9130,7 +9130,7 @@ findings:
     cwe: "CWE-345"
     severity: high
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Implement bilateral nonce commitment exchange: each side commits to
       hash(nonce) before revealing the nonce, then computes
@@ -9140,8 +9140,14 @@ findings:
       verification). Do not present a confirmation gate backed by a value
       that cannot be verified.
     verification: >-
-      SAS values match on both sides for the same pairing session, or the
-      SAS prompt is removed and replaced with fingerprint display only.
+      Bilateral HKDF-SHA256-Extract commit->reveal scheme implemented across
+      meissnerseal-crypto (sas_commit, sas_derive), meissnerseal-core
+      (compute_pairing_commit, verify_pairing_commit, derive_bilateral_sas),
+      and meissnerseal-cli (device_pair_command). Both sides commit before
+      revealing; verify_pairing_commit fails closed on mismatch. Canonical
+      device-ID ordering ensures identical 7-char RFC 4648 base32 SAS on
+      both peers. cargo fmt/check/clippy/test/deny/audit pass.
+    commit: "d58cd34"
 
   - id: F-272
     kind: design
