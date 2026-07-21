@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Vault engine: create, unlock, and lock vault typestates.
 
-use std::{fmt::Write as FmtWrite, io::Write, marker::PhantomData};
+use std::{fmt::Write as FmtWrite, io::Write, marker::PhantomData, os::fd::AsRawFd};
 
 use meissnerseal_security::secret_lifecycle::SecretBytes;
+#[allow(deprecated)]
+use nix::{
+    errno::Errno,
+    fcntl::{flock, FlockArg},
+};
 
 use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
@@ -480,6 +485,56 @@ fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::P
     path.with_extension(format!("{}.msv.tmp", hex16(record_id)))
 }
 
+/// Execute a vault mutation while holding the stable sibling sidecar lock.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `vault_path` names the `.msv` vault file being mutated.
+/// - `f` performs the full load → stage → rename cycle for that vault.
+///
+/// ## Postconditions
+/// - Acquires an exclusive non-blocking advisory lock on
+///   `vault_path.with_extension("msv.lock")` before invoking `f`.
+/// - Returns `Err(CoreError::VaultLocked)` immediately if the sidecar is already
+///   locked by another process.
+/// - Explicitly unlocks the sidecar before returning, whether `f` succeeds or
+///   fails.
+///
+/// ## Invariants
+/// - Uses a stable zero-byte coordination file; vault contents are never read
+///   from or written to the sidecar.
+/// - Fails closed on contention and leaves retry policy to the caller.
+pub(crate) fn with_vault_lock<T>(
+    vault_path: &std::path::Path,
+    f: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let lock_path = vault_path.with_extension("msv.lock");
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)?;
+
+    #[allow(deprecated)]
+    flock(lock_file.as_raw_fd(), FlockArg::LockExclusiveNonblock).map_err(|error| match error {
+        Errno::EWOULDBLOCK => CoreError::VaultLocked,
+        other => CoreError::Io(std::io::Error::from_raw_os_error(other as i32)),
+    })?;
+
+    let result = f();
+    #[allow(deprecated)]
+    let unlock_result = flock(lock_file.as_raw_fd(), FlockArg::Unlock)
+        .map_err(|error| CoreError::Io(std::io::Error::from_raw_os_error(error as i32)));
+
+    match (result, unlock_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(unlock_error)) => Err(unlock_error),
+        (Err(error), Err(_unlock_error)) => Err(error),
+    }
+}
+
 /// Best-effort sweep for orphaned sibling temp files left by a crashed writer.
 ///
 /// # Contract
@@ -864,9 +919,12 @@ mod tests {
     use crate::vault::format::SCHEMA_MEISSNER_RECORDS_V2;
     use meissnerseal_crypto::types::AeadKey;
     use meissnerseal_security::secret_lifecycle::SecretBytes;
+    #[allow(deprecated)]
+    use nix::fcntl::{flock, FlockArg};
     use static_assertions::assert_not_impl_any;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::{fs::OpenOptions, os::fd::AsRawFd};
 
     #[cfg(unix)]
     #[allow(unsafe_code)] // REASON: test-only libc umask declaration for file-mode verification.
@@ -901,6 +959,18 @@ mod tests {
 
     fn orphan_tmp_path_for_test(path: &std::path::Path, seed: &[u8; 16]) -> std::path::PathBuf {
         unique_tmp_path_for_test(path, seed)
+    }
+
+    fn lock_sidecar_for_test(path: &std::path::Path) -> std::fs::File {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_extension("msv.lock"))
+            .expect("open sidecar lock file");
+        #[allow(deprecated)]
+        flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock).expect("acquire sidecar lock");
+        file
     }
 
     fn read_u32_for_test(bytes: &[u8], offset: usize) -> u32 {
@@ -994,6 +1064,7 @@ mod tests {
         let tmp_path = unique_tmp_path_for_test(path, &[0u8; 16]);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&tmp_path);
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
         let locked = create(CreateVaultParams {
             path: path.to_path_buf(),
             password: SecretBytes::new(password.to_vec()),
@@ -1570,6 +1641,28 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&malformed);
+    }
+
+    #[test]
+    fn with_vault_lock_returns_vault_locked_when_sidecar_is_held() {
+        let path = unique_temp_vault_path("sidecar-locked");
+        let lock_file = lock_sidecar_for_test(&path);
+
+        let result = with_vault_lock(&path, || Ok(()));
+
+        assert!(matches!(result, Err(CoreError::VaultLocked)));
+        drop(lock_file);
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
+    }
+
+    #[test]
+    fn with_vault_lock_releases_sidecar_after_success() {
+        let path = unique_temp_vault_path("sidecar-release");
+
+        with_vault_lock(&path, || Ok(())).expect("first lock must succeed");
+        with_vault_lock(&path, || Ok(())).expect("second lock must succeed after release");
+
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
     }
 
     #[test]

@@ -12,6 +12,7 @@ workspace = true
 meissnerseal-crypto.workspace = true
 meissnerseal-pqc.workspace = true
 meissnerseal-security.workspace = true
+nix = { version = "0.29", features = ["fs"] }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

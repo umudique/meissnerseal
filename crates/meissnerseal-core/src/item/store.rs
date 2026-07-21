@@ -17,7 +17,9 @@ pub(crate) const MAX_SECRET_LEN: usize = 64 * 1024;
 use crate::{
     error::{CoreError, Result},
     item::model::{ItemId, ItemKind, ItemSummary, PlainItem, PlainItemView},
-    vault::engine::{persist_vault_mutation_v2, record_frame_len_at, Unlocked, Vault},
+    vault::engine::{
+        persist_vault_mutation_v2, record_frame_len_at, with_vault_lock, Unlocked, Vault,
+    },
     vault::format::{
         build_aad, open_sealed_record_table_v2, parse_header, parse_item_record_frame_envelope,
         parse_record_frame, sealed_record_table_padded_plaintext_len,
@@ -543,31 +545,33 @@ fn live_item_position(loaded: &LoadedVault, item_id: &ItemId) -> Option<usize> {
 /// - Metadata (`label`, `tags`) is encrypted into the item payload where
 ///   possible; the V2 table contains only routing fields.
 pub fn add(session: &Vault<Unlocked>, item: PlainItem) -> Result<ItemId> {
-    let loaded = load_vault(session)?;
-    let record_id = fresh_id()?;
-    let revision_id = fresh_id()?;
+    with_vault_lock(session.path(), || {
+        let loaded = load_vault(session)?;
+        let record_id = fresh_id()?;
+        let revision_id = fresh_id()?;
 
-    let frame_bytes = build_item_frame(
-        &item,
-        &session.keys().item_wrap_key,
-        &loaded.header,
-        &record_id,
-        &revision_id,
-    )?;
-    drop(item); // plaintext consumed; SecretBytes zeroizes on drop.
+        let frame_bytes = build_item_frame(
+            &item,
+            &session.keys().item_wrap_key,
+            &loaded.header,
+            &record_id,
+            &revision_id,
+        )?;
+        drop(item); // plaintext consumed; SecretBytes zeroizes on drop.
 
-    let records = stage_records(
-        &loaded,
-        None,
-        Some(PendingRecord {
-            record_id,
-            record_kind: RECORD_KIND_ITEM,
-            revision_id,
-            frame_bytes,
-        }),
-    )?;
-    rewrite_vault(session, &loaded, &records)?;
-    Ok(record_id)
+        let records = stage_records(
+            &loaded,
+            None,
+            Some(PendingRecord {
+                record_id,
+                record_kind: RECORD_KIND_ITEM,
+                revision_id,
+                frame_bytes,
+            }),
+        )?;
+        rewrite_vault(session, &loaded, &records)?;
+        Ok(record_id)
+    })
 }
 
 /// List non-secret summaries for live items in an unlocked V2 vault.
@@ -740,33 +744,35 @@ where
 /// - No old or new plaintext item payload, REK, IKWK, or MEK is logged, printed,
 ///   or written to an error value.
 pub fn update(session: &Vault<Unlocked>, item_id: ItemId, item: PlainItem) -> Result<()> {
-    let loaded = load_vault(session)?;
-    let position = live_item_position(&loaded, &item_id)
-        .ok_or_else(|| CoreError::NotFound(id_hex(&item_id)))?;
+    with_vault_lock(session.path(), || {
+        let loaded = load_vault(session)?;
+        let position = live_item_position(&loaded, &item_id)
+            .ok_or_else(|| CoreError::NotFound(id_hex(&item_id)))?;
 
-    // Preserve record_id; a fresh revision_id re-binds the AAD so the previous
-    // revision's REK/AAD cannot authenticate the replacement frame.
-    let revision_id = fresh_id()?;
-    let frame_bytes = build_item_frame(
-        &item,
-        &session.keys().item_wrap_key,
-        &loaded.header,
-        &item_id,
-        &revision_id,
-    )?;
-    drop(item);
+        // Preserve record_id; a fresh revision_id re-binds the AAD so the previous
+        // revision's REK/AAD cannot authenticate the replacement frame.
+        let revision_id = fresh_id()?;
+        let frame_bytes = build_item_frame(
+            &item,
+            &session.keys().item_wrap_key,
+            &loaded.header,
+            &item_id,
+            &revision_id,
+        )?;
+        drop(item);
 
-    let records = stage_records(
-        &loaded,
-        Some(position),
-        Some(PendingRecord {
-            record_id: item_id,
-            record_kind: RECORD_KIND_ITEM,
-            revision_id,
-            frame_bytes,
-        }),
-    )?;
-    rewrite_vault(session, &loaded, &records)
+        let records = stage_records(
+            &loaded,
+            Some(position),
+            Some(PendingRecord {
+                record_id: item_id,
+                record_kind: RECORD_KIND_ITEM,
+                revision_id,
+                frame_bytes,
+            }),
+        )?;
+        rewrite_vault(session, &loaded, &records)
+    })
 }
 
 /// Delete a live item by writing a tombstone.
@@ -791,41 +797,43 @@ pub fn update(session: &Vault<Unlocked>, item_id: ItemId, item: PlainItem) -> Re
 /// - The tombstone is authenticated metadata; no best-effort deletion state is
 ///   returned on failure.
 pub fn delete(session: &Vault<Unlocked>, item_id: ItemId) -> Result<()> {
-    let loaded = load_vault(session)?;
-    let position = match live_item_position(&loaded, &item_id) {
-        Some(position) => position,
-        None => {
-            // Idempotent: an already-tombstoned id is treated as deleted.
-            let already_tombstoned = loaded.entries.iter().any(|entry| {
-                entry.record_id == item_id && entry.record_kind == RECORD_KIND_TOMBSTONE
-            });
-            if already_tombstoned {
-                return Ok(());
+    with_vault_lock(session.path(), || {
+        let loaded = load_vault(session)?;
+        let position = match live_item_position(&loaded, &item_id) {
+            Some(position) => position,
+            None => {
+                // Idempotent: an already-tombstoned id is treated as deleted.
+                let already_tombstoned = loaded.entries.iter().any(|entry| {
+                    entry.record_id == item_id && entry.record_kind == RECORD_KIND_TOMBSTONE
+                });
+                if already_tombstoned {
+                    return Ok(());
+                }
+                return Err(CoreError::NotFound(id_hex(&item_id)));
             }
-            return Err(CoreError::NotFound(id_hex(&item_id)));
-        }
-    };
+        };
 
-    let revision_id = fresh_id()?;
-    let aad = item_record_aad(
-        &loaded.header,
-        &item_id,
-        &revision_id,
-        RECORD_KIND_TOMBSTONE,
-    );
-    let tombstone_frame = build_record_frame(&item_id, &revision_id, Vec::new(), &aad)?;
+        let revision_id = fresh_id()?;
+        let aad = item_record_aad(
+            &loaded.header,
+            &item_id,
+            &revision_id,
+            RECORD_KIND_TOMBSTONE,
+        );
+        let tombstone_frame = build_record_frame(&item_id, &revision_id, Vec::new(), &aad)?;
 
-    let records = stage_records(
-        &loaded,
-        Some(position),
-        Some(PendingRecord {
-            record_id: item_id,
-            record_kind: RECORD_KIND_TOMBSTONE,
-            revision_id,
-            frame_bytes: tombstone_frame,
-        }),
-    )?;
-    rewrite_vault(session, &loaded, &records)
+        let records = stage_records(
+            &loaded,
+            Some(position),
+            Some(PendingRecord {
+                record_id: item_id,
+                record_kind: RECORD_KIND_TOMBSTONE,
+                revision_id,
+                frame_bytes: tombstone_frame,
+            }),
+        )?;
+        rewrite_vault(session, &loaded, &records)
+    })
 }
 
 #[cfg(test)]
@@ -833,10 +841,16 @@ pub fn delete(session: &Vault<Unlocked>, item_id: ItemId) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{
+        error::CoreError,
         item::model::ItemKind,
         vault::engine::{CreateVaultParams, Locked, UnlockParams, Vault},
     };
     use meissnerseal_security::secret_lifecycle::SecretBytes;
+    #[cfg(unix)]
+    #[allow(deprecated)]
+    use nix::fcntl::{flock, FlockArg};
+    #[cfg(unix)]
+    use std::{fs::OpenOptions, os::fd::AsRawFd};
 
     const PASSWORD: &[u8] = b"core-9-item-password-never-real";
 
@@ -883,6 +897,20 @@ mod tests {
     fn cleanup(path: &std::path::Path, session: Vault<Unlocked>) {
         let _ = session.lock();
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
+    }
+
+    #[cfg(unix)]
+    #[allow(deprecated)]
+    fn hold_vault_lock(path: &std::path::Path) -> std::fs::File {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_extension("msv.lock"))
+            .expect("open sidecar lock file");
+        flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock).expect("acquire sidecar lock");
+        file
     }
 
     #[test]
@@ -979,6 +1007,36 @@ mod tests {
         .expect("Phase 2: item must survive unlock");
 
         assert_eq!(observed, b"survives".len());
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn add_returns_vault_locked_when_sidecar_is_held() {
+        let (path, session) = unlocked_session("lock-held");
+        let lock_file = hold_vault_lock(&path);
+
+        let result = add(&session, plain_item("blocked", b"contended"));
+
+        assert!(matches!(result, Err(CoreError::VaultLocked)));
+        drop(lock_file);
+        cleanup(&path, session);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "Argon2id 64 MiB KDF is too slow under Miri")]
+    fn sequential_add_releases_sidecar_lock_after_success() {
+        let (path, session) = unlocked_session("lock-release");
+
+        let first_id = add(&session, plain_item("first", b"one")).expect("first add must succeed");
+        let second_id =
+            add(&session, plain_item("second", b"two")).expect("second add must succeed");
+
+        assert_ne!(first_id, second_id);
+        let lock_file = hold_vault_lock(&path);
+        drop(lock_file);
         cleanup(&path, session);
     }
 

@@ -160,6 +160,10 @@ recovery::  [MVP-1 — ADR-010]
        sibling orphan temp files whose names match exactly
        `{vault_stem}.{32-lowercase-hex}.msv.tmp`; non-matching siblings are
        left untouched and sweep failures do not change unlock semantics.
+       Read-modify-write item mutations (`add`, `update`, `delete`) acquire a
+       non-blocking advisory sidecar lock at `{vault_path}.lock` via the stable
+       sibling path `vault_path.with_extension("msv.lock")`; contention returns
+       `Err(CoreError::VaultLocked)` and never blocks indefinitely.
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
