@@ -9249,7 +9249,7 @@ findings:
       bundle.len() > MAX_BUNDLE_LEN guard added as first check in
       authenticate(), before parse_bundle, KDF, or ciphertext copy.
       authenticate_rejects_bundle_exceeding_max_bundle_len passes.
-    commit: "7b68240"
+    commit: "e023d4a"
 
   - id: F-275
     kind: design
@@ -9280,4 +9280,4 @@ findings:
       MAX_LABEL_LEN raised 256->1024 and MAX_TAG_LEN raised 128->256 in
       export.rs; both now match item::store caps.
       export_import_round_trips_item_with_max_store_label_len passes.
-    commit: "7b68240"
+    commit: "e023d4a"
