@@ -9168,7 +9168,7 @@ findings:
     cwe: "CWE-362"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       Option A (preferred): acquire an exclusive OS advisory lock
       (flock/LockFileEx) on the vault file at unlock and release at lock;
@@ -9178,8 +9178,12 @@ findings:
       the single-writer invariant that ADR-029 documents but does not
       implement. Do not combine both without a clear ordering protocol.
     verification: >-
-      Concurrent writers on the same vault file produce an error on the
-      second write rather than silently discarding the first writer's data.
+      Option A implemented: with_vault_lock acquires a non-blocking
+      exclusive flock on a stable sidecar (.msv.lock) before load and
+      releases it after rename. add, update, delete all wrapped.
+      Concurrent second writer returns Err(VaultLocked) immediately.
+      meissnerseal-core nextest 283/283 pass including lock tests.
+    commit: "3a3e24f"
 
   - id: F-273
     kind: design
