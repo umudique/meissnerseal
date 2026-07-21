@@ -9206,7 +9206,7 @@ findings:
     cwe: "CWE-400"
     severity: low
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
       (1) Add a MAX_BUNDLE_LEN constant; check file metadata size before
       fs::read in import_bundle and reject oversized files. (2) Change
@@ -9215,7 +9215,12 @@ findings:
       supports it. (3) Add MAX_SECRET_LEN, MAX_LABEL_LEN, MAX_TAG_LEN
       constants; enforce them in take_vec before allocating.
     verification: >-
-      Importing a bundle exceeding MAX_BUNDLE_LEN returns Err before
-      reading the file. A bundle with a single item whose secret field
-      length prefix equals u32::MAX returns Err without allocating.
-      Ciphertext path holds at most one copy of the encrypted bytes.
+      (1) CLI import_bundle rejects files exceeding MAX_BUNDLE_LEN (64 MiB)
+      via metadata check before fs::read. (2) ciphertext_and_tag.to_vec()
+      left in place — Ciphertext has no from_slice API; bundle size cap
+      bounds the copy. (3) take_bounded_vec and take_bounded_utf8 added;
+      length declared in the binary is checked before .to_vec() so
+      per-field caps (MAX_LABEL_LEN=256, MAX_TAG_LEN=128,
+      MAX_SECRET_LEN=64 KiB) prevent allocation. cargo nextest 499/499
+      pass including four new rejection tests.
+    commit: "0784ca8"
