@@ -81,6 +81,13 @@ Device list/revoke commands parse correctly but return an error at runtime until
        item identifier encoded as 32 lowercase hexadecimal characters.
        No label, secret value, or other item fields may be printed on stdout
        for successful `add`.
+
+[G-08] `meissnerseal device pair` performs a bilateral pairing
+       commit→reveal exchange before SAS confirmation:
+       identity exchange → 32-byte commitment exchange → 32-byte nonce reveal
+       → commitment verification → 7-character base32 SAS confirmation.
+       The command aborts immediately on commitment mismatch and does not write
+       the local keypair or peer identity until the user confirms the SAS.
 ```
 
 ---

@@ -21,6 +21,8 @@ argon2:: derive(password, vault_id, params) -> Result<MasterUnlockKey>
 hkdf::   derive_subkey(root_prk, purpose, vault_id, aead_id) -> Result<Key>
          derive_root_prk(vault_root_key, vault_id, header_nonce) -> Prk
            // SHA256(domain||vault_id||header_nonce) → HKDF-Extract
+         sas_commit(nonce, identity_bytes) -> [u8; 32]
+         sas_derive(nonce_a, nonce_b, identity_a, identity_b) -> [u8; 4]
 
 hash::   sha256_bytes(input) -> [u8; 32]
            // SHA-256 digest over exact caller-provided bytes

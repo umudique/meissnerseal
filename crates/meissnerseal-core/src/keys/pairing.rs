@@ -14,8 +14,11 @@ pub const PAIRING_FINGERPRINT_LEN: usize = 32;
 /// Random pairing nonce length in bytes.
 pub const PAIRING_NONCE_LEN: usize = 32;
 
-/// Short authentication string length in lowercase hex characters.
-pub const PAIRING_SAS_HEX_LEN: usize = 6;
+/// Bilateral pairing commitment length in bytes.
+pub const PAIRING_COMMIT_LEN: usize = 32;
+
+/// Short authentication string length in RFC 4648 base32 characters.
+pub const PAIRING_SAS_LEN: usize = 7;
 
 /// SHA-256 public key fingerprint.
 pub type PublicKeyFingerprint = [u8; PAIRING_FINGERPRINT_LEN];
@@ -25,6 +28,24 @@ pub type PairingNonce = [u8; PAIRING_NONCE_LEN];
 
 /// Six-character out-of-band short authentication string.
 pub type ShortAuthenticationString = String;
+
+/// Pairing nonce commitment exchanged before nonce reveal.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `commit` is the 32-byte output of the pairing commitment KDF for a valid
+///   pairing payload.
+///
+/// ## Postconditions
+/// - Carries exactly one fixed-length commitment value for the commit exchange.
+///
+/// ## Invariants
+/// - Contains only public commitment material and no secret bytes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PairingCommit {
+    pub commit: [u8; PAIRING_COMMIT_LEN],
+}
 
 /// QR/manual pairing payload exchanged over an out-of-band channel.
 ///
@@ -119,6 +140,8 @@ pub enum PairingError {
     ZeroPairingNonce,
     #[error("pairing nonce generation failed")]
     NonceGenerationFailed,
+    #[error("pairing commitment does not match revealed nonce")]
+    CommitMismatch,
     #[error("invalid device trust state transition")]
     InvalidTrustTransition,
 }
@@ -150,6 +173,34 @@ pub fn build_pairing_payload(
     identity: &DeviceIdentity,
     capabilities: u32,
 ) -> Result<PairingPayload> {
+    let pairing_nonce = generate_pairing_nonce()?;
+    build_pairing_payload_with_nonce(identity, capabilities, pairing_nonce)
+}
+
+/// Build a pairing payload with an explicit nonce.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `identity.signing_public_key` must be `Some`; identities without signing
+///   keys cannot be paired or approved.
+/// - `identity.display_name` must be non-empty.
+/// - `pairing_nonce` must be a nonzero 32-byte value generated for this
+///   pairing exchange.
+///
+/// ## Postconditions
+/// - Returns a v1 pairing payload containing the provided nonce and the
+///   canonical public-key fingerprints for `identity`.
+/// - Returns `Err` without producing a partial payload when validation fails.
+///
+/// ## Invariants
+/// - Hashing uses `meissnerseal_crypto::hash::sha256_bytes`.
+/// - Core does not implement cryptographic primitives directly.
+pub fn build_pairing_payload_with_nonce(
+    identity: &DeviceIdentity,
+    capabilities: u32,
+    pairing_nonce: PairingNonce,
+) -> Result<PairingPayload> {
     let signing_public_key = identity
         .signing_public_key
         .as_ref()
@@ -157,8 +208,9 @@ pub fn build_pairing_payload(
     if identity.display_name.is_empty() {
         return Err(PairingError::EmptyDisplayName);
     }
-
-    let pairing_nonce = generate_pairing_nonce()?;
+    if pairing_nonce.iter().all(|byte| *byte == 0) {
+        return Err(PairingError::ZeroPairingNonce);
+    }
     let classical_public_key_fingerprint =
         meissnerseal_crypto::hash::sha256_bytes(identity.classical_public_key.as_slice());
     let pqc_public_key_fingerprint =
@@ -207,6 +259,51 @@ pub fn validate_pairing_payload(payload: &PairingPayload) -> Result<()> {
     Ok(())
 }
 
+/// Compute the pre-reveal pairing commitment for a payload.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `payload` must be structurally valid per `validate_pairing_payload()`.
+///
+/// ## Postconditions
+/// - Returns the 32-byte commitment bound to `payload.pairing_nonce` and the
+///   canonical identity bytes for `payload`.
+/// - Returns `Err` if `payload` is invalid.
+///
+/// ## Invariants
+/// - Commitment derivation calls `meissnerseal_crypto::hkdf::sas_commit`.
+/// - This function performs no network or filesystem I/O.
+pub fn compute_pairing_commit(payload: &PairingPayload) -> Result<PairingCommit> {
+    validate_pairing_payload(payload)?;
+    let identity_bytes = pairing_identity_bytes(payload)?;
+    Ok(PairingCommit {
+        commit: meissnerseal_crypto::hkdf::sas_commit(&payload.pairing_nonce, &identity_bytes),
+    })
+}
+
+/// Verify that a revealed payload matches a prior commitment.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `commit` is the peer commitment received before nonce reveal.
+/// - `payload` is the peer payload reconstructed with the revealed nonce.
+///
+/// ## Postconditions
+/// - Returns `Ok(())` only when the commitment recomputes exactly.
+/// - Returns `Err(CommitMismatch)` on any mismatch.
+///
+/// ## Invariants
+/// - Verification fails closed and performs no partial trust update.
+pub fn verify_pairing_commit(commit: &PairingCommit, payload: &PairingPayload) -> Result<()> {
+    let expected = compute_pairing_commit(payload)?;
+    if expected != *commit {
+        return Err(PairingError::CommitMismatch);
+    }
+    Ok(())
+}
+
 /// Compute the DEVICE-2 pairing transcript hash.
 ///
 /// # Contract
@@ -224,18 +321,7 @@ pub fn validate_pairing_payload(payload: &PairingPayload) -> Result<()> {
 ///   all public key fingerprints, capabilities, and pairing nonce.
 pub fn compute_pairing_transcript(payload: &PairingPayload) -> Result<PairingTranscript> {
     validate_pairing_payload(payload)?;
-
-    let display_name_len =
-        u32::try_from(payload.display_name.len()).map_err(|_| PairingError::EmptyDisplayName)?;
-    let mut transcript = Vec::new();
-    transcript.extend_from_slice(&payload.protocol_version.to_le_bytes());
-    transcript.extend_from_slice(&payload.device_id);
-    transcript.extend_from_slice(&display_name_len.to_le_bytes());
-    transcript.extend_from_slice(payload.display_name.as_bytes());
-    transcript.extend_from_slice(&payload.classical_public_key_fingerprint);
-    transcript.extend_from_slice(&payload.pqc_public_key_fingerprint);
-    transcript.extend_from_slice(&payload.signing_public_key_fingerprint);
-    transcript.extend_from_slice(&payload.capabilities.to_le_bytes());
+    let mut transcript = pairing_identity_bytes(payload)?;
     transcript.extend_from_slice(&payload.pairing_nonce);
 
     Ok(PairingTranscript {
@@ -244,34 +330,51 @@ pub fn compute_pairing_transcript(payload: &PairingPayload) -> Result<PairingTra
     })
 }
 
-/// Derive the six-hex-character short authentication string.
+/// Derive the bilateral short authentication string.
 ///
 /// # Contract
 ///
 /// ## Preconditions
-/// - `pairing_nonce` must be the 32-byte nonce from the validated pairing
-///   payload.
-/// - `transcript_hash` must be the SHA-256 transcript hash for the same
-///   pairing payload.
+/// - `nonce_self` and `nonce_peer` are the revealed local and remote nonces for
+///   the same pairing exchange.
+/// - `payload_self` and `payload_peer` are the validated local and remote
+///   payloads for the same pairing exchange.
 ///
 /// ## Postconditions
-/// - Returns lowercase hex encoding of
-///   `SHA256(pairing_nonce || transcript_hash)[0..3]`.
+/// - Returns a 7-character RFC 4648 base32 SAS.
+/// - Device-ID canonical ordering makes the result independent of caller role.
 ///
 /// ## Invariants
-/// - Hashing must use `meissnerseal_crypto::hash::sha256_bytes`.
+/// - Derivation calls `meissnerseal_crypto::hkdf::sas_derive`.
 /// - The SAS is display-only OOB verification data, not a secret.
-pub fn derive_short_authentication_string(
-    pairing_nonce: &PairingNonce,
-    transcript_hash: &[u8; 32],
+pub fn derive_bilateral_sas(
+    nonce_self: &PairingNonce,
+    nonce_peer: &PairingNonce,
+    payload_self: &PairingPayload,
+    payload_peer: &PairingPayload,
 ) -> Result<ShortAuthenticationString> {
-    let mut input = Vec::new();
-    input.extend_from_slice(pairing_nonce);
-    input.extend_from_slice(transcript_hash);
-    let digest = meissnerseal_crypto::hash::sha256_bytes(&input);
-    let [first, second, third, ..] = digest;
+    validate_pairing_payload(payload_self)?;
+    validate_pairing_payload(payload_peer)?;
 
-    Ok(format!("{first:02x}{second:02x}{third:02x}"))
+    let self_identity = pairing_identity_bytes(payload_self)?;
+    let peer_identity = pairing_identity_bytes(payload_peer)?;
+    let sas_bytes = if payload_self.device_id <= payload_peer.device_id {
+        meissnerseal_crypto::hkdf::sas_derive(
+            nonce_self,
+            nonce_peer,
+            &self_identity,
+            &peer_identity,
+        )
+    } else {
+        meissnerseal_crypto::hkdf::sas_derive(
+            nonce_peer,
+            nonce_self,
+            &peer_identity,
+            &self_identity,
+        )
+    };
+
+    Ok(sas_base32(sas_bytes))
 }
 
 /// Validate a DEVICE-2 trust-state transition.
@@ -324,6 +427,53 @@ fn sign_pairing_message(key: &SigningPrivateKey, msg: &[u8]) -> Result<Signature
 #[cfg_attr(not(test), allow(dead_code))]
 fn verify_pairing_message(key: &SigningPublicKey, msg: &[u8], sig: &Signature) -> bool {
     mldsa::verify_with_domain(key, DEVICE_PAIRING_SIGNING_DOMAIN, msg, sig).is_ok()
+}
+
+/// # Contract
+///
+/// ## Preconditions
+/// - `payload` must describe a pairing identity with protocol version,
+///   fingerprints, and capabilities already validated structurally.
+///
+/// ## Postconditions
+/// - Returns the canonical identity encoding used by pairing commit and SAS
+///   derivation, excluding `pairing_nonce`.
+///
+/// ## Invariants
+/// - Encoding order is fixed and deterministic across callers.
+fn pairing_identity_bytes(payload: &PairingPayload) -> Result<Vec<u8>> {
+    let display_name_len =
+        u32::try_from(payload.display_name.len()).map_err(|_| PairingError::EmptyDisplayName)?;
+    let mut identity = Vec::new();
+    identity.extend_from_slice(&payload.protocol_version.to_le_bytes());
+    identity.extend_from_slice(&payload.device_id);
+    identity.extend_from_slice(&display_name_len.to_le_bytes());
+    identity.extend_from_slice(payload.display_name.as_bytes());
+    identity.extend_from_slice(&payload.classical_public_key_fingerprint);
+    identity.extend_from_slice(&payload.pqc_public_key_fingerprint);
+    identity.extend_from_slice(&payload.signing_public_key_fingerprint);
+    identity.extend_from_slice(&payload.capabilities.to_le_bytes());
+    Ok(identity)
+}
+
+fn sas_base32(bytes: [u8; 4]) -> String {
+    const RFC4648_BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let quintets = [
+        bytes[0] >> 3,
+        ((bytes[0] & 0x07) << 2) | (bytes[1] >> 6),
+        (bytes[1] >> 1) & 0x1f,
+        ((bytes[1] & 0x01) << 4) | (bytes[2] >> 4),
+        ((bytes[2] & 0x0f) << 1) | (bytes[3] >> 7),
+        (bytes[3] >> 2) & 0x1f,
+        (bytes[3] & 0x03) << 3,
+    ];
+    let mut out = String::with_capacity(PAIRING_SAS_LEN);
+    for quintet in quintets {
+        if let Some(symbol) = RFC4648_BASE32.get(usize::from(quintet)) {
+            out.push(char::from(*symbol));
+        }
+    }
+    out
 }
 
 fn generate_pairing_nonce() -> Result<PairingNonce> {
@@ -463,19 +613,72 @@ mod tests {
     }
 
     #[test]
-    fn sas_differs_for_two_different_pairing_nonces() {
-        let transcript_hash = [0x44; 32];
-        let first = [0x01; PAIRING_NONCE_LEN];
-        let second = [0x02; PAIRING_NONCE_LEN];
+    fn compute_pairing_commit_changes_when_nonce_changes() {
+        let self_identity = identity(
+            [0x11; 16],
+            "self",
+            [0x22; 32],
+            [0x33; 1184],
+            Some([0x44; 32]),
+            DeviceTrustState::Untrusted,
+        );
+        let first_payload =
+            build_pairing_payload_with_nonce(&self_identity, 0x01, [0x55; PAIRING_NONCE_LEN])
+                .expect("first payload");
+        let second_payload =
+            build_pairing_payload_with_nonce(&self_identity, 0x01, [0x66; PAIRING_NONCE_LEN])
+                .expect("second payload");
 
-        let first_sas =
-            derive_short_authentication_string(&first, &transcript_hash).expect("first sas");
-        let second_sas =
-            derive_short_authentication_string(&second, &transcript_hash).expect("second sas");
+        let first_commit = compute_pairing_commit(&first_payload).expect("first commit");
+        let second_commit = compute_pairing_commit(&second_payload).expect("second commit");
 
-        assert_eq!(first_sas.len(), PAIRING_SAS_HEX_LEN);
-        assert_eq!(second_sas.len(), PAIRING_SAS_HEX_LEN);
-        assert_ne!(first_sas, second_sas);
+        assert_ne!(first_commit.commit, second_commit.commit);
+    }
+
+    #[test]
+    fn verify_pairing_commit_rejects_mismatch() {
+        let payload = payload_fixture();
+        let commit = PairingCommit {
+            commit: [0xAA; PAIRING_COMMIT_LEN],
+        };
+
+        assert_eq!(
+            verify_pairing_commit(&commit, &payload),
+            Err(PairingError::CommitMismatch)
+        );
+    }
+
+    #[test]
+    fn derive_bilateral_sas_is_order_independent() {
+        let first_payload = payload_fixture();
+        let mut second_payload = payload_fixture();
+        second_payload.device_id = [0x99; 16];
+        second_payload.display_name = "second-device".to_owned();
+        second_payload.pairing_nonce = [0x77; PAIRING_NONCE_LEN];
+
+        let first = derive_bilateral_sas(
+            &first_payload.pairing_nonce,
+            &second_payload.pairing_nonce,
+            &first_payload,
+            &second_payload,
+        )
+        .expect("forward sas");
+        let second = derive_bilateral_sas(
+            &second_payload.pairing_nonce,
+            &first_payload.pairing_nonce,
+            &second_payload,
+            &first_payload,
+        )
+        .expect("reverse sas");
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), PAIRING_SAS_LEN);
+    }
+
+    #[test]
+    fn sas_base32_matches_known_answers() {
+        assert_eq!(sas_base32([0x00, 0x00, 0x00, 0x00]), "AAAAAAA");
+        assert_eq!(sas_base32([0xff, 0xff, 0xff, 0xff]), "777777Y");
     }
 
     #[test]

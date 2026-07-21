@@ -10,8 +10,8 @@ use meissnerseal_core::{
             DeviceKeypair, DeviceTrustState, SealedDeviceKeyFile,
         },
         pairing::{
-            build_pairing_payload, compute_pairing_transcript, derive_short_authentication_string,
-            PairingPayload, PAIRING_PROTOCOL_VERSION_V1,
+            build_pairing_payload, build_pairing_payload_with_nonce, compute_pairing_commit,
+            derive_bilateral_sas, verify_pairing_commit, PairingCommit,
         },
     },
     transfer::{
@@ -390,24 +390,40 @@ fn device_pair_command(
     eprintln!("=== PASTE PEER IDENTITY, then blank line ===");
     let peer_block = read_until_blank_line()?;
     let peer = deserialize_identity_text(&peer_block).map_err(device_parse_error)?;
-    let payload = build_pairing_payload(&identity, 0x01)
+    let local_payload = build_pairing_payload(&identity, 0x01)
         .map_err(|_| CoreError::InvalidState("pairing payload failed".into()))?;
-    let peer_payload = synthetic_pairing_payload(&peer, payload.pairing_nonce)?;
-    let transcript = compute_pairing_transcript(&peer_payload)
-        .map_err(|_| CoreError::InvalidState("pairing transcript failed".into()))?;
-    let sas = derive_short_authentication_string(
+    let local_commit = compute_pairing_commit(&local_payload)
+        .map_err(|_| CoreError::InvalidState("pairing commitment failed".into()))?;
+    eprintln!("=== YOUR COMMITMENT (share this with peer) ===");
+    eprintln!("{}", hex_encode_32(&local_commit.commit));
+    eprint!("Peer commitment (64 hex chars): ");
+    let peer_commit_hex = read_public_line()?;
+    let peer_commit = PairingCommit {
+        commit: parse_hex32(&peer_commit_hex).ok_or_else(|| {
+            CoreError::InvalidState("peer commitment must be 64 hexadecimal characters".into())
+        })?,
+    };
+    eprintln!("=== YOUR NONCE (share this with peer) ===");
+    eprintln!("{}", hex_encode_32(&local_payload.pairing_nonce));
+    eprint!("Peer nonce (64 hex chars): ");
+    let peer_nonce_hex = read_public_line()?;
+    let peer_nonce = parse_hex32(&peer_nonce_hex).ok_or_else(|| {
+        CoreError::InvalidState("peer nonce must be 64 hexadecimal characters".into())
+    })?;
+    let peer_payload = build_pairing_payload_with_nonce(&peer, 0x01, peer_nonce)
+        .map_err(|_| CoreError::InvalidState("peer pairing payload failed".into()))?;
+    verify_pairing_commit(&peer_commit, &peer_payload)
+        .map_err(|_| CoreError::InvalidState("peer pairing commitment mismatch".into()))?;
+    let sas = derive_bilateral_sas(
+        &local_payload.pairing_nonce,
         &peer_payload.pairing_nonce,
-        &transcript.transcript_hash,
+        &local_payload,
+        &peer_payload,
     )
     .map_err(|_| CoreError::InvalidState("pairing SAS failed".into()))?;
-    // MVP-2 SAS limitation: each side uses its own nonce against the peer's identity,
-    // so SAS values will differ between initiator and responder. Transfer protocol
-    // security is unaffected; this step is advisory only until bilateral nonce
-    // commitment exchange is implemented.
     eprintln!("SAS: {sas} — verify this matches the other device");
     eprint!("Confirm SAS match? [y/N]: ");
-    let mut confirm = String::new();
-    std::io::stdin().read_line(&mut confirm)?;
+    let confirm = read_public_line()?;
     if !matches!(confirm.trim(), "y" | "Y") {
         return Err(CoreError::InvalidState(
             "pairing aborted — SAS not confirmed".into(),
@@ -424,17 +440,6 @@ fn device_pair_command(
     );
     writeln!(stdout, "Pairing complete.")?;
     Ok(())
-}
-
-fn synthetic_pairing_payload(
-    identity: &DeviceIdentity,
-    pairing_nonce: [u8; 32],
-) -> Result<PairingPayload> {
-    let mut payload = build_pairing_payload(identity, 0x01)
-        .map_err(|_| CoreError::InvalidState("pairing payload failed".into()))?;
-    payload.protocol_version = PAIRING_PROTOCOL_VERSION_V1;
-    payload.pairing_nonce = pairing_nonce;
-    Ok(payload)
 }
 
 fn device_parse_error(_: meissnerseal_core::keys::device::DeviceIdentityError) -> CoreError {
@@ -493,6 +498,13 @@ fn read_until_blank_line() -> Result<String> {
         out.push('\n');
     }
     Ok(out)
+}
+
+fn read_public_line() -> Result<String> {
+    use std::io::BufRead;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim_end_matches(&['\r', '\n'][..]).to_owned())
 }
 
 fn unix_now_millis() -> Result<u64> {
@@ -876,6 +888,20 @@ fn hex_decode_id(s: &str) -> Result<[u8; 16]> {
     Ok(id)
 }
 
+fn parse_hex32(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (index, slot) in out.iter_mut().enumerate() {
+        let start = index.checked_mul(2)?;
+        let end = start.checked_add(2)?;
+        let pair = s.get(start..end)?;
+        *slot = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
 /// # Contract
 ///
 /// ## Preconditions
@@ -913,6 +939,14 @@ fn item_kind_name(kind: &ItemKind) -> &'static str {
 fn hex_id(id: &[u8; 16]) -> String {
     let mut out = String::with_capacity(32);
     for byte in id {
+        let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{byte:02x}"));
+    }
+    out
+}
+
+fn hex_encode_32(bytes: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
         let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{byte:02x}"));
     }
     out
@@ -1660,6 +1694,24 @@ mod tests {
         assert!(hex_decode_id(&"z".repeat(32)).is_err());
         assert!(hex_decode_id(&"0".repeat(33)).is_err());
         assert!(hex_decode_id(&"ab".repeat(16)).is_ok());
+    }
+
+    #[test]
+    fn hex_encode_32_emits_lowercase_hex() {
+        let bytes = [0xab; 32];
+
+        assert_eq!(hex_encode_32(&bytes), "ab".repeat(32));
+    }
+
+    #[test]
+    fn parse_hex32_accepts_valid_and_rejects_invalid_input() {
+        let bytes = [0xcd; 32];
+        let encoded = "cd".repeat(32);
+
+        assert_eq!(parse_hex32(&encoded), Some(bytes));
+        assert_eq!(parse_hex32("zz"), None);
+        assert_eq!(parse_hex32(&"ab".repeat(31)), None);
+        assert_eq!(parse_hex32(&"ab".repeat(33)), None);
     }
 
     #[test]

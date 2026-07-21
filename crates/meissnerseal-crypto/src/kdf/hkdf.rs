@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 const ROOT_SALT_DOMAIN_V1: &[u8; 25] = b"meissnerseal-root-salt-v1";
+const SAS_COMMIT_SALT_V1: &[u8; 26] = b"meissnerseal.sas.commit.v1";
+const SAS_DERIVE_SALT_V1: &[u8; 26] = b"meissnerseal.sas.derive.v1";
 #[cfg_attr(not(kani), allow(dead_code))]
 pub(crate) const ROOT_SALT_INPUT_LEN: usize = ROOT_SALT_DOMAIN_V1.len() + 16 + HeaderNonce::LEN;
 
@@ -155,6 +157,68 @@ pub fn derive_root_prk(
     extract(&root_salt, vault_root_key.as_slice())
 }
 
+/// Derive a 32-byte pairing nonce commitment.
+///
+/// # Contract
+/// ## Preconditions
+/// - `nonce` is the exact 32-byte pairing nonce that will later be revealed.
+/// - `identity_bytes` is the canonical identity encoding for the same device.
+/// ## Postconditions
+/// - Returns a deterministic 32-byte commitment bound to both `nonce` and
+///   `identity_bytes`.
+/// - Equal inputs always produce equal commitments.
+/// ## Invariants
+/// - Uses HKDF-SHA256 extract through the existing `extract` helper.
+/// - Performs no logging, printing, or filesystem I/O.
+pub fn sas_commit(nonce: &[u8; 32], identity_bytes: &[u8]) -> [u8; 32] {
+    let mut ikm = Vec::with_capacity(nonce.len().saturating_add(identity_bytes.len()));
+    ikm.extend_from_slice(nonce);
+    ikm.extend_from_slice(identity_bytes);
+    let prk = extract(SAS_COMMIT_SALT_V1, &ikm);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(prk.as_slice());
+    out
+}
+
+/// Derive the 4-byte bilateral SAS seed from both pairing nonces and identities.
+///
+/// # Contract
+/// ## Preconditions
+/// - `nonce_a` and `nonce_b` are the revealed 32-byte pairing nonces in the
+///   canonical device-id order defined by the pairing protocol.
+/// - `identity_a` and `identity_b` are the canonical identity encodings that
+///   correspond to `nonce_a` and `nonce_b`.
+/// ## Postconditions
+/// - Returns the first 4 bytes of the HKDF-SHA256 extract output for the
+///   bilateral SAS derivation input.
+/// - Changing any nonce or identity byte changes the derivation input.
+/// ## Invariants
+/// - Uses HKDF-SHA256 extract through the existing `extract` helper.
+/// - Performs no logging, printing, or filesystem I/O.
+pub fn sas_derive(
+    nonce_a: &[u8; 32],
+    nonce_b: &[u8; 32],
+    identity_a: &[u8],
+    identity_b: &[u8],
+) -> [u8; 4] {
+    let total_len = nonce_a
+        .len()
+        .saturating_add(nonce_b.len())
+        .saturating_add(identity_a.len())
+        .saturating_add(identity_b.len());
+    let mut ikm = Vec::with_capacity(total_len);
+    ikm.extend_from_slice(nonce_a);
+    ikm.extend_from_slice(nonce_b);
+    ikm.extend_from_slice(identity_a);
+    ikm.extend_from_slice(identity_b);
+    let prk = extract(SAS_DERIVE_SALT_V1, &ikm);
+    let mut out = [0u8; 4];
+    for (slot, byte) in out.iter_mut().zip(prk.as_slice().iter().copied()) {
+        *slot = byte;
+    }
+    out
+}
+
 pub(crate) fn build_subkey_info(
     purpose: SubkeyPurpose,
     vault_id: &[u8; 16],
@@ -259,6 +323,21 @@ mod proofs {
             32 == Prk::LEN,
             "root salt transcript hash must stay 32 bytes",
         );
+    }
+
+    #[kani::proof]
+    fn verify_sas_commit_output_length() {
+        let nonce = [0u8; 32];
+        let out = sas_commit(&nonce, b"identity");
+        kani::assert(out.len() == 32, "SAS commit output must be 32 bytes");
+    }
+
+    #[kani::proof]
+    fn verify_sas_derive_output_length() {
+        let nonce_a = [0u8; 32];
+        let nonce_b = [0u8; 32];
+        let out = sas_derive(&nonce_a, &nonce_b, b"a", b"b");
+        kani::assert(out.len() == 4, "bilateral SAS seed must be 4 bytes");
     }
 }
 
@@ -593,5 +672,43 @@ mod tests {
                 Err(KdfError::InvalidInput)
             ));
         }
+    }
+
+    #[test]
+    fn sas_commit_is_deterministic_for_same_nonce_and_identity() {
+        let nonce = [0x11; 32];
+        let identity = b"pairing-identity-a";
+
+        let first = sas_commit(&nonce, identity);
+        let second = sas_commit(&nonce, identity);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn sas_commit_changes_when_nonce_changes() {
+        let first_nonce = [0x11; 32];
+        let second_nonce = [0x22; 32];
+        let identity = b"pairing-identity-a";
+
+        assert_ne!(
+            sas_commit(&first_nonce, identity),
+            sas_commit(&second_nonce, identity)
+        );
+    }
+
+    #[test]
+    fn sas_derive_binds_nonce_and_identity_inputs() {
+        let nonce_a = [0x11; 32];
+        let nonce_b = [0x22; 32];
+        let identity_a = b"pairing-identity-a";
+        let identity_b = b"pairing-identity-b";
+
+        let baseline = sas_derive(&nonce_a, &nonce_b, identity_a, identity_b);
+        let different_nonce = sas_derive(&[0x33; 32], &nonce_b, identity_a, identity_b);
+        let different_identity = sas_derive(&nonce_a, &nonce_b, b"pairing-identity-c", identity_b);
+
+        assert_ne!(baseline, different_nonce);
+        assert_ne!(baseline, different_identity);
     }
 }

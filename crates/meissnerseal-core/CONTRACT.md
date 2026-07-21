@@ -68,13 +68,19 @@ keys::device::
 keys::pairing::
   DEVICE_PAIRING_SIGNING_DOMAIN: &[u8]
     // b"meissnerseal.device.pairing.v1\x00" — used internally by sign_pairing_message
+  PAIRING_COMMIT_LEN: usize = 32
+  PAIRING_SAS_LEN: usize = 7
   PairingPayload
+  PairingCommit
   PairingTranscript
   PairingSession
   build_pairing_payload(identity, capabilities) -> Result<PairingPayload>
+  build_pairing_payload_with_nonce(identity, capabilities, nonce) -> Result<PairingPayload>
   validate_pairing_payload(payload) -> Result<()>
+  compute_pairing_commit(payload) -> Result<PairingCommit>
+  verify_pairing_commit(commit, payload) -> Result<()>
   compute_pairing_transcript(payload) -> Result<PairingTranscript>
-  derive_short_authentication_string(pairing_nonce, transcript_hash) -> Result<String>
+  derive_bilateral_sas(nonce_self, nonce_peer, payload_self, payload_peer) -> Result<String>
   validate_trust_transition(from, to) -> Result<()>
 
 transfer::
@@ -182,6 +188,11 @@ recovery::  [MVP-1 — ADR-010]
        — trailing garbage
 
 [G-06] All error paths return Err. No partial output on security failure.
+
+[G-07] Device pairing SAS uses bilateral commit→reveal:
+       each side commits to its nonce before reveal, commit verification fails
+       closed on mismatch, and SAS derivation orders both identities by
+       lower device_id first so both peers compute the same 7-character value.
 ```
 
 ---
