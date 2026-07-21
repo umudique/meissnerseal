@@ -33,6 +33,10 @@ item::
   list(vault) -> Result<Vec<ItemSummary>>
 
 export::
+  MAX_BUNDLE_LEN: usize = 64 * 1024 * 1024
+  MAX_SECRET_LEN: usize = 64 * 1024
+  MAX_LABEL_LEN: usize = 256
+  MAX_TAG_LEN: usize = 128
   UntrustedExportBundle
   UntrustedExportBundle::authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle>
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>

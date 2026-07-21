@@ -29,6 +29,18 @@ pub const MSEXP_MAGIC: [u8; 8] = *b"MSEXP\x01\0\0";
 /// MVP-0 encrypted export container version.
 pub const MSEXP_VERSION_V1: u16 = 1;
 
+/// Maximum accepted encrypted export bundle length at external input boundaries.
+pub const MAX_BUNDLE_LEN: usize = 64 * 1024 * 1024;
+
+/// Maximum accepted imported secret length per item.
+pub const MAX_SECRET_LEN: usize = 64 * 1024;
+
+/// Maximum accepted imported label length per item.
+pub const MAX_LABEL_LEN: usize = 256;
+
+/// Maximum accepted imported tag length per tag.
+pub const MAX_TAG_LEN: usize = 128;
+
 /// Legacy export magic bytes from before the meissnerseal rename.
 #[deprecated(note = "use MSEXP_MAGIC; this constant identifies the legacy ARCEXP wire format")]
 pub const ARCEXP_MAGIC: [u8; 8] = *b"ARCEXP\x01\0";
@@ -424,16 +436,21 @@ fn deserialize_item_set(bytes: &[u8]) -> Result<Vec<PlainItem>> {
     let mut items = Vec::with_capacity(item_count);
     for _ in 0..item_count {
         let kind = ItemKind::from_u16(take_u16(bytes, &mut cursor, "export item kind")?)?;
-        let label = take_utf8(bytes, &mut cursor, "export item label")?;
+        let label = take_bounded_utf8(bytes, &mut cursor, MAX_LABEL_LEN, "export item label")?;
         let tag_count = take_u32(bytes, &mut cursor, "export tag count")?;
         if tag_count > MAX_TAG_COUNT {
             return Err(CoreError::Format("export tag count exceeds maximum".into()));
         }
         let mut tags = Vec::with_capacity(tag_count);
         for _ in 0..tag_count {
-            tags.push(take_utf8(bytes, &mut cursor, "export item tag")?);
+            tags.push(take_bounded_utf8(
+                bytes,
+                &mut cursor,
+                MAX_TAG_LEN,
+                "export item tag",
+            )?);
         }
-        let secret = take_vec(bytes, &mut cursor, "export item secret")?;
+        let secret = take_bounded_vec(bytes, &mut cursor, MAX_SECRET_LEN, "export item secret")?;
         items.push(PlainItem {
             kind,
             label,
@@ -497,8 +514,16 @@ fn take_u32(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<usi
     usize::try_from(value).map_err(|_| CoreError::Format("field length overflow".into()))
 }
 
-fn take_vec(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<Vec<u8>> {
+fn take_bounded_vec(
+    bytes: &[u8],
+    cursor: &mut usize,
+    max_len: usize,
+    field: &'static str,
+) -> Result<Vec<u8>> {
     let len = take_u32(bytes, cursor, field)?;
+    if len > max_len {
+        return Err(CoreError::Format("field exceeds maximum".into()));
+    }
     let end = cursor
         .checked_add(len)
         .ok_or(CoreError::Format("field length overflow".into()))?;
@@ -510,8 +535,13 @@ fn take_vec(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<Vec
     Ok(value)
 }
 
-fn take_utf8(bytes: &[u8], cursor: &mut usize, field: &'static str) -> Result<String> {
-    String::from_utf8(take_vec(bytes, cursor, field)?)
+fn take_bounded_utf8(
+    bytes: &[u8],
+    cursor: &mut usize,
+    max_len: usize,
+    field: &'static str,
+) -> Result<String> {
+    String::from_utf8(take_bounded_vec(bytes, cursor, max_len, field)?)
         .map_err(|_| CoreError::Format("invalid field encoding".into()))
 }
 
@@ -841,6 +871,63 @@ mod tests {
         assert!(matches!(
             deserialize_item_set(&bytes),
             Err(CoreError::Format(message)) if message == "export tag count exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_oversized_label() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(
+            &(u32::try_from(MAX_LABEL_LEN).expect("MAX_LABEL_LEN fits u32") + 1).to_le_bytes(),
+        );
+        bytes.extend(std::iter::repeat_n(b'l', MAX_LABEL_LEN + 1));
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "field exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_oversized_tag() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(
+            &(u32::try_from(MAX_TAG_LEN).expect("MAX_TAG_LEN fits u32") + 1).to_le_bytes(),
+        );
+        bytes.extend(std::iter::repeat_n(b't', MAX_TAG_LEN + 1));
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "field exceeds maximum"
+        ));
+    }
+
+    #[test]
+    fn deserialize_item_set_rejects_oversized_secret() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&ItemKind::SecureNote.as_u16().to_le_bytes());
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"label");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(
+            &(u32::try_from(MAX_SECRET_LEN).expect("MAX_SECRET_LEN fits u32") + 1).to_le_bytes(),
+        );
+        bytes.extend(std::iter::repeat_n(0xAB, MAX_SECRET_LEN + 1));
+
+        assert!(matches!(
+            deserialize_item_set(&bytes),
+            Err(CoreError::Format(message)) if message == "field exceeds maximum"
         ));
     }
 

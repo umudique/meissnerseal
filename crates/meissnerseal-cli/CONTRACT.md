@@ -67,6 +67,9 @@ Device list/revoke commands parse correctly but return an error at runtime until
 
 [G-03] meissnerseal export produces an encrypted .msexp bundle by default.
        The export passphrase is required and not stored.
+       meissnerseal import rejects input files whose on-disk size exceeds
+       `meissnerseal_core::export::MAX_BUNDLE_LEN` before reading bundle bytes
+       into memory.
 
 [G-04] meissnerseal import --unsafe-plaintext emits a prominent warning that
        cannot be suppressed and requires explicit acknowledgment.

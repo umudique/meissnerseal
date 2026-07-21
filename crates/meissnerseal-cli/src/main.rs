@@ -774,6 +774,10 @@ fn import_bundle(
     stdout: &mut dyn Write,
 ) -> Result<()> {
     let session = unlock_session(vault_path, password)?;
+    let meta = std::fs::metadata(&input)?;
+    if meta.len() > meissnerseal_core::export::MAX_BUNDLE_LEN as u64 {
+        return Err(CoreError::Format("bundle exceeds maximum length".into()));
+    }
     let bytes = std::fs::read(&input)?;
     let ids = meissnerseal_core::export::import(&session, &bytes, &passphrase);
     // Print imported item IDs only — never item secrets.
@@ -1482,6 +1486,42 @@ mod tests {
             .trim()
             .lines()
             .all(|line| line.len() == 32 && line.bytes().all(|b| b.is_ascii_hexdigit())));
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(bundle_path);
+    }
+
+    #[test]
+    fn import_bundle_rejects_file_larger_than_max_bundle_len() {
+        let path = unique_vault_path("cli-import-oversized");
+        create_test_vault(&path);
+        let bundle_path = unique_vault_path("cli-import-oversized-bundle");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&bundle_path)
+            .expect("create sparse bundle fixture");
+        file.set_len(
+            u64::try_from(meissnerseal_core::export::MAX_BUNDLE_LEN)
+                .expect("MAX_BUNDLE_LEN fits u64")
+                + 1,
+        )
+        .expect("extend sparse bundle fixture");
+
+        let err = import_bundle(
+            path.clone(),
+            Zeroizing::new(PASSWORD.to_vec()),
+            Zeroizing::new(EXPORT_PASSPHRASE.to_vec()),
+            bundle_path.clone(),
+            &mut Vec::new(),
+        )
+        .expect_err("oversized bundle must be rejected before read");
+
+        assert!(matches!(
+            err,
+            CoreError::Format(message) if message == "bundle exceeds maximum length"
+        ));
 
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(bundle_path);
