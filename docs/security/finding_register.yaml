@@ -255,7 +255,7 @@ findings:
       for any non-zero profile. Tests: parse_header_rejects_missing_pqc_profile_tag,
       parse_header_rejects_unknown_nonzero_pqc_profile_with_specific_error.
       cargo nextest run --workspace: 476 passed.
-    commit: "cd4f779"
+    commit: "03c41c5"
 
   - id: F-07
     kind: security_review
@@ -9147,7 +9147,7 @@ findings:
       revealing; verify_pairing_commit fails closed on mismatch. Canonical
       device-ID ordering ensures identical 7-char RFC 4648 base32 SAS on
       both peers. cargo fmt/check/clippy/test/deny/audit pass.
-    commit: "d58cd34"
+    commit: "a62a95b"
 
   - id: F-272
     kind: design
@@ -9183,7 +9183,7 @@ findings:
       releases it after rename. add, update, delete all wrapped.
       Concurrent second writer returns Err(VaultLocked) immediately.
       meissnerseal-core nextest 283/283 pass including lock tests.
-    commit: "3a3e24f"
+    commit: "b9ecc36"
 
   - id: F-273
     kind: design
@@ -9223,7 +9223,7 @@ findings:
       per-field caps (MAX_LABEL_LEN=256, MAX_TAG_LEN=128,
       MAX_SECRET_LEN=64 KiB) prevent allocation. cargo nextest 499/499
       pass including four new rejection tests.
-    commit: "0784ca8"
+    commit: "1843213"
 
   - id: F-274
     kind: security_review
@@ -9249,7 +9249,7 @@ findings:
       bundle.len() > MAX_BUNDLE_LEN guard added as first check in
       authenticate(), before parse_bundle, KDF, or ciphertext copy.
       authenticate_rejects_bundle_exceeding_max_bundle_len passes.
-    commit: "e023d4a"
+    commit: "e0427f4"
 
   - id: F-275
     kind: design
@@ -9280,4 +9280,4 @@ findings:
       MAX_LABEL_LEN raised 256->1024 and MAX_TAG_LEN raised 128->256 in
       export.rs; both now match item::store caps.
       export_import_round_trips_item_with_max_store_label_len passes.
-    commit: "e023d4a"
+    commit: "e0427f4"
