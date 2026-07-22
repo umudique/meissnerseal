@@ -144,10 +144,10 @@ pub enum PairingError {
     ZeroPairingNonce,
     #[error("pairing nonce generation failed")]
     NonceGenerationFailed,
-    #[error("pairing commitment does not match revealed nonce")]
-    CommitMismatch,
     #[error("invalid device trust state transition")]
     InvalidTrustTransition,
+    #[error("pairing commitment does not match revealed nonce")]
+    CommitMismatch,
 }
 
 pub type Result<T> = core::result::Result<T, PairingError>;
