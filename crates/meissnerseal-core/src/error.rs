@@ -2,6 +2,7 @@
 //! Core crate error types.
 
 /// Error type for meissnerseal-core operations.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
     // INVARIANT: meissnerseal-core constructs Format and InvalidState from

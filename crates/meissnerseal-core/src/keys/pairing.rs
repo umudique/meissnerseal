@@ -104,6 +104,7 @@ pub struct PairingSession {
 }
 
 /// DEVICE-2 pairing errors.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum PairingError {
     #[error("pairing implementation unavailable")]
