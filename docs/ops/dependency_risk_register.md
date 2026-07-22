@@ -27,7 +27,7 @@ Review all dependencies monthly during active development.
 | Crate | Purpose | Risk Level | Audit Status | Decision |
 |---|---|---|---|---|
 | `ml-kem` (RustCrypto) | ML-KEM-768 key encapsulation | Critical | No independent audit (2026-06); FIPS 203 compliant; constant-time via `subtle`; wide deployment; no known advisories | Selected 2026-06-16 — ADR-034; version pinned in `Cargo.lock` at integration time |
-| `ml-dsa` (RustCrypto) | ML-DSA-65 digital signatures | Critical | No independent audit (2026-06); FIPS 204 compliant; RustCrypto ecosystem | Provisional — ADR-028 (hybrid agility slot; not yet integrated; integration gated on audit maturity) |
+| `ml-dsa` (RustCrypto) | ML-DSA-87 digital signatures (hybrid) | Critical | No independent audit (2026-07); FIPS 204 compliant; RustCrypto ecosystem; no known advisories | Integrated 2026-07-23 — ADR-028 amendment; same risk framework as `ml-kem` (ADR-034) |
 
 **ML-KEM risk notes:** No independent security audit as of 2026-06. The two High residual risks
 from ADR-012 (audit gap, side-channel) remain at their original values — ADR-034 explicitly does
@@ -35,10 +35,15 @@ not upgrade them. Mitigations: hybrid design (X25519 + ML-KEM, ADR-035) means cl
 holds independently; Kani harnesses required at the `meissnerseal-pqc` API boundary (PQC-1).
 See [ADR-034](../adr/ADR-034-rustcrypto-mlkem-backend.md) for full rationale.
 
-**ML-DSA risk notes:** No independent audit. `libcrux-ml-dsa` (formally-verified alternative)
-excluded — RUSTSEC-2026-0077, RUSTSEC-2026-0126, and silent-disclosure behavior (ADR-034 §2–3).
-The Ed25519+ML-DSA hybrid (ADR-028 §3) means classical Ed25519 remains the floor at integration
-time. Integration deferred until audit posture improves.
+**ML-DSA risk notes:** No independent security audit as of 2026-07. The audit-maturity gate
+from the original ADR-028 was removed on 2026-07-23 — it was inconsistent with how `ml-kem`
+was accepted under ADR-034 (same absence of independent audit, same hybrid reasoning).
+`libcrux-ml-dsa` (formally-verified alternative) remains excluded — RUSTSEC-2026-0077,
+RUSTSEC-2026-0126, and silent-disclosure behavior (ADR-034 §2–3). Mitigations: hybrid design
+(Ed25519 + ML-DSA-87, ADR-028 amendment) means Ed25519 validity is independent of ML-DSA
+correctness — both components must hold (AND combiner); Kani harnesses required at the
+`meissnerseal-pqc` API boundary (PQC-4). See [ADR-028](../adr/ADR-028-signature-crypto-agility.md)
+for full rationale.
 
 ---
 
