@@ -87,6 +87,9 @@ skip = [
     { name = "crypto-common",  version = "0.1"  },
     { name = "digest",         version = "0.10" },
     { name = "rand_core",      version = "0.6"  },
+    # ml-dsa 0.1.1 uses signature 3.0.0; ed25519-dalek 2.x uses signature 2.2.0.
+    # No resolution possible without upgrading ed25519-dalek. Skip the older version.
+    { name = "signature",      version = "2.2"  },
 ]
 skip-tree = []
 
