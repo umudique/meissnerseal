@@ -67,6 +67,9 @@ Device list/revoke commands parse correctly but return an error at runtime until
 
 [G-03] meissnerseal export produces an encrypted .msexp bundle by default.
        The export passphrase is required and not stored.
+       meissnerseal import rejects input files whose on-disk size exceeds
+       `meissnerseal_core::export::MAX_BUNDLE_LEN` before reading bundle bytes
+       into memory.
 
 [G-04] meissnerseal import --unsafe-plaintext emits a prominent warning that
        cannot be suppressed and requires explicit acknowledgment.
@@ -81,6 +84,13 @@ Device list/revoke commands parse correctly but return an error at runtime until
        item identifier encoded as 32 lowercase hexadecimal characters.
        No label, secret value, or other item fields may be printed on stdout
        for successful `add`.
+
+[G-08] `meissnerseal device pair` performs a bilateral pairing
+       commit→reveal exchange before SAS confirmation:
+       identity exchange → 32-byte commitment exchange → 32-byte nonce reveal
+       → commitment verification → 7-character base32 SAS confirmation.
+       The command aborts immediately on commitment mismatch and does not write
+       the local keypair or peer identity until the user confirms the SAS.
 ```
 
 ---

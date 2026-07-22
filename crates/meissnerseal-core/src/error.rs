@@ -36,6 +36,14 @@ pub enum CoreError {
     /// The vault is in an inconsistent state; caller must treat it as corrupted.
     #[error("partial import: rollback failed, vault may be inconsistent")]
     PartialImport,
+
+    /// Vault header declared an unsupported or missing PQC profile.
+    #[error("unsupported PQC profile: 0x{0:04x}")]
+    UnsupportedPqcProfile(u16),
+
+    /// Vault is locked by another process performing a read-modify-write operation.
+    #[error("vault is locked by another process")]
+    VaultLocked,
 }
 
 /// Core crate result type.

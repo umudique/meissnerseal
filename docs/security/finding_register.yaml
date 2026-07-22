@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-07-04
+updated: 2026-07-20
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -247,10 +247,15 @@ findings:
     cwe: CWE-754
     severity: medium
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "MVP-0 fail-safe (PQC inactive, AAD binds pqc_profile); MVP-2: None+reject. Documented inline in format.rs (arcanum-ops DEC-1)"
-    verification: "Inline note present in format.rs"
-    commit: ""
+    verification: >-
+      parse_header() returns Err(CoreError::UnsupportedPqcProfile(0)) when
+      TAG_PQC_PROFILE is absent, and Err(CoreError::UnsupportedPqcProfile(value))
+      for any non-zero profile. Tests: parse_header_rejects_missing_pqc_profile_tag,
+      parse_header_rejects_unknown_nonzero_pqc_profile_with_specific_error.
+      cargo nextest run --workspace: 476 passed.
+    commit: "03c41c5"
 
   - id: F-07
     kind: security_review
@@ -611,10 +616,15 @@ findings:
     cwe: CWE-459
     severity: low
     blocking: false
-    status: deferred
+    status: resolved
     remediation: "Add an orphan-temp sweep at a QUIESCENT point (vault unlock, when no write is in flight): remove sibling vault.*.msv.tmp files. The single-writer-per-mount architecture makes this sound only at a quiescent point — never inside a persist error path mid-flight (that would reintroduce the F-12 foreign-delete shape). Until implemented, orphaned temps are harmless scratch litter (no plaintext: the temp holds only the already-encrypted vault image); disk hygiene only, no integrity/availability impact on user data."
-    verification: ""
-    commit: ""
+    verification: >-
+      sweep_orphan_tmp_files() added to engine.rs; called in unlock_impl
+      after empty-password check, before fs::read. Pattern: {stem}.{32
+      lowercase hex}.msv.tmp — strict hex validation, fail-open. Tests:
+      sweep_removes_orphan_tmp_files, sweep_is_noop_when_no_orphans,
+      sweep_ignores_malformed_names. cargo nextest run --workspace: passed.
+    commit: "f333b2a"
 
   - id: F-17
     kind: coverage_gap
@@ -1271,7 +1281,7 @@ findings:
     severity: medium
     blocking: false
     blocks: "DEVICE-1"
-    status: deferred
+    status: resolved
     remediation: >-
       Deferred to DEVICE-1. Security impact is low — sign()/verify() already
       catch malformed keys via InvalidKey (F-37 fix). Typed constructors
@@ -1280,8 +1290,17 @@ findings:
       (Ed25519MlDsa87HybridV1) has variable-length keys so API shape should
       be decided once both variants are implemented. See DEVICE-1 notes in
       meissnerseal-ops/tasks.yaml.
-    verification: "Pending DEVICE-1 implementation."
-    commit: ""
+    verification: >-
+      SigningPrivateKey::try_new_ed25519([u8;32]) rejects all-zero seed with
+      Err(InvalidKey). Signature::try_new_ed25519([u8;64]) rejects all-zero
+      encoding with Err(MalformedSignature); dalek 2.x from_bytes is
+      infallible — scalar-range check deferred to verify_strict. Legacy
+      new() marked #[doc(hidden)]. TODO(PQC-4) hybrid constructor design
+      comment added. Tests: try_new_ed25519_rejects_all_zero_seed,
+      try_new_ed25519_accepts_valid_seed,
+      try_new_ed25519_signature_rejects_malformed,
+      try_new_ed25519_signature_accepts_valid. nextest 50/50 pass.
+    commit: "a8c6ff1"
 
   - id: F-39
     kind: design
@@ -9090,3 +9109,175 @@ findings:
       At least one unit test per command handler in main.rs.
       cargo test -p meissnerseal-cli passes.
     commit: "c32ea9a"
+
+  - id: F-271
+    kind: security_review
+    component: meissnerseal-cli
+    source: "security review — crates/meissnerseal-cli/src/main.rs:393 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      device_pair_command constructs a synthetic peer pairing payload using
+      the local party's nonce (line 395: synthetic_pairing_payload(&peer,
+      payload.pairing_nonce)). The SAS is derived from this synthetic
+      payload. The remote side does the same with its own nonce. Because
+      the two nonces are independent, the SAS values always differ between
+      initiator and responder. The code acknowledges this (lines 403-406
+      comment) but still presents the SAS to the user and asks for
+      confirmation. The confirmation gate is therefore theater: a user who
+      says Y is not verifying anything, and a MITM substituting their own
+      identity during the exchange goes undetected. The peer identity is
+      then written as a permanent trust root (line 420).
+    cwe: "CWE-345"
+    severity: high
+    blocking: false
+    status: resolved
+    remediation: >-
+      Implement bilateral nonce commitment exchange: each side commits to
+      hash(nonce) before revealing the nonce, then computes
+      SAS = f(nonce_A || nonce_B || identity_A || identity_B). Until then,
+      remove the SAS prompt entirely and replace with explicit fingerprint
+      comparison (display both sides' signing key fingerprints for OOB
+      verification). Do not present a confirmation gate backed by a value
+      that cannot be verified.
+    verification: >-
+      Bilateral HKDF-SHA256-Extract commit->reveal scheme implemented across
+      meissnerseal-crypto (sas_commit, sas_derive), meissnerseal-core
+      (compute_pairing_commit, verify_pairing_commit, derive_bilateral_sas),
+      and meissnerseal-cli (device_pair_command). Both sides commit before
+      revealing; verify_pairing_commit fails closed on mismatch. Canonical
+      device-ID ordering ensures identical 7-char RFC 4648 base32 SAS on
+      both peers. cargo fmt/check/clippy/test/deny/audit pass.
+    commit: "a62a95b"
+
+  - id: F-272
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-core/src/item/store.rs:546, src/vault/engine.rs:452 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      Every vault mutation (add/update/delete) follows a read-modify-write
+      cycle: load_vault() reads the full vault, builds a new record set in
+      memory, then persist_vault_mutation_v2() atomically renames the result
+      over the existing file. There is no OS-level file lock, advisory lock,
+      or revision CAS on the mutation path. If two processes open the same
+      vault and both reach persist_vault_mutation_v2 concurrently, the last
+      rename wins and the first writer's changes are silently discarded.
+      ADR-029 explicitly scopes MVP-0 to a single-writer assumption, but
+      that constraint is not enforced. revision_id exists in the table
+      format (added for F-14) but is not used as a CAS guard.
+    cwe: "CWE-362"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Option A (preferred): acquire an exclusive OS advisory lock
+      (flock/LockFileEx) on the vault file at unlock and release at lock;
+      concurrent openers block or fail fast. Option B: use revision_id
+      already present in the table as a CAS token — read the on-disk
+      revision before write, fail if it changed. Either option enforces
+      the single-writer invariant that ADR-029 documents but does not
+      implement. Do not combine both without a clear ordering protocol.
+    verification: >-
+      Option A implemented: with_vault_lock acquires a non-blocking
+      exclusive flock on a stable sidecar (.msv.lock) before load and
+      releases it after rename. add, update, delete all wrapped.
+      Concurrent second writer returns Err(VaultLocked) immediately.
+      meissnerseal-core nextest 283/283 pass including lock tests.
+    commit: "b9ecc36"
+
+  - id: F-273
+    kind: design
+    component: meissnerseal-core
+    source: "security review — crates/meissnerseal-cli/src/main.rs:765, crates/meissnerseal-core/src/export.rs:71,436 (2026-07-20)"
+    date: 2026-07-20
+    description: >-
+      Three unbounded allocation gaps in the import path. (1) CLI
+      import_bundle reads the entire input file into memory with no size
+      check before fs::read (main.rs:765); a crafted bundle can exhaust
+      process memory before any parsing occurs. (2) authenticate() copies
+      the ciphertext slice into a new Vec (export.rs:71:
+      ciphertext_and_tag.to_vec()); the bundle bytes are already fully
+      in memory, making this a second allocation of the same data with no
+      benefit. (3) deserialize_item_set take_vec reads label, tag, and
+      secret fields using a u32 length prefix with no per-field cap
+      (export.rs:436); F-74 capped item_count and tag_count but left
+      individual field sizes unbounded. A single item with a 4 GB secret
+      field passes the item-count gate and allocates without limit.
+    cwe: "CWE-400"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      (1) Add a MAX_BUNDLE_LEN constant; check file metadata size before
+      fs::read in import_bundle and reject oversized files. (2) Change
+      authenticate() signature to accept &[u8] through to decrypt without
+      an intermediate to_vec(); or pass the slice directly if Ciphertext
+      supports it. (3) Add MAX_SECRET_LEN, MAX_LABEL_LEN, MAX_TAG_LEN
+      constants; enforce them in take_vec before allocating.
+    verification: >-
+      (1) CLI import_bundle rejects files exceeding MAX_BUNDLE_LEN (64 MiB)
+      via metadata check before fs::read. (2) ciphertext_and_tag.to_vec()
+      left in place — Ciphertext has no from_slice API; bundle size cap
+      bounds the copy. (3) take_bounded_vec and take_bounded_utf8 added;
+      length declared in the binary is checked before .to_vec() so
+      per-field caps (MAX_LABEL_LEN=256, MAX_TAG_LEN=128,
+      MAX_SECRET_LEN=64 KiB) prevent allocation. cargo nextest 499/499
+      pass including four new rejection tests.
+    commit: "1843213"
+
+  - id: F-274
+    kind: security_review
+    component: meissnerseal-core
+    source: "orchestrator review — crates/meissnerseal-core/src/export.rs:73 (2026-07-21)"
+    date: 2026-07-21
+    description: >-
+      UntrustedExportBundle::authenticate(&[u8], ...) accepts a slice of
+      arbitrary length with no bundle size check. MAX_BUNDLE_LEN is
+      enforced only in the CLI caller; FFI, sync, or any other consumer
+      calling authenticate directly bypasses the cap and can trigger
+      unbounded allocation via ciphertext_and_tag.to_vec() before AEAD
+      authentication runs.
+    cwe: "CWE-400"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Add bundle.len() > MAX_BUNDLE_LEN guard at the top of authenticate()
+      (and in parse_bundle if called independently) so the size cap is
+      enforced at the API boundary regardless of caller.
+    verification: >-
+      bundle.len() > MAX_BUNDLE_LEN guard added as first check in
+      authenticate(), before parse_bundle, KDF, or ciphertext copy.
+      authenticate_rejects_bundle_exceeding_max_bundle_len passes.
+    commit: "e0427f4"
+
+  - id: F-275
+    kind: design
+    component: meissnerseal-core
+    source: "orchestrator review — crates/meissnerseal-core/src/export.rs:36, src/item/store.rs:11 (2026-07-21)"
+    date: 2026-07-21
+    description: >-
+      Export import caps (MAX_LABEL_LEN=256, MAX_TAG_LEN=128) added in
+      F-273 are tighter than the vault item store caps (store::MAX_LABEL_LEN
+      =1024, store::MAX_TAG_LEN=256). A vault item with a 512-byte label
+      can be created and exported successfully, but re-importing the same
+      bundle fails with CoreError::Format because deserialize_item_set
+      rejects the field as oversized. The vault->export->import->vault
+      round-trip is broken for any item whose label or tag exceeds the
+      export import cap.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Align the limits: either raise export import caps to match store caps
+      (MAX_LABEL_LEN=1024, MAX_TAG_LEN=256), or lower store caps to match
+      export import caps and migrate existing vaults. Preferred: raise
+      export import caps to store caps so no existing data is rejected.
+      Single source of truth — export.rs should import its caps from
+      store.rs, not define independent values.
+    verification: >-
+      MAX_LABEL_LEN raised 256->1024 and MAX_TAG_LEN raised 128->256 in
+      export.rs; both now match item::store caps.
+      export_import_round_trips_item_with_max_store_label_len passes.
+    commit: "e0427f4"

@@ -1063,6 +1063,7 @@ fn vault_format_negative_v1_vectors() {
                 | "unknown_critical_tlv"
                 | "duplicate_critical_tlv"
                 | "unsupported_aead_profile"
+                | "missing_pqc_profile"
         ) {
             // V2 readers never best-effort parse the pre-release V1 schema; the
             // header parser rejects it outright. The same is true for malformed

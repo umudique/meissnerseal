@@ -33,8 +33,14 @@ item::
   list(vault) -> Result<Vec<ItemSummary>>
 
 export::
+  MAX_BUNDLE_LEN: usize = 64 * 1024 * 1024
+  MAX_SECRET_LEN: usize = 64 * 1024
+  MAX_LABEL_LEN: usize = 1024   // matches item::store::MAX_LABEL_LEN
+  MAX_TAG_LEN: usize = 256      // matches item::store::MAX_TAG_LEN
   UntrustedExportBundle
   UntrustedExportBundle::authenticate(bundle: &[u8], passphrase: &[u8]) -> Result<UntrustedExportBundle>
+    // Precondition: bundle.len() <= MAX_BUNDLE_LEN; returns Err before
+    // any allocation or KDF work if the bundle exceeds this cap.
   export(vault: &Vault<Unlocked>, passphrase: &[u8]) -> Result<Vec<u8>>
   import(vault: &Vault<Unlocked>, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<ItemId>>
 
@@ -68,13 +74,19 @@ keys::device::
 keys::pairing::
   DEVICE_PAIRING_SIGNING_DOMAIN: &[u8]
     // b"meissnerseal.device.pairing.v1\x00" — used internally by sign_pairing_message
+  PAIRING_COMMIT_LEN: usize = 32
+  PAIRING_SAS_LEN: usize = 7
   PairingPayload
+  PairingCommit
   PairingTranscript
   PairingSession
   build_pairing_payload(identity, capabilities) -> Result<PairingPayload>
+  build_pairing_payload_with_nonce(identity, capabilities, nonce) -> Result<PairingPayload>
   validate_pairing_payload(payload) -> Result<()>
+  compute_pairing_commit(payload) -> Result<PairingCommit>
+  verify_pairing_commit(commit, payload) -> Result<()>
   compute_pairing_transcript(payload) -> Result<PairingTranscript>
-  derive_short_authentication_string(pairing_nonce, transcript_hash) -> Result<String>
+  derive_bilateral_sas(nonce_self, nonce_peer, payload_self, payload_peer) -> Result<String>
   validate_trust_transition(from, to) -> Result<()>
 
 transfer::
@@ -150,6 +162,14 @@ recovery::  [MVP-1 — ADR-010]
 ```
 [G-01] Vault writes are crash-safe:
        serialize → encrypt → temp file → fsync → rename → fsync parent
+       Vault<Locked>::unlock performs a best-effort pre-read sweep of
+       sibling orphan temp files whose names match exactly
+       `{vault_stem}.{32-lowercase-hex}.msv.tmp`; non-matching siblings are
+       left untouched and sweep failures do not change unlock semantics.
+       Read-modify-write item mutations (`add`, `update`, `delete`) acquire a
+       non-blocking advisory sidecar lock at `{vault_path}.lock` via the stable
+       sibling path `vault_path.with_extension("msv.lock")`; contention returns
+       `Err(CoreError::VaultLocked)` and never blocks indefinitely.
 
 [G-02] item::with_item uses scoped access. PlainItemView lifetime is
        bounded to the closure. Owned plaintext is not returned.
@@ -171,10 +191,18 @@ recovery::  [MVP-1 — ADR-010]
        — wrong magic bytes
        — unknown critical TLV tags
        — duplicate critical fields
+       — missing `pqc_profile` header TLV
+       — unsupported non-zero `pqc_profile` values with
+         `CoreError::UnsupportedPqcProfile(observed_u16)`
        — truncated sections
        — trailing garbage
 
 [G-06] All error paths return Err. No partial output on security failure.
+
+[G-07] Device pairing SAS uses bilateral commit→reveal:
+       each side commits to its nonce before reveal, commit verification fails
+       closed on mismatch, and SAS derivation orders both identities by
+       lower device_id first so both peers compute the same 7-character value.
 ```
 
 ---

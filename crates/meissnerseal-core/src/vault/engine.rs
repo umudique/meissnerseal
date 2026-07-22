@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Vault engine: create, unlock, and lock vault typestates.
 
-use std::{fmt::Write as FmtWrite, io::Write, marker::PhantomData};
+use std::{fmt::Write as FmtWrite, io::Write, marker::PhantomData, os::fd::AsRawFd};
 
 use meissnerseal_security::secret_lifecycle::SecretBytes;
+#[allow(deprecated)]
+use nix::{
+    errno::Errno,
+    fcntl::{flock, FlockArg},
+};
 
 use crate::error::{CoreError, Result};
 use crate::keys::hierarchy::{create_session_keys, derive_session_keys, UnlockedKeys};
@@ -480,6 +485,139 @@ fn unique_tmp_path(path: &std::path::Path, record_id: &[u8; 16]) -> std::path::P
     path.with_extension(format!("{}.msv.tmp", hex16(record_id)))
 }
 
+/// Execute a vault mutation while holding the stable sibling sidecar lock.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `vault_path` names the `.msv` vault file being mutated.
+/// - `f` performs the full load → stage → rename cycle for that vault.
+///
+/// ## Postconditions
+/// - Acquires an exclusive non-blocking advisory lock on
+///   `vault_path.with_extension("msv.lock")` before invoking `f`.
+/// - Returns `Err(CoreError::VaultLocked)` immediately if the sidecar is already
+///   locked by another process.
+/// - Explicitly unlocks the sidecar before returning, whether `f` succeeds or
+///   fails.
+///
+/// ## Invariants
+/// - Uses a stable zero-byte coordination file; vault contents are never read
+///   from or written to the sidecar.
+/// - Fails closed on contention and leaves retry policy to the caller.
+pub(crate) fn with_vault_lock<T>(
+    vault_path: &std::path::Path,
+    f: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let lock_path = vault_path.with_extension("msv.lock");
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)?;
+
+    #[allow(deprecated)]
+    flock(lock_file.as_raw_fd(), FlockArg::LockExclusiveNonblock).map_err(|error| match error {
+        Errno::EWOULDBLOCK => CoreError::VaultLocked,
+        other => CoreError::Io(std::io::Error::from_raw_os_error(other as i32)),
+    })?;
+
+    let result = f();
+    #[allow(deprecated)]
+    let unlock_result = flock(lock_file.as_raw_fd(), FlockArg::Unlock)
+        .map_err(|error| CoreError::Io(std::io::Error::from_raw_os_error(error as i32)));
+
+    match (result, unlock_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(unlock_error)) => Err(unlock_error),
+        (Err(error), Err(_unlock_error)) => Err(error),
+    }
+}
+
+/// Best-effort sweep for orphaned sibling temp files left by a crashed writer.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `vault_path` names the target `.msv` vault file whose sibling temp files
+///   may be swept.
+/// - No assumptions are made about exclusive access; concurrent or foreign files
+///   may exist in the parent directory.
+///
+/// ## Postconditions
+/// - Removes sibling files whose basename matches exactly
+///   `{stem}.{32-lowercase-hex}.msv.tmp`, where `stem` is the final filename
+///   without the `.msv` extension.
+/// - Leaves all non-matching siblings untouched, including malformed lookalikes.
+/// - Returns `()` unconditionally.
+///
+/// ## Invariants
+/// - Fail-open by design: directory-scan and remove errors are best-effort and
+///   never propagate to the caller.
+/// - Does not hold open file handles or locks after returning.
+/// - Never widens the deletion pattern beyond files this codebase could have created.
+fn sweep_orphan_tmp_files(vault_path: &std::path::Path) {
+    let dir = vault_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let Some(stem) = vault_path.file_stem().and_then(std::ffi::OsStr::to_str) else {
+        return;
+    };
+    let prefix = format!("{stem}.");
+    let suffix = ".msv.tmp";
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            eprintln!(
+                "meissnerseal-core: orphan tmp sweep skipped for {}: {error}",
+                vault_path.display()
+            );
+            return;
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                eprintln!(
+                    "meissnerseal-core: orphan tmp sweep entry read failed for {}: {error}",
+                    vault_path.display()
+                );
+                continue;
+            }
+        };
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) || !name.ends_with(suffix) {
+            continue;
+        }
+        let Some(without_suffix) = name.strip_suffix(suffix) else {
+            continue;
+        };
+        let Some(hex_segment) = without_suffix.strip_prefix(&prefix) else {
+            continue;
+        };
+        if hex_segment.len() != 32
+            || !hex_segment
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(entry.path()) {
+            eprintln!(
+                "meissnerseal-core: orphan tmp removal failed for {}: {error}",
+                name
+            );
+        }
+    }
+}
+
 fn hex16(bytes: &[u8; 16]) -> String {
     let mut out = String::with_capacity(32);
     for byte in bytes {
@@ -653,6 +791,8 @@ fn unlock_impl(params: UnlockParams) -> Result<Vault<Unlocked>> {
         Ok(())
     })?;
 
+    sweep_orphan_tmp_files(&params.path);
+
     // Read vault file.
     let untrusted = UntrustedVaultFile::parse_and_validate(&std::fs::read(&params.path)?)?;
     let (bytes, header, record_table_len, wrk_frame_offset, wrk_frame_len) = untrusted.into_parts();
@@ -779,9 +919,12 @@ mod tests {
     use crate::vault::format::SCHEMA_MEISSNER_RECORDS_V2;
     use meissnerseal_crypto::types::AeadKey;
     use meissnerseal_security::secret_lifecycle::SecretBytes;
+    #[allow(deprecated)]
+    use nix::fcntl::{flock, FlockArg};
     use static_assertions::assert_not_impl_any;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::{fs::OpenOptions, os::fd::AsRawFd};
 
     #[cfg(unix)]
     #[allow(unsafe_code)] // REASON: test-only libc umask declaration for file-mode verification.
@@ -812,6 +955,22 @@ mod tests {
 
     fn tmp_path_for(path: &std::path::Path) -> std::path::PathBuf {
         unique_tmp_path_for_test(path, &[0u8; 16])
+    }
+
+    fn orphan_tmp_path_for_test(path: &std::path::Path, seed: &[u8; 16]) -> std::path::PathBuf {
+        unique_tmp_path_for_test(path, seed)
+    }
+
+    fn lock_sidecar_for_test(path: &std::path::Path) -> std::fs::File {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_extension("msv.lock"))
+            .expect("open sidecar lock file");
+        #[allow(deprecated)]
+        flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock).expect("acquire sidecar lock");
+        file
     }
 
     fn read_u32_for_test(bytes: &[u8], offset: usize) -> u32 {
@@ -905,6 +1064,7 @@ mod tests {
         let tmp_path = unique_tmp_path_for_test(path, &[0u8; 16]);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&tmp_path);
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
         let locked = create(CreateVaultParams {
             path: path.to_path_buf(),
             password: SecretBytes::new(password.to_vec()),
@@ -1415,6 +1575,94 @@ mod tests {
             unique_tmp_path(path, &seed),
             unique_tmp_path(path, &[0xAC; 16])
         );
+    }
+
+    #[test]
+    fn sweep_removes_orphan_tmp_files() {
+        let vault_path = unique_temp_vault_path("sweep-removes-orphans");
+        let parent = vault_path.parent().expect("vault parent").to_path_buf();
+        let orphan_a = orphan_tmp_path_for_test(&vault_path, &[0x11; 16]);
+        let orphan_b = orphan_tmp_path_for_test(&vault_path, &[0x22; 16]);
+        let unrelated = parent.join("vault.keep.me");
+
+        let _ = std::fs::remove_file(&orphan_a);
+        let _ = std::fs::remove_file(&orphan_b);
+        let _ = std::fs::remove_file(&unrelated);
+
+        std::fs::write(&orphan_a, b"orphan-a").expect("write orphan tmp A");
+        std::fs::write(&orphan_b, b"orphan-b").expect("write orphan tmp B");
+        std::fs::write(&unrelated, b"keep").expect("write unrelated file");
+
+        sweep_orphan_tmp_files(&vault_path);
+
+        assert!(!orphan_a.exists(), "matching orphan tmp A must be removed");
+        assert!(!orphan_b.exists(), "matching orphan tmp B must be removed");
+        assert!(unrelated.exists(), "unrelated sibling must remain");
+
+        let _ = std::fs::remove_file(&orphan_a);
+        let _ = std::fs::remove_file(&orphan_b);
+        let _ = std::fs::remove_file(&unrelated);
+    }
+
+    #[test]
+    fn sweep_is_noop_when_no_orphans() {
+        let vault_path = unique_temp_vault_path("sweep-noop");
+        let parent = vault_path.parent().expect("vault parent").to_path_buf();
+        let sibling = parent.join("vault.noop.keep");
+
+        let _ = std::fs::remove_file(&sibling);
+        std::fs::write(&sibling, b"keep").expect("write sibling file");
+
+        sweep_orphan_tmp_files(&vault_path);
+
+        assert!(sibling.exists(), "non-matching sibling must remain");
+
+        let _ = std::fs::remove_file(&sibling);
+    }
+
+    #[test]
+    fn sweep_ignores_malformed_names() {
+        let vault_path = unique_temp_vault_path("sweep-malformed");
+        let parent = vault_path.parent().expect("vault parent").to_path_buf();
+        let stem = vault_path
+            .file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .expect("vault stem");
+        let malformed = parent.join(format!("{stem}.notvalidhex.msv.tmp"));
+
+        let _ = std::fs::remove_file(&malformed);
+        std::fs::write(&malformed, b"keep").expect("write malformed tmp");
+
+        sweep_orphan_tmp_files(&vault_path);
+
+        assert!(
+            malformed.exists(),
+            "tmp name with non-hex segment must not be removed"
+        );
+
+        let _ = std::fs::remove_file(&malformed);
+    }
+
+    #[test]
+    fn with_vault_lock_returns_vault_locked_when_sidecar_is_held() {
+        let path = unique_temp_vault_path("sidecar-locked");
+        let lock_file = lock_sidecar_for_test(&path);
+
+        let result = with_vault_lock(&path, || Ok(()));
+
+        assert!(matches!(result, Err(CoreError::VaultLocked)));
+        drop(lock_file);
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
+    }
+
+    #[test]
+    fn with_vault_lock_releases_sidecar_after_success() {
+        let path = unique_temp_vault_path("sidecar-release");
+
+        with_vault_lock(&path, || Ok(())).expect("first lock must succeed");
+        with_vault_lock(&path, || Ok(())).expect("second lock must succeed after release");
+
+        let _ = std::fs::remove_file(path.with_extension("msv.lock"));
     }
 
     #[test]

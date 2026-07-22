@@ -1309,9 +1309,10 @@ def _build_valid_v2_vault(table_section: bytes = None, schema_profile: int = SCH
     }
 
 
-def _neg_case(cid: str, desc: str, reason: str, blob: bytes, mutation: str) -> dict:
+def _neg_case(cid: str, desc: str, reason: str, blob: bytes, mutation: str,
+              error_kind: str = None) -> dict:
     """One negative fixture: malformed input_hex + cited §10 rule + Err/reason."""
-    return {
+    case = {
         "id": cid,
         "description": desc,
         "inputs": {
@@ -1323,12 +1324,44 @@ def _neg_case(cid: str, desc: str, reason: str, blob: bytes, mutation: str) -> d
             "reason": reason,
         },
     }
+    if error_kind is not None:
+        case["expected"]["error_kind"] = error_kind
+    return case
+
+
+def _strip_tlv(blob: bytes, tag: int) -> bytes:
+    """Remove a TLV entry with the given tag from the vault header and update header_len."""
+    magic_len = len(MAGIC)
+    header_len = int.from_bytes(blob[magic_len + 2:magic_len + 6], "little")
+    prefix_len = magic_len + 2 + 4 + 4 + 8  # MAGIC + version + header_len + table_len + body_len
+    header = blob[prefix_len:prefix_len + header_len]
+    tlv_offset = find_tlv_offset_in_header(header, tag)
+    value_len = int.from_bytes(header[tlv_offset + 3:tlv_offset + 7], "little")
+    tlv_size = 7 + value_len
+    new_header = header[:tlv_offset] + header[tlv_offset + tlv_size:]
+    new_blob = (blob[:magic_len + 2]
+                + struct.pack("<I", header_len - tlv_size)
+                + blob[magic_len + 6:prefix_len]
+                + new_header
+                + blob[prefix_len + header_len:])
+    return new_blob
 
 
 def generate_format_negative_vectors() -> dict:
     """V2 reject fixtures for vault_format_v1.md §10 fail-closed rules."""
     blob, meta = _build_valid_v2_vault()
     cases = []
+
+    # F-06: missing TAG_PQC_PROFILE (0x0005) — parser must reject fail-closed.
+    blob_no_pqc = _strip_tlv(blob, 0x0005)
+    cases.append(_neg_case(
+        "missing_pqc_profile",
+        "§10 / F-06: header omits TAG_PQC_PROFILE entirely; parser must reject instead of defaulting silently to PQC_NONE",
+        "missing_pqc_profile",
+        blob_no_pqc,
+        "remove the non-critical TAG_PQC_PROFILE TLV from an otherwise valid V2 header and decrement header_len by 9 bytes",
+        error_kind="UnsupportedPqcProfile(0)",
+    ))
 
     blob_v1, _ = _build_valid_v2_vault(schema_profile=SCHEMA_MEISSNER_RECORDS_V1)
     cases.append(_neg_case(
