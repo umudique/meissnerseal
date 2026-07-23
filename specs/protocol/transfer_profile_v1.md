@@ -149,13 +149,25 @@ pub struct DeviceIdentity {
 /// Algorithm-tagged signing key. The algorithm_id is carried in authenticated
 /// pairing and revocation event content for downgrade resistance (ADR-028 §2).
 pub struct AlgorithmTaggedSigningKey {
-    pub algorithm_id: SigningAlgorithmId,  // u16, authenticated
-    pub key_bytes: Vec<u8>,               // encoding defined per algorithm_id
+    pub algorithm_id: SigningAlgorithmId,  // u16 little-endian, authenticated
+    pub key_bytes: Vec<u8>,               // encoding defined per algorithm_id (see below)
 }
 
+/// Key encoding per algorithm_id:
+///
+/// Ed25519V1 (0x0001):
+///   key_bytes = ed25519_vk (32 bytes)
+///   sig_bytes = ed25519_sig (64 bytes)
+///
+/// Ed25519MlDsa87HybridV1 (0x0002):
+///   key_bytes = ed25519_vk (32 bytes) || mldsa87_vk (2592 bytes) = 2624 bytes
+///   sig_bytes = ed25519_sig (64 bytes) || mldsa87_sig (4627 bytes) = 4691 bytes
+///   Verification: AND combiner — both components must verify independently.
+///   Classical floor: Ed25519 validity is independent of ML-DSA-87 correctness.
+
 pub enum SigningAlgorithmId {
-    Ed25519 = 0x0001,
-    // Future: Ed25519MlDsa65Hybrid = 0x0002 (ADR-028 §3, gated on ml-dsa audit)
+    Ed25519V1              = 0x0001,
+    Ed25519MlDsa87HybridV1 = 0x0002,  // ADR-028 amendment 2026-07-23
 }
 ```
 
