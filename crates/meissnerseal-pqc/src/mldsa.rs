@@ -405,6 +405,12 @@ pub fn generate_ed25519_mldsa87_keypair() -> Result<(SigningPublicKey, SigningPr
 /// - The combiner is strict AND: both components must sign and both signatures
 ///   are encoded in fixed concatenation order.
 /// - Seed copies are held in `Zeroizing` on the stack and cleared on drop.
+/// - ML-DSA signing via `ml-dsa 0.1.1` uses the hedged variant (FIPS 204 §5.2
+///   with random `rnd`). Signatures are not deterministic across calls even for
+///   the same key and message. The KAT in `test-vectors/signing_hybrid_v1.json`
+///   is therefore a verify-only KAT for the ML-DSA component: the stored bytes
+///   were produced by an independent Python implementation and are verified by
+///   Rust, not re-signed and compared byte-for-byte.
 fn sign_ed25519_mldsa87_hybrid(
     private_key: &SigningPrivateKey,
     message: &[u8],
