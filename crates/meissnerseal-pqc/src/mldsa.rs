@@ -887,9 +887,13 @@ mod tests {
         #[serde(default)]
         hybrid_public_key: String,
         #[serde(default)]
+        wrong_hybrid_public_key: String,
+        #[serde(default)]
         message: String,
         #[serde(default)]
         expected_hybrid_signature: String,
+        #[serde(default)]
+        tampered_hybrid_signature: String,
     }
 
     fn load_hybrid_kat() -> HybridKatFile {
@@ -926,6 +930,107 @@ mod tests {
 
         verify(&public_key, &message, &signature)
             .expect("Python-generated hybrid signature must verify under Rust AND combiner");
+    }
+
+    #[test]
+    fn hybrid_v1_kat_tampered_ed25519_is_rejected() {
+        let kat = load_hybrid_kat();
+        let case = kat
+            .cases
+            .iter()
+            .find(|c| c.id == "hybrid-tampered-ed25519-component")
+            .expect("hybrid-tampered-ed25519-component case must exist in signing_hybrid_v1.json");
+
+        let public_key_bytes = from_hex(&case.hybrid_public_key);
+        let message = from_hex(&case.message);
+        let signature_bytes = from_hex(&case.tampered_hybrid_signature);
+
+        let public_key = SigningPublicKey::try_new_ed25519_mldsa87(public_key_bytes)
+            .expect("hybrid public key must parse");
+        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, signature_bytes);
+
+        assert!(
+            matches!(
+                verify(&public_key, &message, &signature),
+                Err(SigningError::VerificationFailed)
+            ),
+            "tampered Ed25519 component must be rejected by AND combiner"
+        );
+    }
+
+    #[test]
+    fn hybrid_v1_kat_tampered_mldsa87_is_rejected() {
+        let kat = load_hybrid_kat();
+        let case = kat
+            .cases
+            .iter()
+            .find(|c| c.id == "hybrid-tampered-mldsa87-component")
+            .expect("hybrid-tampered-mldsa87-component case must exist in signing_hybrid_v1.json");
+
+        let public_key_bytes = from_hex(&case.hybrid_public_key);
+        let message = from_hex(&case.message);
+        let signature_bytes = from_hex(&case.tampered_hybrid_signature);
+
+        let public_key = SigningPublicKey::try_new_ed25519_mldsa87(public_key_bytes)
+            .expect("hybrid public key must parse");
+        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, signature_bytes);
+
+        assert!(
+            matches!(
+                verify(&public_key, &message, &signature),
+                Err(SigningError::VerificationFailed)
+            ),
+            "tampered ML-DSA-87 component must be rejected by AND combiner"
+        );
+    }
+
+    #[test]
+    fn hybrid_v1_kat_wrong_public_key_is_rejected() {
+        let kat = load_hybrid_kat();
+        let case = kat
+            .cases
+            .iter()
+            .find(|c| c.id == "hybrid-wrong-public-key")
+            .expect("hybrid-wrong-public-key case must exist in signing_hybrid_v1.json");
+
+        let wrong_public_key_bytes = from_hex(&case.wrong_hybrid_public_key);
+        let message = from_hex(&case.message);
+        let signature_bytes = from_hex(&case.expected_hybrid_signature);
+
+        let wrong_public_key = SigningPublicKey::try_new_ed25519_mldsa87(wrong_public_key_bytes)
+            .expect("wrong hybrid public key must still parse (correct length, valid points)");
+        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, signature_bytes);
+
+        assert!(
+            matches!(
+                verify(&wrong_public_key, &message, &signature),
+                Err(SigningError::VerificationFailed)
+            ),
+            "signature must be rejected when verified against a different hybrid public key"
+        );
+    }
+
+    #[test]
+    fn sign_with_domain_hybrid_rejects_wrong_domain() {
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+        let payload = b"device enrollment payload";
+        let signature = sign_with_domain(
+            &private_key,
+            b"meissnerseal.device.enrollment.v1\x00",
+            payload,
+        )
+        .expect("hybrid sign_with_domain succeeds");
+
+        assert!(matches!(
+            verify_with_domain(
+                &public_key,
+                b"meissnerseal.transfer.envelope.v1\x00",
+                payload,
+                &signature,
+            ),
+            Err(SigningError::VerificationFailed)
+        ));
     }
 
     // PHASE-1-VECTOR:
