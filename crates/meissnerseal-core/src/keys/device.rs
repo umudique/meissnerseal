@@ -272,10 +272,8 @@ pub fn generate(display_name: String) -> Result<(DeviceIdentity, DeviceKeypair)>
 /// - Callers cannot accidentally construct a wrong-length Ed25519 key through
 ///   this typed constructor.
 pub fn try_new_ed25519_signing_public_key(bytes: [u8; 32]) -> Result<SigningPublicKey> {
-    Ok(SigningPublicKey::new(
-        SigningAlgorithmId::Ed25519V1,
-        bytes.to_vec(),
-    ))
+    SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, bytes.to_vec())
+        .map_err(|_| DeviceIdentityError::InvalidSigningPublicKeyLength)
 }
 
 /// Construct a validated signing public key from byte slices.
@@ -422,7 +420,8 @@ pub(crate) fn deserialize_keypair_bytes(
         return Err(DeviceIdentityError::InvalidFileFormat);
     }
     let signing_private_key =
-        SigningPrivateKey::new(signing_algorithm, parser.take_vec(signing_len)?);
+        SigningPrivateKey::try_new(signing_algorithm, parser.take_vec(signing_len)?)
+            .map_err(|_| DeviceIdentityError::InvalidFileFormat)?;
     if !parser.is_empty() {
         return Err(DeviceIdentityError::InvalidFileFormat);
     }
@@ -581,7 +580,8 @@ pub fn create_signed_transfer_envelope(
     let signing_algorithm = sender_keypair.signing_private_key.algorithm();
     let sender_signing_private_key = sender_keypair
         .signing_private_key
-        .with_secret_bytes(|bytes| SigningPrivateKey::new(signing_algorithm, bytes.to_vec()));
+        .with_secret_bytes(|bytes| SigningPrivateKey::try_new(signing_algorithm, bytes.to_vec()))
+        .map_err(|_| TransferError::SigningFailed)?;
     create_envelope(CreateEnvelopeParams {
         sender_device_id,
         recipient_device_id,
@@ -994,7 +994,8 @@ mod tests {
 
     #[test]
     fn prefixed_and_unprefixed_messages_produce_different_signatures() {
-        let private_key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, vec![0x11; 32]);
+        let private_key = SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x11; 32])
+            .expect("test: valid 32-byte Ed25519V1 seed");
         let raw_signature = mldsa::sign(&private_key, TEST_MESSAGE).expect("raw sign succeeds");
         let signed_message = enrollment_signing_message(TEST_MESSAGE);
         let prefixed_signature =
@@ -1033,7 +1034,8 @@ mod tests {
         let keypair = DeviceKeypair::new(
             Key::from_bytes([0xA1; 32]),
             Key::from_bytes([0xB2; 2400]),
-            SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, vec![0xC3; 32]),
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0xC3; 32])
+                .expect("test: valid 32-byte Ed25519V1 seed"),
         );
         let debug = format!("{keypair:?}");
 
@@ -1294,10 +1296,10 @@ mod tests {
 
     #[test]
     fn phase4_fixture_other_states_remain_sender_ineligible() {
-        let signing_public_key = Some(SigningPublicKey::new(
-            SigningAlgorithmId::Ed25519V1,
-            vec![0x55; 32],
-        ));
+        let signing_public_key = Some(
+            SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x55; 32])
+                .expect("test: valid 32-byte Ed25519V1 public key"),
+        );
         let states = [
             DeviceTrustState::Untrusted,
             DeviceTrustState::PendingInbound,
@@ -1323,10 +1325,10 @@ mod tests {
         for state in [DeviceTrustState::Verified, DeviceTrustState::Approved] {
             let identity = identity_with_state(
                 state,
-                Some(SigningPublicKey::new(
-                    SigningAlgorithmId::Ed25519V1,
-                    vec![0x66; 32],
-                )),
+                Some(
+                    SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x66; 32])
+                        .expect("test: valid 32-byte Ed25519V1 public key"),
+                ),
             );
 
             let trusted = TrustedSender::from_verified(&identity).expect("trusted sender");
@@ -1337,10 +1339,10 @@ mod tests {
 
     #[test]
     fn trusted_sender_from_verified_rejects_non_eligible_states() {
-        let signing_public_key = Some(SigningPublicKey::new(
-            SigningAlgorithmId::Ed25519V1,
-            vec![0x77; 32],
-        ));
+        let signing_public_key = Some(
+            SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x77; 32])
+                .expect("test: valid 32-byte Ed25519V1 public key"),
+        );
 
         for state in [
             DeviceTrustState::Untrusted,

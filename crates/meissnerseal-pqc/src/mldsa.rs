@@ -101,10 +101,33 @@ pub struct SigningPublicKey {
     bytes: Vec<u8>,
 }
 
+/// Expected byte lengths per algorithm, used by `try_new`.
+const ED25519_PUBLIC_KEY_LEN: usize = 32;
+const ED25519_SIGNATURE_LEN: usize = 64;
+const ED25519_SEED_LEN: usize = 32;
+
 impl SigningPublicKey {
-    #[must_use]
-    pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
+    pub(crate) fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self { algorithm, bytes }
+    }
+
+    /// Construct a validated public key for the given algorithm.
+    ///
+    /// # Errors
+    /// Returns `InvalidKey` if `bytes` do not match the expected length for
+    /// `algorithm`, or if the hybrid encoding fails component decoding.
+    pub fn try_new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Result<Self> {
+        match algorithm {
+            SigningAlgorithmId::Ed25519V1 => {
+                if bytes.len() != ED25519_PUBLIC_KEY_LEN {
+                    return Err(SigningError::InvalidKey);
+                }
+                Ok(Self { algorithm, bytes })
+            }
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
+                Self::try_new_ed25519_mldsa87(bytes)
+            }
+        }
     }
 
     #[must_use]
@@ -183,11 +206,32 @@ pub struct SigningPrivateKey {
 }
 
 impl SigningPrivateKey {
-    #[must_use]
-    pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
+    pub(crate) fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self {
             algorithm,
             bytes: Zeroizing::new(bytes),
+        }
+    }
+
+    /// Construct a validated private key for the given algorithm.
+    ///
+    /// # Errors
+    /// Returns `InvalidKey` if `bytes` do not match the expected seed length for
+    /// `algorithm`, or if the hybrid seeds are all-zero.
+    pub fn try_new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Result<Self> {
+        match algorithm {
+            SigningAlgorithmId::Ed25519V1 => {
+                if bytes.len() != ED25519_SEED_LEN {
+                    return Err(SigningError::InvalidKey);
+                }
+                Ok(Self {
+                    algorithm,
+                    bytes: Zeroizing::new(bytes),
+                })
+            }
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
+                Self::try_new_ed25519_mldsa87(bytes)
+            }
         }
     }
 
@@ -278,9 +322,24 @@ pub struct Signature {
 }
 
 impl Signature {
-    #[must_use]
-    pub fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
+    pub(crate) fn new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Self {
         Self { algorithm, bytes }
+    }
+
+    /// Construct a validated signature for the given algorithm.
+    ///
+    /// # Errors
+    /// Returns `MalformedSignature` if `bytes` do not match the expected length
+    /// for `algorithm`.
+    pub fn try_new(algorithm: SigningAlgorithmId, bytes: Vec<u8>) -> Result<Self> {
+        let expected = match algorithm {
+            SigningAlgorithmId::Ed25519V1 => ED25519_SIGNATURE_LEN,
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => HYBRID_SIGNATURE_LEN,
+        };
+        if bytes.len() != expected {
+            return Err(SigningError::MalformedSignature);
+        }
+        Ok(Self { algorithm, bytes })
     }
 
     #[must_use]
@@ -1320,6 +1379,64 @@ mod tests {
         let seed = [[0x42u8; 32], [0u8; 32]].concat();
         let key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, seed);
         assert!(matches!(sign(&key, b"test"), Err(SigningError::InvalidKey)));
+    }
+
+    #[test]
+    fn try_new_public_key_rejects_wrong_length_ed25519() {
+        assert!(matches!(
+            SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0u8; 31]),
+            Err(SigningError::InvalidKey)
+        ));
+        assert!(matches!(
+            SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0u8; 33]),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn try_new_public_key_rejects_wrong_length_hybrid() {
+        assert!(matches!(
+            SigningPublicKey::try_new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0u8; 100]),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn try_new_private_key_rejects_wrong_length_ed25519() {
+        assert!(matches!(
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0u8; 31]),
+            Err(SigningError::InvalidKey)
+        ));
+        assert!(matches!(
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0u8; 33]),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn try_new_private_key_rejects_zero_seeds_at_construction() {
+        let zero_ed25519 = [[0u8; 32], [0x42u8; 32]].concat();
+        assert!(matches!(
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, zero_ed25519),
+            Err(SigningError::InvalidKey)
+        ));
+        let zero_mldsa = [[0x42u8; 32], [0u8; 32]].concat();
+        assert!(matches!(
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, zero_mldsa),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    #[test]
+    fn try_new_signature_rejects_wrong_length() {
+        assert!(matches!(
+            Signature::try_new(SigningAlgorithmId::Ed25519V1, vec![0u8; 63]),
+            Err(SigningError::MalformedSignature)
+        ));
+        assert!(matches!(
+            Signature::try_new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0u8; 100]),
+            Err(SigningError::MalformedSignature)
+        ));
     }
 
     fn ed25519_private_key() -> SigningPrivateKey {

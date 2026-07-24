@@ -128,7 +128,7 @@ mldsa::  SigningAlgorithmId
 ## Verification Status
 
 ```
-cargo test:    all pass for mlkem:: + hybrid:: + mldsa:: (60 tests,
+cargo test:    all pass for mlkem:: + hybrid:: + mldsa:: (65 tests,
                2 skipped; 2026-07-24), including NIST ML-KEM KATs,
                ADR-035 transfer-hybrid KATs, ADR-028 Ed25519V1 and
                Ed25519MlDsa87HybridV1 signing tests.

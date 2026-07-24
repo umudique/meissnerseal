@@ -591,8 +591,10 @@ mod tests {
             display_name: display_name.to_owned(),
             classical_public_key: Key::from_bytes(classical_public_key),
             pqc_public_key: Key::from_bytes(pqc_public_key),
-            signing_public_key: signing_public_key
-                .map(|bytes| SigningPublicKey::new(SigningAlgorithmId::Ed25519V1, bytes.to_vec())),
+            signing_public_key: signing_public_key.map(|bytes| {
+                SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, bytes.to_vec())
+                    .expect("test: valid 32-byte Ed25519V1 public key")
+            }),
             created_at: 1,
             trust_state,
         }

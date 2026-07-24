@@ -781,10 +781,9 @@ fn decode_signed_payload(
         .ok_or(TransferError::VerificationFailed)?
         .to_vec();
 
-    Ok((
-        Signature::new(algorithm, signature_bytes),
-        SecretPayload::new(payload),
-    ))
+    let signature = Signature::try_new(algorithm, signature_bytes)
+        .map_err(|_| TransferError::VerificationFailed)?;
+    Ok((signature, SecretPayload::new(payload)))
 }
 
 #[cfg(test)]
@@ -933,7 +932,9 @@ mod tests {
             DEVICE_ENROLLMENT_SIGNING_DOMAIN
         );
 
-        let private_key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519V1, vec![0x42; 32]);
+        let private_key =
+            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x42; 32])
+                .expect("test: valid 32-byte Ed25519V1 seed");
         let mut transfer_message = Vec::new();
         transfer_message.extend_from_slice(TRANSFER_ENVELOPE_SIGNING_DOMAIN);
         transfer_message.extend_from_slice(PAYLOAD);
@@ -1310,10 +1311,11 @@ mod tests {
             anonymous_recipient_public_key: None,
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
-            sender_signing_private_key: SigningPrivateKey::new(
+            sender_signing_private_key: SigningPrivateKey::try_new(
                 SigningAlgorithmId::Ed25519V1,
                 vec![0x42; 32],
-            ),
+            )
+            .expect("test: valid 32-byte Ed25519V1 seed"),
             plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at: Some(future_timestamp()),
         };
@@ -1472,10 +1474,11 @@ mod tests {
             anonymous_recipient_public_key: None,
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
-            sender_signing_private_key: SigningPrivateKey::new(
+            sender_signing_private_key: SigningPrivateKey::try_new(
                 SigningAlgorithmId::Ed25519V1,
                 vec![0x42; 32],
-            ),
+            )
+            .expect("test: valid 32-byte Ed25519V1 seed"),
             plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at: Some(future_timestamp()),
         })
@@ -1486,10 +1489,11 @@ mod tests {
             anonymous_recipient_public_key: None,
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
-            sender_signing_private_key: SigningPrivateKey::new(
+            sender_signing_private_key: SigningPrivateKey::try_new(
                 SigningAlgorithmId::Ed25519V1,
                 vec![0x43; 32],
-            ),
+            )
+            .expect("test: valid 32-byte Ed25519V1 seed"),
             plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at: Some(future_timestamp()),
         })
@@ -1725,10 +1729,11 @@ mod tests {
             anonymous_recipient_public_key: None,
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_public_key: Key::from_bytes([0x55; 1184]),
-            sender_signing_private_key: SigningPrivateKey::new(
+            sender_signing_private_key: SigningPrivateKey::try_new(
                 SigningAlgorithmId::Ed25519V1,
                 vec![0x42; 32],
-            ),
+            )
+            .expect("test: valid 32-byte Ed25519V1 seed"),
             plaintext_payload: SecretPayload::new(PAYLOAD.to_vec()),
             expires_at,
         }
@@ -1739,10 +1744,10 @@ mod tests {
             recipient_classical_private_key: Key::from_bytes([0x88; 32]),
             recipient_classical_public_key: Key::from_bytes([0x44; 32]),
             recipient_pqc_private_key: Key::from_bytes([0x99; 2400]),
-            sender_signing_public_key: trusted_sender(mldsa::SigningPublicKey::new(
-                SigningAlgorithmId::Ed25519V1,
-                vec![0xAA; 32],
-            )),
+            sender_signing_public_key: trusted_sender(
+                mldsa::SigningPublicKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0xAA; 32])
+                    .expect("test: valid 32-byte Ed25519V1 public key"),
+            ),
         }
     }
 
