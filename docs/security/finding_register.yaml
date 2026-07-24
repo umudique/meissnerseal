@@ -9109,15 +9109,17 @@ findings:
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Make SigningPublicKey::new, SigningPrivateKey::new, and Signature::new
-      pub(crate) so only intra-crate call sites can use them. Expose only
-      try_new_ed25519_mldsa87 and algorithm-specific constructors at the public
-      API boundary. For intra-crate callers (sign_ed25519_mldsa87_hybrid,
-      verify_ed25519_mldsa87_hybrid) that construct objects after running their
-      own checks, the pub(crate) visibility is sufficient.
-    verification: ""
+      Added zero-seed check in sign_ed25519_mldsa87_hybrid immediately after
+      the byte split: if either the Ed25519 or ML-DSA-87 seed component is
+      all-zero, InvalidKey is returned before any cryptographic operation.
+      This closes the bypass gap regardless of which constructor was used.
+      Two regression tests added: sign_hybrid_rejects_all_zero_ed25519_seed
+      and sign_hybrid_rejects_all_zero_mldsa_seed.
+    verification: >-
+      cargo test -p meissnerseal-pqc passes (59 tests, 2 skipped).
+      Both new tests confirm InvalidKey on all-zero seed components.
     commit: ""
 
   - id: F-272

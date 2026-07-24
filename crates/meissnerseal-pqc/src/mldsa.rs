@@ -421,6 +421,10 @@ fn sign_ed25519_mldsa87_hybrid(
         }
         let (ed25519_part, mldsa_part) = bytes.split_at(32);
 
+        if ed25519_part.iter().all(|&b| b == 0) || mldsa_part.iter().all(|&b| b == 0) {
+            return Err(SigningError::InvalidKey);
+        }
+
         let ed25519_seed = Zeroizing::new(
             <[u8; 32]>::try_from(ed25519_part).map_err(|_| SigningError::InvalidKey)?,
         );
@@ -1281,6 +1285,20 @@ mod tests {
             sign_with_domain(&private_key, b"domain.b\x00", payload).expect("sign domain b");
 
         assert_ne!(sig_a.as_bytes(), sig_b.as_bytes());
+    }
+
+    #[test]
+    fn sign_hybrid_rejects_all_zero_ed25519_seed() {
+        let seed = [[0u8; 32], [0x42u8; 32]].concat();
+        let key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, seed);
+        assert!(matches!(sign(&key, b"test"), Err(SigningError::InvalidKey)));
+    }
+
+    #[test]
+    fn sign_hybrid_rejects_all_zero_mldsa_seed() {
+        let seed = [[0x42u8; 32], [0u8; 32]].concat();
+        let key = SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, seed);
+        assert!(matches!(sign(&key, b"test"), Err(SigningError::InvalidKey)));
     }
 
     fn ed25519_private_key() -> SigningPrivateKey {
