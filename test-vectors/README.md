@@ -23,6 +23,7 @@ of the Rust implementation.
 | `vault_format_negative_v1.json` | `SCHEMA_MEISSNER_RECORDS_V2` | 6 | MVP-0 |
 | `vault_wrap_v1.json` | `AEAD_XCHACHA20_POLY1305_V1` | 3 | MVP-0 |
 | `aead_xchacha20_v1.json` | `AEAD_XCHACHA20_POLY1305_V1` | 7 | MVP-0 |
+| `signing_hybrid_v1.json` | `ED25519_MLDSA87_HYBRID_V1` | 4 | MVP-2 |
 
 ### NIST-Sourced Vectors
 

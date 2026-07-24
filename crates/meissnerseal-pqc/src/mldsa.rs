@@ -660,6 +660,7 @@ mod tests {
     use serde::Deserialize;
 
     const SIGNING_ED25519_KAT: &str = include_str!("../../../test-vectors/signing_ed25519_v1.json");
+    const SIGNING_HYBRID_KAT: &str = include_str!("../../../test-vectors/signing_hybrid_v1.json");
     const MESSAGE: &[u8] = b"meissnerseal signing test message";
     const OTHER_MESSAGE: &[u8] = b"meissnerseal altered signing test message";
 
@@ -870,6 +871,61 @@ mod tests {
             SigningAlgorithmId::from_le_bytes([0xff, 0xff]),
             Err(SigningError::UnknownAlgorithm)
         ));
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKatFile {
+        profile: String,
+        version: u8,
+        algorithm_id_u16_le: String,
+        cases: Vec<HybridKatCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKatCase {
+        id: String,
+        #[serde(default)]
+        hybrid_public_key: String,
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        expected_hybrid_signature: String,
+    }
+
+    fn load_hybrid_kat() -> HybridKatFile {
+        serde_json::from_str(SIGNING_HYBRID_KAT).expect("signing_hybrid_v1.json must be valid")
+    }
+
+    // Verify-only KAT: the stored signature (produced by an independent Python
+    // implementation) must verify under the stored hybrid public key. ML-DSA signing
+    // is hedged, so we do not re-sign and compare bytes — see contract block on
+    // sign_ed25519_mldsa87_hybrid.
+    #[test]
+    fn hybrid_v1_kat_positive_case_verifies() {
+        let kat = load_hybrid_kat();
+        assert_eq!(kat.profile, "ED25519_MLDSA87_HYBRID_V1");
+        assert_eq!(kat.version, 1);
+        assert_eq!(kat.algorithm_id_u16_le, "0200");
+
+        let positive = kat
+            .cases
+            .iter()
+            .find(|c| c.id == "hybrid-sign-verify-00")
+            .expect("hybrid-sign-verify-00 case must exist in signing_hybrid_v1.json");
+
+        let public_key_bytes = from_hex(&positive.hybrid_public_key);
+        let message = from_hex(&positive.message);
+        let signature_bytes = from_hex(&positive.expected_hybrid_signature);
+
+        assert_eq!(public_key_bytes.len(), HYBRID_PUBLIC_KEY_LEN);
+        assert_eq!(signature_bytes.len(), HYBRID_SIGNATURE_LEN);
+
+        let public_key = SigningPublicKey::try_new_ed25519_mldsa87(public_key_bytes)
+            .expect("hybrid public key must parse");
+        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, signature_bytes);
+
+        verify(&public_key, &message, &signature)
+            .expect("Python-generated hybrid signature must verify under Rust AND combiner");
     }
 
     // PHASE-1-VECTOR:
