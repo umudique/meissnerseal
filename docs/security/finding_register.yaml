@@ -9139,12 +9139,14 @@ findings:
     cwe: "CWE-345"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Replace the sentence "The hybrid is valid if either component holds"
-      in ADR-028 with a statement that both components must verify (AND
-      combiner). Add a cross-reference to transfer_profile_v1.md §6 and
-      CONTRACT.md [A-05] to make the normative chain explicit.
-    verification: ""
+      Replaced "The hybrid is valid if either component holds" with "Both
+      components must verify; the hybrid fails if either fails" and added
+      "parallel components, mandatory AND combiner" to make the normative
+      intent unambiguous. ADR-028 now matches CONTRACT.md [A-05] and
+      transfer_profile_v1.md §6.
+    verification: >-
+      ADR-028 text reviewed; no code change required.
     commit: ""
     commit: "c32ea9a"

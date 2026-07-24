@@ -109,8 +109,9 @@ years for an audit that may never come.
 The Ed25519 + ML-DSA-87 hybrid sits in exactly the same position. Ed25519 is the
 floor. If ML-DSA-87 has an implementation bug — a subtle side-channel, a
 mishandled edge case in the signing path — Ed25519 is still there, independently
-verified, carrying the authentication. The hybrid is valid if either component
-holds. That is the same structural argument we already accepted for KEMs.
+verified, carrying the authentication. Both components must verify; the hybrid
+fails if either fails. That is the same structural argument we already accepted
+for KEMs — parallel components, mandatory AND combiner.
 
 Holding ML-DSA to a stricter standard than ML-KEM was not a deliberate policy
 decision; it was an inconsistency in how the original ADR was written. "Signatures
