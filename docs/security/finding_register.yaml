@@ -9108,22 +9108,25 @@ findings:
       the construction-time invariant is not enforced at the API boundary.
       AGENTS.md §4 states: "Constructors reject invalid state — no fail-open
       new() that silently accepts wrong-length input." The three pub new()
-      functions violate this invariant; the zero-seed fix at sign time is a
+      functions violated this invariant; the zero-seed fix at sign time was a
       partial downstream mitigation, not a constructor-level fix.
     cwe: "CWE-20"
     severity: medium
     blocking: false
-    status: open
+    status: resolved
     remediation: >-
-      Partial: added zero-seed check in sign_ed25519_mldsa87_hybrid after byte
-      split (commit 3a7f9f2). Full fix requires: (1) make new() pub(crate) for
-      SigningPublicKey, SigningPrivateKey, and Signature; (2) add try_new()
-      returning Result<Self> for all three; (3) migrate meissnerseal-core
-      callers to try_new(). Pending implementation.
+      (1) Added try_new(algorithm, bytes) -> Result<Self> to SigningPublicKey,
+      SigningPrivateKey, and Signature with algorithm-aware length validation.
+      SigningPrivateKey::try_new for HybridV1 also rejects all-zero seeds at
+      construction time. (2) Demoted new() to pub(crate) — no external caller
+      can bypass validation. (3) Migrated all meissnerseal-core production
+      callers (device.rs, envelope.rs) to try_new() with appropriate error
+      propagation; migrated 12 test callers to try_new().expect("test: ...").
+      (4) Added 5 constructor-level regression tests in mldsa.rs::tests.
     verification: >-
-      Partial: cargo test passes (60 tests). Full constructor-level enforcement
-      not yet verified; open until try_new() is in place and constructor tests
-      confirm invalid state is rejected at construction time.
+      cargo test passes (65 tests, 2 skipped). Five new tests confirm that
+      wrong-length bytes and all-zero seeds are rejected at construction time,
+      satisfying the AGENTS.md §4 invariant.
     commit: "3a7f9f2"
 
   - id: F-273
