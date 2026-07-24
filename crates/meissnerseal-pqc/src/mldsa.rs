@@ -1,20 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Algorithm-tagged device signing keys (ADR-028).
 //!
-//! MVP-2 implements only `Ed25519V1` as the active signing backend. The
-//! `Ed25519MlDsa87HybridV1` identifier is a fail-closed agility slot: it is
-//! carried in types and parsing so protocols can authenticate algorithm
-//! identifiers now, but all sign/verify operations for that slot return
-//! `Unimplemented`.
+//! Keys and signatures carry an explicit `SigningAlgorithmId`, and the
+//! enclosing protocol authenticates that identifier for downgrade resistance.
 //!
-//! ML-DSA is deferred for the MVP profile under ADR-012 and ADR-028. The crate
-//! keeps the algorithm identifier and wire-level parsing so protocol messages
-//! can bind the future slot today, but production signing remains Ed25519-only
-//! until an ML-DSA backend is selected, independently audited, and approved for
-//! re-enablement in the active transfer/signing profile.
+//! MVP-2 supports both `Ed25519V1` and `Ed25519MlDsa87HybridV1`. The hybrid
+//! wire encoding follows `transfer_profile_v1.md §6` exactly:
+//! `ed25519_vk || mldsa87_vk` for public keys and
+//! `ed25519_sig || mldsa87_sig` for signatures.
+//!
+//! Per ADR-028 (amendment 2026-07-23), the hybrid verifier uses a strict AND
+//! combiner: both the Ed25519 and ML-DSA-87 components must verify
+//! independently or the signature is rejected.
 
 use ed25519_dalek::{Signer, VerifyingKey};
+use ml_dsa::{
+    EncodedVerifyingKey as MlDsaEncodedVerifyingKey, Keypair as MlDsaKeypair, MlDsa87,
+    Signature as MlDsaSignature, Signer as MlDsaSigner, SigningKey as MlDsaSigningKey,
+    Verifier as MlDsaVerifier, VerifyingKey as MlDsaVerifyingKey,
+};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
+pub const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
+pub const MLDSA87_SIGNATURE_LEN: usize = 4627;
+pub const MLDSA87_SEED_LEN: usize = 32;
+pub const HYBRID_PUBLIC_KEY_LEN: usize = 32 + MLDSA87_PUBLIC_KEY_LEN;
+pub const HYBRID_SIGNATURE_LEN: usize = 64 + MLDSA87_SIGNATURE_LEN;
+pub const HYBRID_PRIVATE_KEY_LEN: usize = 32 + MLDSA87_SEED_LEN;
 
 /// Wire-encodable signing algorithm identifier.
 ///
@@ -30,8 +42,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 ///
 /// ## Invariants
 /// - Algorithm identifiers are explicit and are never inferred from key length.
-/// - The hybrid slot is registered but not implemented until a PQ signing audit
-///   clears the ML-DSA backend.
+/// - The hybrid slot is explicit on the wire and is never inferred from a byte
+///   layout heuristic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub enum SigningAlgorithmId {
@@ -73,7 +85,7 @@ impl SigningAlgorithmId {
 /// ## Preconditions
 /// - `algorithm` identifies the exact verification algorithm for `bytes`.
 /// - Ed25519 public keys must be 32 bytes.
-/// - Hybrid public keys must use the future ADR-028 concatenated encoding.
+/// - Hybrid public keys use the ADR-028 wire encoding (amendment 2026-07-23).
 ///
 /// ## Postconditions
 /// - The algorithm tag travels with the public key.
@@ -103,6 +115,46 @@ impl SigningPublicKey {
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
+
+    /// Construct an Ed25519+ML-DSA-87 hybrid public key from the concatenated
+    /// wire encoding.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `bytes` must be the exact concatenation
+    ///   `ed25519_vk (32 B) || mldsa87_vk (2592 B)`.
+    /// - Callers must not pass a partial component or an alternate layout.
+    ///
+    /// ## Postconditions
+    /// - On success, returns a `SigningPublicKey` tagged
+    ///   `SigningAlgorithmId::Ed25519MlDsa87HybridV1`.
+    /// - On failure, returns a specific `SigningError`; the hybrid constructor
+    ///   never falls back to a single-component key.
+    ///
+    /// ## Invariants
+    /// - Hybrid verification is fail-closed: both components are mandatory.
+    /// - Lengths are checked against named wire constants, never magic numbers.
+    pub fn try_new_ed25519_mldsa87(bytes: Vec<u8>) -> Result<Self> {
+        if bytes.len() != HYBRID_PUBLIC_KEY_LEN {
+            return Err(SigningError::InvalidKey);
+        }
+        let (ed25519_part, mldsa_part) = bytes.split_at(32);
+
+        let ed25519_bytes: &[u8; 32] = ed25519_part
+            .try_into()
+            .map_err(|_| SigningError::InvalidKey)?;
+        VerifyingKey::from_bytes(ed25519_bytes).map_err(|_| SigningError::InvalidKey)?;
+
+        let mldsa_bytes = MlDsaEncodedVerifyingKey::<MlDsa87>::try_from(mldsa_part)
+            .map_err(|_| SigningError::InvalidKey)?;
+        let _ = MlDsaVerifyingKey::<MlDsa87>::decode(&mldsa_bytes);
+
+        Ok(Self {
+            algorithm: SigningAlgorithmId::Ed25519MlDsa87HybridV1,
+            bytes,
+        })
+    }
 }
 
 /// Algorithm-tagged signing private key bytes.
@@ -113,13 +165,11 @@ impl SigningPublicKey {
 /// - `algorithm` identifies the exact signing algorithm for `bytes`.
 /// - Ed25519 private key material must use the Phase 2 ed25519-dalek signing
 ///   key encoding.
-/// - Hybrid private key material is reserved and must not be accepted for live
-///   signing until a PQ signing audit clears the backend.
+/// - Hybrid private key material uses `ed25519_seed || mldsa87_seed`.
 ///
 /// ## Postconditions
 /// - Signing with `Ed25519V1` returns an algorithm-tagged signature in Phase 2.
-/// - Signing with `Ed25519MlDsa87HybridV1` returns `Err(Unimplemented)` until
-///   the future PQC-4 implementation.
+/// - Signing with `Ed25519MlDsa87HybridV1` emits a hybrid signature on success.
 ///
 /// ## Invariants
 /// - Secret bytes are held in `Zeroizing<Vec<u8>>`.
@@ -153,6 +203,41 @@ impl SigningPrivateKey {
     pub fn with_secret_bytes<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
         f(&self.bytes)
     }
+
+    /// Construct an Ed25519+ML-DSA-87 hybrid private key from the concatenated
+    /// seed encoding.
+    ///
+    /// # Contract
+    ///
+    /// ## Preconditions
+    /// - `seed_bytes` must be the exact concatenation
+    ///   `ed25519_seed (32 B) || mldsa87_seed (32 B)`.
+    /// - The Ed25519 seed component must not be all zero.
+    /// - The ML-DSA-87 seed component must not be all zero.
+    ///
+    /// ## Postconditions
+    /// - On success, returns a `SigningPrivateKey` tagged
+    ///   `SigningAlgorithmId::Ed25519MlDsa87HybridV1`.
+    /// - On failure, returns a specific `SigningError`; the hybrid constructor
+    ///   never accepts a malformed or partial seed bundle.
+    ///
+    /// ## Invariants
+    /// - Secret bytes remain wrapped in `Zeroizing<Vec<u8>>`.
+    /// - Hybrid signing is fail-closed: both seed components are mandatory.
+    /// - Lengths are checked against named wire constants, never magic numbers.
+    pub fn try_new_ed25519_mldsa87(seed_bytes: Vec<u8>) -> Result<Self> {
+        if seed_bytes.len() != HYBRID_PRIVATE_KEY_LEN {
+            return Err(SigningError::InvalidKey);
+        }
+        let (ed25519_seed, mldsa_seed) = seed_bytes.split_at(32);
+        if ed25519_seed.iter().all(|&byte| byte == 0) || mldsa_seed.iter().all(|&byte| byte == 0) {
+            return Err(SigningError::InvalidKey);
+        }
+        Ok(Self {
+            algorithm: SigningAlgorithmId::Ed25519MlDsa87HybridV1,
+            bytes: Zeroizing::new(seed_bytes),
+        })
+    }
 }
 
 impl core::fmt::Debug for SigningPrivateKey {
@@ -176,7 +261,7 @@ impl ZeroizeOnDrop for SigningPrivateKey {}
 /// ## Preconditions
 /// - `algorithm` identifies the algorithm that produced `bytes`.
 /// - Ed25519 signatures must be 64 bytes.
-/// - Hybrid signatures must use the future ADR-028 concatenated encoding.
+/// - Hybrid signatures use the ADR-028 wire encoding (amendment 2026-07-23).
 ///
 /// ## Postconditions
 /// - The signature carries its algorithm ID so verification can reject
@@ -259,6 +344,166 @@ pub fn ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey) {
     )
 }
 
+/// Generate a fresh Ed25519+ML-DSA-87 hybrid signing keypair.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - Randomness must come from the operating-system CSPRNG path exposed by
+///   `meissnerseal-crypto`.
+/// - The generated private seed must contain both the Ed25519 32-byte seed and
+///   the ML-DSA-87 32-byte seed.
+///
+/// ## Postconditions
+/// - On success, returns a public key with `HYBRID_PUBLIC_KEY_LEN` bytes and a
+///   private key with `HYBRID_PRIVATE_KEY_LEN` bytes.
+/// - Both returned values are tagged
+///   `SigningAlgorithmId::Ed25519MlDsa87HybridV1`.
+///
+/// ## Invariants
+/// - Hybrid generation is fail-closed: there is no single-component fallback.
+/// - Secret seed material remains zeroized on drop.
+pub fn generate_ed25519_mldsa87_keypair() -> Result<(SigningPublicKey, SigningPrivateKey)> {
+    let ed25519_seed = Zeroizing::new(meissnerseal_crypto::rng::random_key());
+    let mldsa_seed = Zeroizing::new(meissnerseal_crypto::rng::random_key());
+
+    let ed25519_public_key = ed25519_dalek::SigningKey::from_bytes(&ed25519_seed)
+        .verifying_key()
+        .to_bytes();
+    let mldsa_signing_key = MlDsaSigningKey::<MlDsa87>::from_seed(&(*mldsa_seed).into());
+    let mldsa_public_key = MlDsaKeypair::verifying_key(&mldsa_signing_key).encode();
+
+    let mut public_key_bytes = Vec::with_capacity(HYBRID_PUBLIC_KEY_LEN);
+    public_key_bytes.extend_from_slice(&ed25519_public_key);
+    public_key_bytes.extend_from_slice(mldsa_public_key.as_ref());
+
+    let mut private_key_bytes = Vec::with_capacity(HYBRID_PRIVATE_KEY_LEN);
+    private_key_bytes.extend_from_slice(ed25519_seed.as_ref());
+    private_key_bytes.extend_from_slice(mldsa_seed.as_ref());
+
+    let public_key = SigningPublicKey::try_new_ed25519_mldsa87(public_key_bytes)?;
+    let private_key = SigningPrivateKey::try_new_ed25519_mldsa87(private_key_bytes)?;
+    Ok((public_key, private_key))
+}
+
+/// Produce an Ed25519+ML-DSA-87 hybrid signature over a domain-separated message.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `private_key` must hold the exact `ed25519_seed || mldsa87_seed` hybrid
+///   seed encoding.
+/// - `message` must be the fully domain-separated transcript bytes.
+///
+/// ## Postconditions
+/// - On success, returns a `Signature` tagged
+///   `Ed25519MlDsa87HybridV1` whose length is `HYBRID_SIGNATURE_LEN`.
+/// - On failure of either component, returns `Err`; there is no
+///   single-component success path.
+///
+/// ## Invariants
+/// - The combiner is strict AND: both components must sign and both signatures
+///   are encoded in fixed concatenation order.
+/// - Seed copies are held in `Zeroizing` on the stack and cleared on drop.
+fn sign_ed25519_mldsa87_hybrid(
+    private_key: &SigningPrivateKey,
+    message: &[u8],
+) -> Result<Signature> {
+    private_key.with_secret_bytes(|bytes| {
+        if bytes.len() != HYBRID_PRIVATE_KEY_LEN {
+            return Err(SigningError::InvalidKey);
+        }
+        let (ed25519_part, mldsa_part) = bytes.split_at(32);
+
+        let ed25519_seed = Zeroizing::new(
+            <[u8; 32]>::try_from(ed25519_part).map_err(|_| SigningError::InvalidKey)?,
+        );
+        let mldsa_seed = Zeroizing::new(
+            <[u8; MLDSA87_SEED_LEN]>::try_from(mldsa_part).map_err(|_| SigningError::InvalidKey)?,
+        );
+
+        let ed25519_signature = ed25519_dalek::SigningKey::from_bytes(&ed25519_seed)
+            .sign(message)
+            .to_bytes();
+        let mldsa_signature =
+            MlDsaSigningKey::<MlDsa87>::from_seed(&(*mldsa_seed).into()).sign(message);
+        let mldsa_signature_bytes = mldsa_signature.encode();
+
+        let mut signature_bytes = Vec::with_capacity(HYBRID_SIGNATURE_LEN);
+        signature_bytes.extend_from_slice(&ed25519_signature);
+        signature_bytes.extend_from_slice(mldsa_signature_bytes.as_ref());
+
+        Ok(Signature::new(
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1,
+            signature_bytes,
+        ))
+    })
+}
+
+/// Verify an Ed25519+ML-DSA-87 hybrid signature with the AND combiner.
+///
+/// # Contract
+///
+/// ## Preconditions
+/// - `public_key` must hold the exact `ed25519_vk || mldsa87_vk` hybrid
+///   public-key encoding.
+/// - `signature` must hold the exact `ed25519_sig || mldsa87_sig` hybrid
+///   signature encoding.
+/// - `message` must be the exact transcript bytes that were signed.
+///
+/// ## Postconditions
+/// - Returns `Ok(())` only when both the Ed25519 and ML-DSA-87 components
+///   verify under the tagged hybrid algorithm.
+/// - Returns `Err(VerificationFailed)` when either component is tampered or
+///   fails verification.
+///
+/// ## Invariants
+/// - The combiner is strict AND: verification must reject if either component
+///   fails.
+/// - There is no fallback to Ed25519-only or ML-DSA-only success.
+/// - Ed25519 is verified first; ML-DSA is verified second — the classical
+///   floor is always checked regardless of ML-DSA outcome.
+fn verify_ed25519_mldsa87_hybrid(
+    public_key: &SigningPublicKey,
+    message: &[u8],
+    signature: &Signature,
+) -> Result<()> {
+    if public_key.as_bytes().len() != HYBRID_PUBLIC_KEY_LEN {
+        return Err(SigningError::InvalidKey);
+    }
+    if signature.as_bytes().len() != HYBRID_SIGNATURE_LEN {
+        return Err(SigningError::MalformedSignature);
+    }
+    let (ed25519_public_part, mldsa_public_part) = public_key.as_bytes().split_at(32);
+    let (ed25519_signature_part, mldsa_signature_part) = signature.as_bytes().split_at(64);
+
+    let ed25519_public_key_bytes: &[u8; 32] = ed25519_public_part
+        .try_into()
+        .map_err(|_| SigningError::InvalidKey)?;
+    let ed25519_verifying_key =
+        VerifyingKey::from_bytes(ed25519_public_key_bytes).map_err(|_| SigningError::InvalidKey)?;
+
+    let mldsa_public_key_bytes = MlDsaEncodedVerifyingKey::<MlDsa87>::try_from(mldsa_public_part)
+        .map_err(|_| SigningError::InvalidKey)?;
+    let mldsa_verifying_key = MlDsaVerifyingKey::<MlDsa87>::decode(&mldsa_public_key_bytes);
+
+    let ed25519_signature_bytes: &[u8; 64] = ed25519_signature_part
+        .try_into()
+        .map_err(|_| SigningError::MalformedSignature)?;
+    let ed25519_signature = ed25519_dalek::Signature::from_bytes(ed25519_signature_bytes);
+    let mldsa_signature = MlDsaSignature::<MlDsa87>::try_from(mldsa_signature_part)
+        .map_err(|_| SigningError::MalformedSignature)?;
+
+    ed25519_verifying_key
+        .verify_strict(message, &ed25519_signature)
+        .map_err(|_| SigningError::VerificationFailed)?;
+    mldsa_verifying_key
+        .verify(message, &mldsa_signature)
+        .map_err(|_| SigningError::VerificationFailed)?;
+
+    Ok(())
+}
+
 /// Sign a message with an algorithm-tagged signing private key.
 ///
 /// # Contract
@@ -274,7 +519,8 @@ pub fn ed25519_keypair() -> (SigningPublicKey, SigningPrivateKey) {
 /// ## Postconditions
 /// - For `Ed25519V1`, Phase 2 signs with ed25519-dalek and returns a
 ///   `Signature` tagged `Ed25519V1`.
-/// - For `Ed25519MlDsa87HybridV1`, returns `Err(Unimplemented)` until PQC-4.
+/// - For `Ed25519MlDsa87HybridV1`, signs and emits the exact wire format from
+///   `transfer_profile_v1.md §6`.
 /// - Returns `Err` on malformed key material.
 ///
 /// ## Invariants
@@ -291,7 +537,9 @@ pub fn sign(private_key: &SigningPrivateKey, message: &[u8]) -> Result<Signature
                 signature.to_bytes().to_vec(),
             ))
         }),
-        SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Err(SigningError::Unimplemented),
+        SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
+            sign_ed25519_mldsa87_hybrid(private_key, message)
+        }
     }
 }
 
@@ -340,7 +588,8 @@ pub fn verify_with_domain(
 /// - Returns `Ok(())` only when the signature verifies under the tagged
 ///   algorithm and matching public key.
 /// - Returns `Err(AlgorithmMismatch)` when key and signature tags differ.
-/// - Returns `Err(Unimplemented)` for the hybrid slot until PQC-4.
+/// - Returns `Err(InvalidKey)` or `Err(MalformedSignature)` on malformed
+///   hybrid inputs.
 /// - Returns `Err(MalformedSignature)` when signature bytes are wrong length.
 /// - Returns `Err(VerificationFailed)` when the signature is well-formed but
 ///   does not verify under the given key and message.
@@ -369,7 +618,32 @@ pub fn verify(public_key: &SigningPublicKey, message: &[u8], signature: &Signatu
                 .verify_strict(message, &ed25519_signature)
                 .map_err(|_| SigningError::VerificationFailed)
         }
-        SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Err(SigningError::Unimplemented),
+        SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
+            verify_ed25519_mldsa87_hybrid(public_key, message, signature)
+        }
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_hybrid_public_key_len() {
+        assert_eq!(HYBRID_PUBLIC_KEY_LEN, 32 + MLDSA87_PUBLIC_KEY_LEN);
+        assert_eq!(HYBRID_PUBLIC_KEY_LEN, 2624);
+    }
+
+    #[kani::proof]
+    fn verify_hybrid_signature_len() {
+        assert_eq!(HYBRID_SIGNATURE_LEN, 64 + MLDSA87_SIGNATURE_LEN);
+        assert_eq!(HYBRID_SIGNATURE_LEN, 4691);
+    }
+
+    #[kani::proof]
+    fn verify_hybrid_private_key_len() {
+        assert_eq!(HYBRID_PRIVATE_KEY_LEN, 32 + MLDSA87_SEED_LEN);
+        assert_eq!(HYBRID_PRIVATE_KEY_LEN, 64);
     }
 }
 
@@ -537,25 +811,25 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_slot_sign_returns_unimplemented() {
+    fn hybrid_slot_rejects_malformed_lengths() {
         let private_key =
-            SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 128]);
+            SigningPrivateKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 63]);
+        let public_key = SigningPublicKey::new(
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1,
+            vec![0x5a; HYBRID_PUBLIC_KEY_LEN - 1],
+        );
+        let signature = Signature::new(
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1,
+            vec![0x5a; HYBRID_SIGNATURE_LEN - 1],
+        );
 
         assert!(matches!(
             sign(&private_key, MESSAGE),
-            Err(SigningError::Unimplemented)
+            Err(SigningError::InvalidKey)
         ));
-    }
-
-    #[test]
-    fn hybrid_slot_verify_returns_unimplemented() {
-        let public_key =
-            SigningPublicKey::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 128]);
-        let signature = Signature::new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0x5a; 64]);
-
         assert!(matches!(
             verify(&public_key, MESSAGE, &signature),
-            Err(SigningError::Unimplemented)
+            Err(SigningError::InvalidKey)
         ));
     }
 
@@ -589,6 +863,141 @@ mod tests {
         assert!(matches!(
             SigningAlgorithmId::from_le_bytes([0xff, 0xff]),
             Err(SigningError::UnknownAlgorithm)
+        ));
+    }
+
+    // PHASE-1-VECTOR:
+    // from cryptography.hazmat.primitives.asymmetric import ed25519
+    // ed_seed = bytes.fromhex("11" * 32)
+    // mldsa_seed = bytes.fromhex("22" * 32)
+    // hybrid_seed = ed_seed + mldsa_seed
+    // # Phase 2 backend fills the ML-DSA public component; Phase 1 asserts only
+    // # the final wire lengths from transfer_profile_v1.md §6.
+    #[test]
+    fn hybrid_keypair_has_correct_lengths() {
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+
+        assert_eq!(
+            public_key.algorithm(),
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1
+        );
+        assert_eq!(public_key.as_bytes().len(), HYBRID_PUBLIC_KEY_LEN);
+        assert_eq!(
+            private_key.algorithm(),
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1
+        );
+        private_key.with_secret_bytes(|bytes| assert_eq!(bytes.len(), HYBRID_PRIVATE_KEY_LEN));
+    }
+
+    // PHASE-1-VECTOR:
+    // from cryptography.hazmat.primitives.asymmetric import ed25519
+    // msg = b"meissnerseal signing test message"
+    // ed_seed = bytes.fromhex("11" * 32)
+    // mldsa_seed = bytes.fromhex("22" * 32)
+    // # Phase 2 will compute ed25519_sig || mldsa87_sig independently; Phase 1
+    // # pins the required final wire length from transfer_profile_v1.md §6.
+    #[test]
+    fn hybrid_sign_produces_correct_length() {
+        let private_key = SigningPrivateKey::try_new_ed25519_mldsa87(
+            [vec![0x11; 32], vec![0x22; MLDSA87_SEED_LEN]].concat(),
+        )
+        .expect("hybrid private key parses");
+
+        let signature = sign(&private_key, MESSAGE).expect("hybrid signing succeeds");
+        assert_eq!(
+            signature.algorithm(),
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1
+        );
+        assert_eq!(signature.as_bytes().len(), HYBRID_SIGNATURE_LEN);
+    }
+
+    // PHASE-1-VECTOR:
+    // from cryptography.hazmat.primitives.asymmetric import ed25519
+    // msg = b"meissnerseal signing test message"
+    // ed_seed = bytes.fromhex("11" * 32)
+    // mldsa_seed = bytes.fromhex("22" * 32)
+    // # Phase 2 vector: derive pk, sign msg, verify both Ed25519 and ML-DSA-87.
+    #[test]
+    fn hybrid_verify_accepts_valid_signature() {
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+        let signature = sign(&private_key, MESSAGE).expect("hybrid signing succeeds");
+
+        verify(&public_key, MESSAGE, &signature).expect("hybrid verification succeeds");
+    }
+
+    // PHASE-1-VECTOR:
+    // sig = bytearray(expected_hybrid_sig)
+    // sig[0] ^= 0x01
+    // # Verification must fail because the Ed25519 component is part of the
+    // # strict AND combiner.
+    #[test]
+    fn hybrid_verify_rejects_tampered_ed25519_component() {
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+        let mut signature = sign(&private_key, MESSAGE).expect("hybrid signing succeeds");
+        let byte = signature
+            .bytes
+            .get_mut(0)
+            .expect("hybrid signature has Ed25519 prefix");
+        *byte ^= 0x01;
+
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    // PHASE-1-VECTOR:
+    // sig = bytearray(expected_hybrid_sig)
+    // sig[64] ^= 0x01
+    // # Verification must fail because the ML-DSA-87 component is part of the
+    // # strict AND combiner.
+    #[test]
+    fn hybrid_verify_rejects_tampered_mldsa_component() {
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+        let mut signature = sign(&private_key, MESSAGE).expect("hybrid signing succeeds");
+        let byte = signature
+            .bytes
+            .get_mut(64)
+            .expect("hybrid signature has ML-DSA suffix");
+        *byte ^= 0x01;
+
+        assert!(matches!(
+            verify(&public_key, MESSAGE, &signature),
+            Err(SigningError::VerificationFailed)
+        ));
+    }
+
+    // PHASE-1-VECTOR:
+    // ed_seed = bytes(32)
+    // mldsa_seed = bytes.fromhex("22" * 32)
+    // hybrid_seed = ed_seed + mldsa_seed
+    // assert hybrid_seed[:32] == bytes(32)
+    #[test]
+    fn try_new_ed25519_mldsa87_rejects_all_zero_ed_seed() {
+        let hybrid_seed = [vec![0x00; 32], vec![0x22; MLDSA87_SEED_LEN]].concat();
+
+        assert!(matches!(
+            SigningPrivateKey::try_new_ed25519_mldsa87(hybrid_seed),
+            Err(SigningError::InvalidKey)
+        ));
+    }
+
+    // PHASE-1-VECTOR:
+    // ed_seed = bytes.fromhex("11" * 32)
+    // mldsa_seed = bytes(32)
+    // hybrid_seed = ed_seed + mldsa_seed
+    // assert hybrid_seed[32:] == bytes(32)
+    #[test]
+    fn try_new_ed25519_mldsa87_rejects_all_zero_mldsa_seed() {
+        let hybrid_seed = [vec![0x11; 32], vec![0x00; MLDSA87_SEED_LEN]].concat();
+
+        assert!(matches!(
+            SigningPrivateKey::try_new_ed25519_mldsa87(hybrid_seed),
+            Err(SigningError::InvalidKey)
         ));
     }
 
