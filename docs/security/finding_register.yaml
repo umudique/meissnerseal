@@ -9159,7 +9159,7 @@ findings:
       cargo test -p meissnerseal-pqc passes (60 tests, 2 skipped).
       sign_hybrid_is_non_deterministic_across_calls asserts sig_a != sig_b for
       same key and message; test would fail deterministically if rnd = 0^32.
-    commit: ""
+    commit: "a8d674e"
 
   - id: F-272
     kind: security_review
