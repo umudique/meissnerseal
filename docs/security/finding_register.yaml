@@ -9089,4 +9089,60 @@ findings:
     verification: >-
       At least one unit test per command handler in main.rs.
       cargo test -p meissnerseal-cli passes.
+
+  - id: F-271
+    kind: security_review
+    component: meissnerseal-pqc
+    source: "Security Review Agent — mldsa.rs (2026-07-24)"
+    date: 2026-07-24
+    description: >-
+      SigningPublicKey::new, SigningPrivateKey::new, and Signature::new are
+      public unchecked constructors that bypass the validated entry points
+      (try_new_ed25519_mldsa87). sign_ed25519_mldsa87_hybrid rechecks byte
+      length at sign time (partial downstream catch), but it does NOT re-run
+      the all-zero-seed rejection that try_new_ed25519_mldsa87 enforces.
+      A caller using SigningPrivateKey::new with a hybrid algorithm ID and an
+      all-zero seed bundle bypasses that invariant and produces a deterministic,
+      structurally weak key. For public keys and signatures the downstream
+      length checks in sign/verify provide mitigation; the gap is narrowed but
+      the construction-time invariant is not enforced at the API boundary.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Make SigningPublicKey::new, SigningPrivateKey::new, and Signature::new
+      pub(crate) so only intra-crate call sites can use them. Expose only
+      try_new_ed25519_mldsa87 and algorithm-specific constructors at the public
+      API boundary. For intra-crate callers (sign_ed25519_mldsa87_hybrid,
+      verify_ed25519_mldsa87_hybrid) that construct objects after running their
+      own checks, the pub(crate) visibility is sufficient.
+    verification: ""
+    commit: ""
+
+  - id: F-272
+    kind: security_review
+    component: docs
+    source: "Security Review Agent — ADR-028 (2026-07-24)"
+    date: 2026-07-24
+    description: >-
+      ADR-028 amendment text (paragraph beginning "The Ed25519 + ML-DSA-87
+      hybrid sits in exactly the same position") states: "The hybrid is valid
+      if either component holds." The implementation, CONTRACT.md [A-05], and
+      transfer_profile_v1.md §6 all mandate a strict AND combiner: both
+      components must verify for the signature to be accepted. The ADR text
+      directly contradicts the normative specification. A future implementer
+      or port author reading only the ADR would derive a fail-open combiner
+      (OR semantics), undermining the authentication guarantee.
+    cwe: "CWE-345"
+    severity: medium
+    blocking: false
+    status: open
+    remediation: >-
+      Replace the sentence "The hybrid is valid if either component holds"
+      in ADR-028 with a statement that both components must verify (AND
+      combiner). Add a cross-reference to transfer_profile_v1.md §6 and
+      CONTRACT.md [A-05] to make the normative chain explicit.
+    verification: ""
+    commit: ""
     commit: "c32ea9a"
