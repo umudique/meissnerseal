@@ -771,6 +771,7 @@ name = "meissnerseal-pqc"
 version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
+ "getrandom 0.4.2",
  "hkdf",
  "meissnerseal-crypto",
  "ml-dsa",

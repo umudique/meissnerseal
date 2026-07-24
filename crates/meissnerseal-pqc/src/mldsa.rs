@@ -16,9 +16,10 @@
 use ed25519_dalek::{Signer, VerifyingKey};
 use ml_dsa::{
     EncodedVerifyingKey as MlDsaEncodedVerifyingKey, Keypair as MlDsaKeypair, MlDsa87,
-    Signature as MlDsaSignature, Signer as MlDsaSigner, SigningKey as MlDsaSigningKey,
-    Verifier as MlDsaVerifier, VerifyingKey as MlDsaVerifyingKey,
+    Signature as MlDsaSignature, SigningKey as MlDsaSigningKey, Verifier as MlDsaVerifier,
+    VerifyingKey as MlDsaVerifyingKey,
 };
+use getrandom04::SysRng as GetrandomRng;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
@@ -307,6 +308,8 @@ pub enum SigningError {
     MalformedSignature,
     #[error("signature verification failed")]
     VerificationFailed,
+    #[error("signing operation failed (e.g. RNG error or invalid context)")]
+    SigningFailed,
 }
 
 pub type Result<T> = core::result::Result<T, SigningError>;
@@ -435,8 +438,12 @@ fn sign_ed25519_mldsa87_hybrid(
         let ed25519_signature = ed25519_dalek::SigningKey::from_bytes(&ed25519_seed)
             .sign(message)
             .to_bytes();
-        let mldsa_signature =
-            MlDsaSigningKey::<MlDsa87>::from_seed(&(*mldsa_seed).into()).sign(message);
+
+        let mldsa_key = MlDsaSigningKey::<MlDsa87>::from_seed(&(*mldsa_seed).into());
+        let mldsa_signature = mldsa_key
+            .expanded_key()
+            .sign_randomized(message, &[], &mut GetrandomRng)
+            .map_err(|_| SigningError::SigningFailed)?;
         let mldsa_signature_bytes = mldsa_signature.encode();
 
         let mut signature_bytes = Vec::with_capacity(HYBRID_SIGNATURE_LEN);
@@ -1285,6 +1292,20 @@ mod tests {
             sign_with_domain(&private_key, b"domain.b\x00", payload).expect("sign domain b");
 
         assert_ne!(sig_a.as_bytes(), sig_b.as_bytes());
+    }
+
+    #[test]
+    fn sign_hybrid_is_non_deterministic_across_calls() {
+        let (_, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("hybrid key generation succeeds");
+        let msg = b"same message, same key, different ML-DSA rnd";
+        let sig_a = sign(&private_key, msg).expect("first sign succeeds");
+        let sig_b = sign(&private_key, msg).expect("second sign succeeds");
+        assert_ne!(
+            sig_a.as_bytes(),
+            sig_b.as_bytes(),
+            "hedged ML-DSA signing must produce different signatures across calls"
+        );
     }
 
     #[test]
