@@ -129,7 +129,7 @@ mldsa::  SigningAlgorithmId
 
 ```
 cargo test:    all pass for mlkem:: + hybrid:: + mldsa:: (65 tests,
-               2 skipped; 2026-07-24), including NIST ML-KEM KATs,
+               3 skipped; 2026-07-26), including NIST ML-KEM KATs,
                ADR-035 transfer-hybrid KATs, ADR-028 Ed25519V1 and
                Ed25519MlDsa87HybridV1 signing tests.
 Miri:          mlkem:: + hybrid:: + mldsa:: Ed25519V1 paths: 25/25 pass
