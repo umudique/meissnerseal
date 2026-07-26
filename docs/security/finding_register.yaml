@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-07-04
+updated: 2026-07-26
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -9192,3 +9192,44 @@ findings:
       ADR-028 text reviewed; no code change required.
     commit: ""
     commit: "c32ea9a"
+
+  - id: F-274
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "post-implementation review — test-vectors/signing_hybrid_cross_verify.py (2026-07-26)"
+    date: 2026-07-26
+    description: >-
+      The hybrid signing interoperability test suite covers the
+      Python→Rust direction (Python-produced signature verified by Rust
+      in hybrid_verify_accepts_valid_signature) and the Python→Python
+      direction (signing_hybrid_cross_verify.py re-verifies the same
+      stored vector). The Rust→Python direction is not exercised in CI:
+      no test signs a message with the live Rust implementation
+      (sign_randomized, FIPS 204 §5.2 hedged, rnd from OS-CSPRNG) and
+      then pipes the resulting bytes to an independent Python verifier
+      for cross-implementation confirmation.
+
+      The risk is low because: (1) rnd does not affect the verification
+      math — Algorithm 2 signatures are verified identically regardless
+      of whether rnd was 0^32 or random; (2) the existing KAT already
+      confirms Algorithm 2 wire-format compatibility between Rust and
+      Python; (3) the hedged signing change (commit a8d674e) switched
+      from sign_internal (Algorithm 7) to sign_randomized with ctx=&[]
+      (Algorithm 2), and both sides use Algorithm 2 with empty context.
+      The gap is a test-coverage absence, not an implementation defect.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: open
+    remediation: >-
+      Extend signing_hybrid_cross_verify.py with a --verify-fresh mode
+      that accepts <pub_key_hex> <sig_hex> <msg_hex> from argv and runs
+      the AND-combiner verifier against them. Add a Rust integration
+      test (marked #[ignore] to gate on Python availability) that calls
+      sign() with a fixed seed + message, captures the output bytes, and
+      shells out to the Python verifier. Run this test in CI under a
+      step gated on `which python3 && python3 -c "import cryptography"`.
+    verification: >-
+      Rust→Python roundtrip: cargo test -- --ignored hybrid_python_roundtrip
+      exits 0. Python script exits 0 for the fresh Rust-produced signature.
+    commit: ""
