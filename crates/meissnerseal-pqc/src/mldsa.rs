@@ -764,6 +764,10 @@ mod tests {
             .collect()
     }
 
+    fn to_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
     #[test]
     fn sign_verify_ed25519_roundtrip() {
         let private_key = ed25519_private_key();
@@ -1437,6 +1441,41 @@ mod tests {
             Signature::try_new(SigningAlgorithmId::Ed25519MlDsa87HybridV1, vec![0u8; 100]),
             Err(SigningError::MalformedSignature)
         ));
+    }
+
+    // Rust→Python interoperability roundtrip (F-274).
+    // Requires Python ≥3.11 and `pip install cryptography`.
+    // Run with: cargo test -p meissnerseal-pqc -- --ignored hybrid_python_roundtrip
+    #[test]
+    #[ignore = "requires Python ≥3.11 with cryptography ≥42 (pip install cryptography)"]
+    fn hybrid_python_roundtrip() {
+        use std::process::Command;
+
+        let (public_key, private_key) =
+            generate_ed25519_mldsa87_keypair().expect("keypair generation succeeds");
+        let message = b"meissnerseal hybrid roundtrip test message";
+        let signature = sign(&private_key, message).expect("sign succeeds");
+
+        let pub_hex = to_hex(public_key.as_bytes());
+        let sig_hex = to_hex(signature.as_bytes());
+        let msg_hex = to_hex(message);
+
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-vectors/signing_hybrid_cross_verify.py");
+
+        let status = Command::new("python3")
+            .arg(&script)
+            .arg("--verify-fresh")
+            .arg(&pub_hex)
+            .arg(&sig_hex)
+            .arg(&msg_hex)
+            .status()
+            .expect("python3 signing_hybrid_cross_verify.py must be executable");
+
+        assert!(
+            status.success(),
+            "Python verifier rejected Rust-produced hedged hybrid signature"
+        );
     }
 
     fn ed25519_private_key() -> SigningPrivateKey {

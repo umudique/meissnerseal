@@ -2,15 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Cross-verify signing_hybrid_v1.json with independent Python primitives.
 
-This script is read-only: it recomputes the hybrid public key from the fixed
-Ed25519 and ML-DSA-87 seeds, then verifies the stored hybrid signatures with
-an explicit AND combiner. The positive case is verify-only for ML-DSA because
-PyCA cryptography 49.0.0 uses hedged ML-DSA signing in this environment.
+Default mode: reads signing_hybrid_v1.json and verifies the stored hybrid
+signatures with an explicit AND combiner (Python→Rust direction).
+
+--verify-fresh <pub_key_hex> <sig_hex> <msg_hex>
+    Verify a live Rust-produced signature against an independent Python
+    AND-combiner. This covers the Rust→Python interoperability direction
+    (F-274) and confirms hedged signatures are wire-compatible with PyCA.
+    Exits 0 on success, non-zero on any verification failure.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -204,5 +209,36 @@ def expect_str(case: dict[str, object], key: str) -> str:
     return value
 
 
+def verify_fresh(pub_key_hex: str, sig_hex: str, msg_hex: str) -> None:
+    """AND-combiner verification of a live Rust-produced hedged hybrid signature."""
+    public_key = bytes.fromhex(pub_key_hex)
+    signature = bytes.fromhex(sig_hex)
+    message = bytes.fromhex(msg_hex)
+
+    if len(public_key) != HYBRID_PUBLIC_KEY_LEN:
+        raise SystemExit(
+            f"--verify-fresh: public key must be {HYBRID_PUBLIC_KEY_LEN} bytes, "
+            f"got {len(public_key)}"
+        )
+    if len(signature) != HYBRID_SIGNATURE_LEN:
+        raise SystemExit(
+            f"--verify-fresh: signature must be {HYBRID_SIGNATURE_LEN} bytes, "
+            f"got {len(signature)}"
+        )
+
+    ed25519_ok = verify_ed25519_component(public_key, signature, message)
+    mldsa_ok = verify_mldsa_component(public_key, signature, message)
+
+    if not ed25519_ok:
+        raise SystemExit("--verify-fresh: Ed25519 component verification failed")
+    if not mldsa_ok:
+        raise SystemExit("--verify-fresh: ML-DSA-87 component verification failed")
+
+    print("--verify-fresh: ok (Ed25519 + ML-DSA-87 AND combiner passed)")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 5 and sys.argv[1] == "--verify-fresh":
+        verify_fresh(sys.argv[2], sys.argv[3], sys.argv[4])
+    else:
+        main()
