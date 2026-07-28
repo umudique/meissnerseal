@@ -5,8 +5,8 @@
 # Argon2id KDF
 argon2-cffi==23.1.0
 
-# XChaCha20-Poly1305 AEAD, HKDF, X25519
-cryptography==42.0.8
+# XChaCha20-Poly1305 AEAD, HKDF, X25519, Ed25519, ML-DSA-87
+cryptography==49.0.0
 
 # XChaCha20-Poly1305 via libsodium bindings
 PyNaCl==1.5.0

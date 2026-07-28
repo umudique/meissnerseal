@@ -32,6 +32,14 @@
 | HKDF | HKDF-SHA256 | MVP profile |
 | Transfer AEAD | XChaCha20-Poly1305 | default |
 
+### Device Signing
+
+| Purpose | Primitive | Algorithm ID |
+|---|---|---|
+| Classical signing floor | Ed25519 (FIPS 186-5) | `SIGNING_ED25519_V1 = 0x0001` |
+| PQC signing component | ML-DSA-87 (FIPS 204), λ = 256 | — |
+| Hybrid signing | Ed25519 + ML-DSA-87, AND combiner | `SIGNING_ED25519_MLDSA87_HYBRID_V1 = 0x0002` |
+
 **Rules:**
 - Custom RNG is forbidden. MeissnerSeal must use OS CSPRNG exclusively.
 - Custom cryptographic primitives are forbidden.
@@ -340,14 +348,15 @@ Must not appear in v1 envelope format. Profile mismatch → reject.
 
 ## 8. Post-Quantum Use Cases
 
-| Use Case | PQC Role | Profile |
+| Use Case | PQC Role | Profile / Status |
 |---|---|---|
 | Device pairing | Hybrid key agreement | ML-KEM-768 |
 | Secure transfer | Hybrid recipient encryption | `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1` |
+| Device authentication | Hybrid signing, AND combiner | `SIGNING_ED25519_MLDSA87_HYBRID_V1 = 0x0002` |
 | Sync device enrollment | Hybrid wrapping of device sync keys | ML-KEM-768 |
 | Shared vault invitations | Hybrid envelope encryption | ML-KEM-768 |
 | Long-lived recovery packets | Optional PQC recipient wrapping | Future |
-| Release signatures | Future ML-DSA or classical + PQC | Future |
+| Release signatures | Out of scope for MVP-2 | Future |
 
 **Implementation rules:**
 - Use ML-KEM for key encapsulation; ML-DSA only where signatures are required
@@ -355,6 +364,134 @@ Must not appear in v1 envelope format. Profile mismatch → reject.
 - Prefer narrow, maintained PQC backends with constant-time claims
 - Document all algorithm identifiers and parameters
 - See `docs/ops/dependency_risk_register.md` for PQC library selection criteria
+
+---
+
+## 8.1 Hybrid Device Signing — Ed25519 + ML-DSA-87
+
+**Profile:** `SIGNING_ED25519_MLDSA87_HYBRID_V1 = 0x0002`  
+**Combiner:** AND — both components must verify independently  
+**Backend:** RustCrypto `ml-dsa 0.1.1` (ADR-028 amendment 2026-07-23),
+`ed25519-dalek 2.2.0` (ADR-020, ADR-011)  
+**Spec authority:** `transfer_profile_v1.md §6`, `crates/meissnerseal-pqc/CONTRACT.md`
+
+### 8.1.1 Rationale
+
+Ed25519 serves as the classical authentication floor. ML-DSA-87 provides
+post-quantum authentication under the Harvest-Now-Decrypt-Later (HNDL)
+threat model. The AND combiner ensures that a flaw in either component cannot
+be exploited to forge a signature — authentication fails if either component
+fails. This is the same risk-containment principle applied to the hybrid KEM
+in §7, but for authentication rather than key agreement.
+
+The hybrid adds defense in depth: if the ML-DSA-87 implementation has a
+latent bug, the Ed25519 floor still carries the authentication. If ML-DSA-87
+is later broken classically (not expected, but not impossible), Ed25519
+maintains the authentication guarantee until the signing key is rotated.
+
+### 8.1.2 Wire Encoding
+
+```
+signing_public_key = ed25519_vk  (32 bytes)
+                  || mldsa87_vk  (2592 bytes)
+                   = 2624 bytes total
+
+signature          = ed25519_sig  (64 bytes)
+                  || mldsa87_sig  (4627 bytes)
+                   = 4691 bytes total
+
+seed_bundle        = ed25519_seed (32 bytes)
+                  || mldsa87_seed (32 bytes)
+                   = 64 bytes total   ← never transmitted
+```
+
+All lengths are fixed and verified against named constants before any
+cryptographic operation. Magic numbers are forbidden in the implementation.
+
+### 8.1.3 AND Combiner Verification
+
+```
+verify_hybrid_v1(signing_public_key, message, signature):
+  ed25519_vk  = signing_public_key[:32]
+  mldsa87_vk  = signing_public_key[32:]         # 2592 bytes
+
+  ed25519_sig = signature[:64]
+  mldsa87_sig = signature[64:]                  # 4627 bytes
+
+  r1 = Ed25519.verify(ed25519_vk, message, ed25519_sig)
+  r2 = ML-DSA-87.verify(mldsa87_vk, message, mldsa87_sig)
+  return r1 AND r2                              # strict AND — no short-circuit success
+```
+
+Rejection cases (all return `VerificationFailed`):
+- Ed25519 component fails, regardless of ML-DSA-87 result
+- ML-DSA-87 component fails, regardless of Ed25519 result
+- Public key length ≠ 2624 bytes → `InvalidKey`
+- Signature length ≠ 4691 bytes → `MalformedSignature`
+- Algorithm tag mismatch between public key and signature → `AlgorithmMismatch`
+
+### 8.1.4 Domain Separation
+
+All protocol signing uses the domain-separated API:
+
+```
+message_bytes = domain || payload
+```
+
+Where:
+- `domain` is a NUL-terminated ASCII context string identifying the
+  protocol operation, role, and version:
+  `"meissnerseal.<operation>.<role>.v<N>\x00"`
+- `payload` is the serialized protocol payload bytes
+
+Domain constants are owned by the calling crate (`meissnerseal-core`),
+not by the signing crate. Cross-domain replay is rejected: a signature
+produced under domain A will not verify under domain B because the
+signed transcript bytes differ.
+
+Direct calls to `sign(private_key, raw_bytes)` from protocol code are
+forbidden after SEC-1 (F-39). All protocol operations must use
+`sign_with_domain` / `verify_with_domain`.
+
+### 8.1.5 Signing Variant
+
+ML-DSA-87 signing uses the **hedged variant** per FIPS 204 §5.2: a
+random 32-byte value `rnd` is injected into the signing algorithm. Signatures
+are not reproducible across calls for the same key and message. This is an
+intentional property of the standardized variant and does not affect
+verification. KATs for the ML-DSA component are therefore verify-only: the
+stored signature bytes are verified by Rust but not regenerated and compared.
+
+Ed25519 uses deterministic signing per RFC 8032.
+
+### 8.1.6 Algorithm ID Binding
+
+The algorithm ID is carried in every signed object and authenticated by the
+enclosing protocol:
+
+```
+Ed25519V1              = 0x0001  (u16 little-endian on wire)
+Ed25519MlDsa87HybridV1 = 0x0002  (u16 little-endian on wire)
+```
+
+Verification rejects a mismatch between the public key algorithm tag and
+the signature algorithm tag before any cryptographic operation. Downgrade
+from `0x0002` to `0x0001` requires the verifier to hold an
+`Ed25519V1`-tagged public key; it cannot be triggered by a tampered
+signature byte or wire field alone.
+
+### 8.1.7 Security Properties
+
+| Property | Status |
+|---|---|
+| Post-quantum authentication | ML-DSA-87 (FIPS 204), λ = 256 |
+| Classical authentication floor | Ed25519 (FIPS 186-5) — independent of ML-DSA-87 |
+| Combiner | Strict AND — both components mandatory; no short-circuit |
+| Domain separation | NUL-terminated context string per operation |
+| Algorithm downgrade resistance | Algorithm ID carried in and authenticated by every object |
+| Fail-closed on malformed input | Invalid lengths and mismatched tags → error, no partial result |
+| Signing non-determinism | Hedged variant per FIPS 204 §5.2 |
+| Key zeroization | Seed bundle and stack copies zeroized on drop (F-43) |
 
 ---
 
@@ -377,6 +514,8 @@ Must not appear in v1 envelope format. Profile mismatch → reject.
 | `test-vectors/vault_kdf_v1.json` | Argon2id: password + vault_id → MUK; MUK → VKEK; VRK wrapping/unwrapping |
 | `test-vectors/vault_format_v1.json` | Header TLV round-trips; record frame AEAD; AAD construction |
 | `test-vectors/transfer_hybrid_v1.json` | `TRANSFER_HYBRID_X25519_MLKEM768_SHA256_V1` full derivation |
+| `test-vectors/signing_ed25519_v1.json` | Ed25519V1 (0x0001): seed → public key → signature; positive + domain cases |
+| `test-vectors/signing_hybrid_v1.json` | `SIGNING_ED25519_MLDSA87_HYBRID_V1` (0x0002): verify-only KAT (hedged signing); tampered-component rejection; wrong-key rejection |
 | `test-vectors/sync_envelope_v1.json` | Sync envelope AEAD; nonce domain separation |
 | `test-vectors/recovery_kit_v1.json` | Bech32m encoding; recovery key derivation; passphrase hardening |
 

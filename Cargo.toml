@@ -34,9 +34,11 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
 rand = { version = "0.8", features = ["getrandom"] }
+getrandom04 = { package = "getrandom", version = "0.4" }
 zeroize = { version = "1.7", features = ["derive"] }
 subtle = "2.5"
 ml-kem = { version = "0.3.2", features = ["getrandom", "zeroize"] }
+ml-dsa = { version = "0.1.1", features = ["getrandom", "rand_core", "zeroize"] }
 x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 bech32 = "0.11"

@@ -13,7 +13,7 @@
 # Live task edges that act on these findings live in arcanum-ops/tasks.yaml.
 
 version: 1
-updated: 2026-07-04
+updated: 2026-07-26
 
 # ── Systemic root causes ──────────────────────────────────────────────────────
 # Root causes are named patterns that appear across multiple findings.
@@ -9089,4 +9089,148 @@ findings:
     verification: >-
       At least one unit test per command handler in main.rs.
       cargo test -p meissnerseal-cli passes.
+
+  - id: F-271
+    kind: security_review
+    component: meissnerseal-pqc
+    source: "Security Review Agent — mldsa.rs (2026-07-24)"
+    date: 2026-07-24
+    description: >-
+      SigningPublicKey::new, SigningPrivateKey::new, and Signature::new are
+      public unchecked constructors that bypass the validated entry points
+      (try_new_ed25519_mldsa87). sign_ed25519_mldsa87_hybrid rechecks byte
+      length at sign time (partial downstream catch), but it does NOT re-run
+      the all-zero-seed rejection that try_new_ed25519_mldsa87 enforces.
+      A caller using SigningPrivateKey::new with a hybrid algorithm ID and an
+      all-zero seed bundle bypasses that invariant and produces a deterministic,
+      structurally weak key. For public keys and signatures the downstream
+      length checks in sign/verify provide mitigation; the gap is narrowed but
+      the construction-time invariant is not enforced at the API boundary.
+      AGENTS.md §4 states: "Constructors reject invalid state — no fail-open
+      new() that silently accepts wrong-length input." The three pub new()
+      functions violated this invariant; the zero-seed fix at sign time was a
+      partial downstream mitigation, not a constructor-level fix.
+    cwe: "CWE-20"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      (1) Added try_new(algorithm, bytes) -> Result<Self> to SigningPublicKey,
+      SigningPrivateKey, and Signature with algorithm-aware length validation.
+      SigningPrivateKey::try_new for HybridV1 also rejects all-zero seeds at
+      construction time. (2) Demoted new() to pub(crate) — no external caller
+      can bypass validation. (3) Migrated all meissnerseal-core production
+      callers (device.rs, envelope.rs) to try_new() with appropriate error
+      propagation; migrated 12 test callers to try_new().expect("test: ...").
+      (4) Added 5 constructor-level regression tests in mldsa.rs::tests.
+    verification: >-
+      cargo test passes (65 tests, 2 skipped). Five new tests confirm that
+      wrong-length bytes and all-zero seeds are rejected at construction time,
+      satisfying the AGENTS.md §4 invariant.
+    commit: "3a7f9f2"
+
+  - id: F-273
+    kind: security_review
+    component: meissnerseal-pqc
+    source: "Manual verification — mldsa.rs vs FIPS 204 §5.2 (2026-07-24)"
+    date: 2026-07-24
+    description: >-
+      sign_ed25519_mldsa87_hybrid called Signer::sign() on MlDsaSigningKey
+      which internally resolves to raw_sign_deterministic, setting rnd = 0^32.
+      FIPS 204 §5.2 defines the hedged variant (Algorithm 2 / ML-DSA.Sign) as
+      injecting 32 bytes of OS-CSPRNG entropy into rnd before hashing. The
+      deterministic path: (1) produces identical ML-DSA-87 signatures for
+      identical (key, message) pairs, leaking equality of plaintexts; (2) is
+      vulnerable to fault injection attacks that probe the deterministic hash
+      path without randomness diversity; (3) violates the normative hedged-
+      signing claim in crypto_design.md §8.1.5. The ml-dsa 0.1.1 sign_randomized
+      feature gate (rand_core) was not enabled, making the fault go unnoticed
+      at compile time.
+    cwe: "CWE-330"
+    severity: high
+    blocking: false
+    status: resolved
+    remediation: >-
+      Replaced Signer::sign() with ExpandedSigningKey::sign_randomized(message,
+      &[], &mut SysRng) via getrandom 0.4 (rand_core 0.10 compatible). Enabled
+      the ml-dsa crate rand_core feature in the workspace. Added getrandom 0.4
+      (aliased getrandom04) to workspace and meissnerseal-pqc dependencies.
+      Added SigningError::SigningFailed variant for RNG-level failures.
+      Added test sign_hybrid_is_non_deterministic_across_calls confirming that
+      two sign() calls on the same key and message produce distinct signatures.
+    verification: >-
+      cargo test -p meissnerseal-pqc passes (60 tests, 2 skipped).
+      sign_hybrid_is_non_deterministic_across_calls asserts sig_a != sig_b for
+      same key and message; test would fail deterministically if rnd = 0^32.
+    commit: "aa1594d"
+
+  - id: F-272
+    kind: security_review
+    component: docs
+    source: "Security Review Agent — ADR-028 (2026-07-24)"
+    date: 2026-07-24
+    description: >-
+      ADR-028 amendment text (paragraph beginning "The Ed25519 + ML-DSA-87
+      hybrid sits in exactly the same position") states: "The hybrid is valid
+      if either component holds." The implementation, CONTRACT.md [A-05], and
+      transfer_profile_v1.md §6 all mandate a strict AND combiner: both
+      components must verify for the signature to be accepted. The ADR text
+      directly contradicts the normative specification. A future implementer
+      or port author reading only the ADR would derive a fail-open combiner
+      (OR semantics), undermining the authentication guarantee.
+    cwe: "CWE-345"
+    severity: medium
+    blocking: false
+    status: resolved
+    remediation: >-
+      Replaced "The hybrid is valid if either component holds" with "Both
+      components must verify; the hybrid fails if either fails" and added
+      "parallel components, mandatory AND combiner" to make the normative
+      intent unambiguous. ADR-028 now matches CONTRACT.md [A-05] and
+      transfer_profile_v1.md §6.
+    verification: >-
+      ADR-028 text reviewed; no code change required.
+    commit: ""
     commit: "c32ea9a"
+
+  - id: F-274
+    kind: coverage_gap
+    component: meissnerseal-pqc
+    source: "post-implementation review — test-vectors/signing_hybrid_cross_verify.py (2026-07-26)"
+    date: 2026-07-26
+    description: >-
+      The hybrid signing interoperability test suite covers the
+      Python→Rust direction (Python-produced signature verified by Rust
+      in hybrid_verify_accepts_valid_signature) and the Python→Python
+      direction (signing_hybrid_cross_verify.py re-verifies the same
+      stored vector). The Rust→Python direction is not exercised in CI:
+      no test signs a message with the live Rust implementation
+      (sign_randomized, FIPS 204 §5.2 hedged, rnd from OS-CSPRNG) and
+      then pipes the resulting bytes to an independent Python verifier
+      for cross-implementation confirmation.
+
+      The risk is low because: (1) rnd does not affect the verification
+      math — Algorithm 2 signatures are verified identically regardless
+      of whether rnd was 0^32 or random; (2) the existing KAT already
+      confirms Algorithm 2 wire-format compatibility between Rust and
+      Python; (3) the hedged signing change (commit aa1594d) switched
+      from sign_internal (Algorithm 7) to sign_randomized with ctx=&[]
+      (Algorithm 2), and both sides use Algorithm 2 with empty context.
+      The gap is a test-coverage absence, not an implementation defect.
+    cwe: "CWE-392"
+    severity: low
+    blocking: false
+    status: resolved
+    remediation: >-
+      Added --verify-fresh <pub_key_hex> <sig_hex> <msg_hex> mode to
+      signing_hybrid_cross_verify.py: runs the AND-combiner verifier
+      against arbitrary bytes supplied from argv, covering the Rust→Python
+      direction. Added hybrid_python_roundtrip (#[ignore]) in mldsa.rs
+      tests: generates a fresh keypair, calls sign(), then shells out to
+      the Python verifier; exits 0 only if both Ed25519 and ML-DSA-87
+      components pass independently in PyCA.
+    verification: >-
+      cargo test -p meissnerseal-pqc -- --ignored hybrid_python_roundtrip
+      exits 0 (1 passed). python3 signing_hybrid_cross_verify.py (default
+      mode) continues to pass all 4 stored-vector cases unaffected.
+    commit: ""

@@ -61,9 +61,9 @@ mldsa::  SigningAlgorithmId
            VerificationFailed — signature is well-formed but does not verify
 
          Status: Ed25519V1 implemented with ed25519-dalek after ADR-020
-         approval. Hybrid signing slot is registered but returns
-         Unimplemented until PQ signing audit clears a future PQC-4
-         implementation.
+         approval. Ed25519MlDsa87HybridV1 is Stable:
+         Ed25519+ML-DSA-87 hybrid, AND combiner, wire format per
+         transfer_profile_v1.md §6, ADR-028 amendment 2026-07-23.
 ```
 
 ---
@@ -97,9 +97,10 @@ mldsa::  SigningAlgorithmId
 
 [G-06] Device signing keys and signatures are algorithm-tagged per ADR-028.
        Verification rejects algorithm mismatches before primitive-specific
-       verification. Ed25519V1 is the MVP implementation target. The
-       Ed25519+ML-DSA hybrid slot is registered as 0x0002 but fails closed
-       with Unimplemented until a PQ signing audit clears integration.
+       verification. Ed25519V1 and Ed25519MlDsa87HybridV1 are active. The
+       hybrid verifier uses a strict AND combiner over the Ed25519 and
+       ML-DSA-87 components, with wire encoding fixed by
+       transfer_profile_v1.md §6.
 ```
 
 ---
@@ -118,9 +119,8 @@ mldsa::  SigningAlgorithmId
 [A-04] Does NOT guarantee symbolic security of ML-KEM itself —
        that is guaranteed by NIST FIPS 203 analysis, not this crate.
 
-[A-05] Does NOT implement ML-DSA signing in MVP-2. The hybrid signing
-       algorithm identifier exists only as an agility slot until a future
-       audited backend is approved.
+[A-05] Does NOT provide a classical-only success path for
+       Ed25519MlDsa87HybridV1. If either component fails, verification fails.
 ```
 
 ---
@@ -128,17 +128,22 @@ mldsa::  SigningAlgorithmId
 ## Verification Status
 
 ```
-cargo test:    25/25 pass for mlkem:: + hybrid:: + mldsa::, including
-               NIST ML-KEM KATs, ADR-035 transfer-hybrid KATs, and ADR-028
-               Ed25519V1 signing KATs
-Miri:          25/25 pass (2026-06-28, mlkem:: + hybrid:: + mldsa::,
-               -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check)
-               All Ed25519V1 keygen/sign/verify paths verified UB-free.
-Kani:          6 harnesses, 6/6 SUCCESS (2026-06-25)
+cargo test:    all pass for mlkem:: + hybrid:: + mldsa:: (65 tests,
+               3 skipped; 2026-07-26), including NIST ML-KEM KATs,
+               ADR-035 transfer-hybrid KATs, ADR-028 Ed25519V1 and
+               Ed25519MlDsa87HybridV1 signing tests.
+Miri:          mlkem:: + hybrid:: + mldsa:: Ed25519V1 paths: 25/25 pass
+               (2026-06-28, -Zmiri-strict-provenance
+               -Zmiri-symbolic-alignment-check). Ed25519V1 keygen/sign/
+               verify verified UB-free. Ed25519MlDsa87HybridV1 paths:
+               not yet Miri-verified — ml-dsa 0.1.1 uses platform
+               intrinsics that stall Miri at current unwind budgets.
+               Tracked for future Miri run.
+Kani:          9 harnesses, 9/9 SUCCESS (2026-07-23)
                Note: ML-KEM NTT loops and large Key<N> zeroize drops
                exceed practical unwind budgets — see proofs module.
-               mldsa:: has no Kani harnesses yet; length/type proofs
-               deferred to a future PQC-4 task.
+               mldsa:: includes 3 constant-size harnesses for hybrid
+               public/signature/private wire lengths (PQC-4).
 Fuzz:          Not applicable — no parser surface in mlkem:: or hybrid::
 Test vectors:  3/3 pass — NIST ACVP ML-KEM-768 AFT (tcIds 26-28,
                internalProjection.json commit 65370b8).

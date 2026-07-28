@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # ADR-028: Signature Crypto-Agility and Post-Quantum Signature Posture
 
-**Status:** Accepted
+**Status:** Amended (2026-07-23)
 **Date:** 2026-06-09
 **Related:** ADR-012 (ML-KEM risk / hybrid logic), ADR-034 (RustCrypto backend),
              ADR-035 (UG combiner), transfer_profile_v1.md §6, crypto_design.md §8
@@ -88,3 +88,52 @@ low-frequency, high-assurance signing (e.g. release signing) separately.
   this ADR covers device/pairing/revocation signatures only.
 - Revisit when RustCrypto `ml-dsa` receives an independent security audit, or if
   an alternative ML-DSA implementation with stronger audit posture becomes available.
+
+---
+
+## Amendment — 2026-07-23: ML-DSA hybrid integration unblocked
+
+When this ADR was first written, ML-DSA integration was gated on an independent
+security audit of the RustCrypto `ml-dsa` crate. That gate made sense as a
+placeholder, but it turned out to be inconsistent with a decision we had already
+made elsewhere.
+
+When we integrated ML-KEM (ADR-034), RustCrypto's `ml-kem` crate had no
+independent audit either. We accepted it anyway — not because we were being
+careless, but because the hybrid design made the risk containable. X25519 and
+ML-KEM run in parallel; a flaw in the ML-KEM implementation does not collapse the
+classical security of X25519. Both components have to fail simultaneously for the
+key exchange to break. That reasoning is what let us ship ML-KEM without waiting
+years for an audit that may never come.
+
+The Ed25519 + ML-DSA-87 hybrid sits in exactly the same position. Ed25519 is the
+floor. If ML-DSA-87 has an implementation bug — a subtle side-channel, a
+mishandled edge case in the signing path — Ed25519 is still there, independently
+verified, carrying the authentication. Both components must verify; the hybrid
+fails if either fails. That is the same structural argument we already accepted
+for KEMs — parallel components, mandatory AND combiner.
+
+Holding ML-DSA to a stricter standard than ML-KEM was not a deliberate policy
+decision; it was an inconsistency in how the original ADR was written. "Signatures
+have no HNDL urgency" is true and remains true — it explains why we did not rush
+to add ML-DSA in the first place. It does not justify a permanent audit gate that
+we never applied to an equivalent dependency.
+
+**What changes:**
+
+The audit-maturity gate on ML-DSA integration is removed. The hybrid slot
+(`Ed25519MlDsa87HybridV1 = 0x0002`) moves from fail-closed placeholder to active
+implementation, under the same risk acceptance framework used for ML-KEM in
+ADR-034. RustCrypto `ml-dsa` is the backend; the dependency risk register is
+updated to reflect this.
+
+**What does not change:**
+
+The hybrid structure is non-negotiable. Ed25519 remains the classical floor and
+its validity is independent of ML-DSA correctness. ML-DSA-only signing is still
+not on the table. The wire format and algorithm identifier slots defined in the
+original decision are unchanged.
+
+Kani harnesses are required at the `meissnerseal-pqc` API boundary for ML-DSA,
+mirroring the requirement already in place for ML-KEM (PQC-1). This is the
+primary ongoing risk mitigation in the absence of an external audit.
