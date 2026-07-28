@@ -9162,7 +9162,7 @@ findings:
       cargo test -p meissnerseal-pqc passes (60 tests, 2 skipped).
       sign_hybrid_is_non_deterministic_across_calls asserts sig_a != sig_b for
       same key and message; test would fail deterministically if rnd = 0^32.
-    commit: "a8d674e"
+    commit: "aa1594d"
 
   - id: F-272
     kind: security_review
@@ -9213,7 +9213,7 @@ findings:
       math — Algorithm 2 signatures are verified identically regardless
       of whether rnd was 0^32 or random; (2) the existing KAT already
       confirms Algorithm 2 wire-format compatibility between Rust and
-      Python; (3) the hedged signing change (commit a8d674e) switched
+      Python; (3) the hedged signing change (commit aa1594d) switched
       from sign_internal (Algorithm 7) to sign_randomized with ctx=&[]
       (Algorithm 2), and both sides use Algorithm 2 with empty context.
       The gap is a test-coverage absence, not an implementation defect.
