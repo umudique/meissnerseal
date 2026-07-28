@@ -14,12 +14,12 @@
 //! independently or the signature is rejected.
 
 use ed25519_dalek::{Signer, VerifyingKey};
+use getrandom04::SysRng as GetrandomRng;
 use ml_dsa::{
     EncodedVerifyingKey as MlDsaEncodedVerifyingKey, Keypair as MlDsaKeypair, MlDsa87,
     Signature as MlDsaSignature, SigningKey as MlDsaSigningKey, Verifier as MlDsaVerifier,
     VerifyingKey as MlDsaVerifyingKey,
 };
-use getrandom04::SysRng as GetrandomRng;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
@@ -124,9 +124,7 @@ impl SigningPublicKey {
                 }
                 Ok(Self { algorithm, bytes })
             }
-            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
-                Self::try_new_ed25519_mldsa87(bytes)
-            }
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Self::try_new_ed25519_mldsa87(bytes),
         }
     }
 
@@ -229,9 +227,7 @@ impl SigningPrivateKey {
                     bytes: Zeroizing::new(bytes),
                 })
             }
-            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => {
-                Self::try_new_ed25519_mldsa87(bytes)
-            }
+            SigningAlgorithmId::Ed25519MlDsa87HybridV1 => Self::try_new_ed25519_mldsa87(bytes),
         }
     }
 

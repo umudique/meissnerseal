@@ -932,9 +932,8 @@ mod tests {
             DEVICE_ENROLLMENT_SIGNING_DOMAIN
         );
 
-        let private_key =
-            SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x42; 32])
-                .expect("test: valid 32-byte Ed25519V1 seed");
+        let private_key = SigningPrivateKey::try_new(SigningAlgorithmId::Ed25519V1, vec![0x42; 32])
+            .expect("test: valid 32-byte Ed25519V1 seed");
         let mut transfer_message = Vec::new();
         transfer_message.extend_from_slice(TRANSFER_ENVELOPE_SIGNING_DOMAIN);
         transfer_message.extend_from_slice(PAYLOAD);
